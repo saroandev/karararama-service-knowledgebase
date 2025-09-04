@@ -79,9 +79,273 @@ class LLMGenerator:
             doc_id = chunk.get("document_id", "unknown")
             page_num = chunk.get("page_number", chunk.get("metadata", {}).get("page_number", "unknown"))
             
-            context_part = f"[{i}] (Document: {doc_id}, Page: {page_num})\\n{text}\\n"\n            context_parts.append(context_part)
+            context_part = f"[{i}] (Document: {doc_id}, Page: {page_num})\n{text}\n"
+            context_parts.append(context_part)
         
-        return "\\n".join(context_parts)
+        return "\n".join(context_parts)
     
     def _create_prompt(
-        self,\n        question: str,\n        context: str,\n        include_sources: bool\n    ) -> str:\n        \"\"\"Create the prompt for the LLM\"\"\"\n        if include_sources:\n            system_prompt = \"\"\"Sen bir uzman asistans1n. Kullan1c1n1n sorular1n1 verilen dok�manlara dayanarak cevaplayacaks1n.\n\nKurallar:\n1. Sadece verilen dok�manlardaki bilgileri kullan\n2. Her iddiay1n i�in kaynak belirt (�rnek: [1], [2])\n3. Eer sorunun cevab1 dok�manlarda yoksa \"Bu sorunun cevab1 verilen dok�manlarda bulunmuyor\" de\n4. T�rk�e ve net bir _ekilde cevap ver\n5. Kaynaklar1 cevab1n sonunda listele\n\nDok�mantasyon:\n{context}\n\nSoru: {question}\n\nCevap:\"\"\"\n        else:\n            system_prompt = \"\"\"Sen bir uzman asistans1n. Kullan1c1n1n sorular1n1 verilen dok�manlara dayanarak cevaplayacaks1n.\n\nKurallar:\n1. Sadece verilen dok�manlardaki bilgileri kullan\n2. Eer sorunun cevab1 dok�manlarda yoksa \"Bu sorunun cevab1 verilen dok�manlarda bulunmuyor\" de\n3. T�rk�e ve net bir _ekilde cevap ver\n\nDok�mantasyon:\n{context}\n\nSoru: {question}\n\nCevap:\"\"\"\n        \n        return system_prompt.format(context=context, question=question)\n    \n    def _generate_openai(\n        self,\n        prompt: str,\n        max_tokens: int,\n        temperature: float\n    ) -> Dict[str, Any]:\n        \"\"\"Generate response using OpenAI\"\"\"\n        try:\n            response = self.client.chat.completions.create(\n                model=self.model,\n                messages=[\n                    {\"role\": \"system\", \"content\": \"Sen yard1mc1 bir asistans1n.\"},\n                    {\"role\": \"user\", \"content\": prompt}\n                ],\n                max_tokens=max_tokens,\n                temperature=temperature,\n                stream=False\n            )\n            \n            return {\n                \"text\": response.choices[0].message.content,\n                \"model\": self.model,\n                \"tokens_used\": {\n                    \"prompt\": response.usage.prompt_tokens,\n                    \"completion\": response.usage.completion_tokens,\n                    \"total\": response.usage.total_tokens\n                },\n                \"finish_reason\": response.choices[0].finish_reason\n            }\n            \n        except Exception as e:\n            logger.error(f\"OpenAI generation error: {e}\")\n            raise\n    \n    def _generate_ollama(\n        self,\n        prompt: str,\n        max_tokens: int,\n        temperature: float\n    ) -> Dict[str, Any]:\n        \"\"\"Generate response using Ollama\"\"\"\n        try:\n            import asyncio\n            return asyncio.run(self._generate_ollama_async(prompt, max_tokens, temperature))\n        except Exception as e:\n            logger.error(f\"Ollama generation error: {e}\")\n            raise\n    \n    async def _generate_ollama_async(\n        self,\n        prompt: str,\n        max_tokens: int,\n        temperature: float\n    ) -> Dict[str, Any]:\n        \"\"\"Async Ollama generation\"\"\"\n        payload = {\n            \"model\": self.model,\n            \"prompt\": prompt,\n            \"max_tokens\": max_tokens,\n            \"temperature\": temperature,\n            \"stream\": False\n        }\n        \n        async with httpx.AsyncClient() as client:\n            response = await client.post(\n                f\"{self.ollama_url}/api/generate\",\n                json=payload,\n                timeout=60.0\n            )\n            response.raise_for_status()\n            result = response.json()\n            \n            return {\n                \"text\": result.get(\"response\", \"\"),\n                \"model\": self.model,\n                \"tokens_used\": {\n                    \"prompt\": result.get(\"prompt_eval_count\", 0),\n                    \"completion\": result.get(\"eval_count\", 0),\n                    \"total\": result.get(\"prompt_eval_count\", 0) + result.get(\"eval_count\", 0)\n                },\n                \"finish_reason\": \"completed\"\n            }\n    \n    def _format_response(\n        self,\n        response: Dict[str, Any],\n        chunks: List[Dict[str, Any]],\n        include_sources: bool\n    ) -> Dict[str, Any]:\n        \"\"\"Format the final response with metadata\"\"\"\n        answer_text = response[\"text\"]\n        \n        # Extract source references from answer\n        sources = self._extract_sources(answer_text, chunks) if include_sources else []\n        \n        return {\n            \"answer\": answer_text,\n            \"sources\": sources,\n            \"metadata\": {\n                \"model\": response[\"model\"],\n                \"provider\": self.provider,\n                \"tokens_used\": response[\"tokens_used\"],\n                \"context_chunks\": len(chunks),\n                \"generated_at\": datetime.now().isoformat(),\n                \"finish_reason\": response.get(\"finish_reason\")\n            }\n        }\n    \n    def _extract_sources(\n        self,\n        answer: str,\n        chunks: List[Dict[str, Any]]\n    ) -> List[Dict[str, Any]]:\n        \"\"\"Extract source references from the answer\"\"\"\n        import re\n        sources = []\n        \n        # Find all [number] references in the answer\n        references = re.findall(r'\\[(\\d+)\\]', answer)\n        \n        for ref in references:\n            try:\n                idx = int(ref) - 1  # Convert to 0-based index\n                if 0 <= idx < len(chunks):\n                    chunk = chunks[idx]\n                    sources.append({\n                        \"reference\": f\"[{ref}]\",\n                        \"document_id\": chunk.get(\"document_id\", \"unknown\"),\n                        \"chunk_id\": chunk.get(\"chunk_id\", \"unknown\"),\n                        \"page_number\": chunk.get(\"page_number\", chunk.get(\"metadata\", {}).get(\"page_number\")),\n                        \"text\": chunk.get(\"text\", \"\")[:200] + \"...\",  # Truncate for brevity\n                        \"score\": chunk.get(\"score\", 0.0)\n                    })\n            except ValueError:\n                continue\n        \n        # Remove duplicates\n        seen = set()\n        unique_sources = []\n        for source in sources:\n            key = (source[\"document_id\"], source[\"chunk_id\"])\n            if key not in seen:\n                seen.add(key)\n                unique_sources.append(source)\n        \n        return unique_sources\n    \n    def generate_streaming(\n        self,\n        question: str,\n        context_chunks: List[Dict[str, Any]],\n        max_tokens: int = 1000,\n        temperature: float = 0.1\n    ) -> Generator[str, None, None]:\n        \"\"\"Generate streaming response\"\"\"\n        if self.provider != \"openai\":\n            # Fallback to non-streaming for non-OpenAI providers\n            response = self.generate_answer(question, context_chunks, max_tokens, temperature)\n            yield response[\"answer\"]\n            return\n        \n        # Build context and prompt\n        context = self._build_context(context_chunks)\n        prompt = self._create_prompt(question, context, True)\n        \n        try:\n            stream = self.client.chat.completions.create(\n                model=self.model,\n                messages=[\n                    {\"role\": \"system\", \"content\": \"Sen yard1mc1 bir asistans1n.\"},\n                    {\"role\": \"user\", \"content\": prompt}\n                ],\n                max_tokens=max_tokens,\n                temperature=temperature,\n                stream=True\n            )\n            \n            for chunk in stream:\n                if chunk.choices[0].delta.content is not None:\n                    yield chunk.choices[0].delta.content\n                    \n        except Exception as e:\n            logger.error(f\"Streaming generation error: {e}\")\n            yield f\"Hata olu_tu: {str(e)}\"\n    \n    def summarize_document(\n        self,\n        chunks: List[Dict[str, Any]],\n        max_tokens: int = 500\n    ) -> Dict[str, Any]:\n        \"\"\"Generate a summary of document chunks\"\"\"\n        # Combine all chunks\n        full_text = \"\\n\\n\".join([chunk.get(\"text\", \"\") for chunk in chunks])\n        \n        # Truncate if too long (rough token estimation)\n        if len(full_text) > 10000:  # ~2500 tokens\n            full_text = full_text[:10000] + \"...\"\n        \n        prompt = f\"\"\"A_a1daki dok�man1n �zetini �1kar. �nemli noktalar1 vurgula ve ana konular1 listele.\n\nDok�mant:\n{full_text}\n\n�zet:\"\"\"\n        \n        if self.provider == \"openai\":\n            response = self._generate_openai(prompt, max_tokens, 0.3)\n        elif self.provider == \"ollama\":\n            response = self._generate_ollama(prompt, max_tokens, 0.3)\n        else:\n            raise ValueError(f\"Unsupported provider: {self.provider}\")\n        \n        return {\n            \"summary\": response[\"text\"],\n            \"metadata\": {\n                \"model\": response[\"model\"],\n                \"provider\": self.provider,\n                \"chunks_processed\": len(chunks),\n                \"generated_at\": datetime.now().isoformat()\n            }\n        }\n\n\n# Singleton instance\nllm_generator = LLMGenerator()
+        self,
+        question: str,
+        context: str,
+        include_sources: bool
+    ) -> str:
+        """Create the prompt for the LLM"""
+        if include_sources:
+            system_prompt = """Sen bir uzman hukuk asistansın. Kullanıcının sorularını verilen dokümanlara dayanarak cevaplayacaksın.
+
+Kurallar:
+1. Sadece verilen dokümanlardaki bilgileri kullan
+2. Her iddian için kaynak belirt (örnek: [1], [2])
+3. Eğer sorunun cevabı dokümanlarda yoksa "Bu sorunun cevabı verilen dokümanlarda bulunmuyor" de
+4. Türkçe ve net bir şekilde cevap ver
+5. Kaynakları cevabın sonunda listele
+
+Dokümantasyon:
+{context}
+
+Soru: {question}
+
+Cevap:"""
+        else:
+            system_prompt = """Sen bir uzman asistansın. Kullanıcının sorularını verilen dokümanlara dayanarak cevaplayacaksın.
+
+Kurallar:
+1. Sadece verilen dokümanlardaki bilgileri kullan
+2. Eğer sorunun cevabı dokümanlarda yoksa "Bu sorunun cevabı verilen dokümanlarda bulunmuyor" de
+3. Türkçe ve net bir şekilde cevap ver
+
+Dokümantasyon:
+{context}
+
+Soru: {question}
+
+Cevap:"""
+        
+        return system_prompt.format(context=context, question=question)
+    
+    def _generate_openai(
+        self,
+        prompt: str,
+        max_tokens: int,
+        temperature: float
+    ) -> Dict[str, Any]:
+        """Generate response using OpenAI"""
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "Sen yardımcı bir asistansın."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stream=False
+            )
+            
+            return {
+                "text": response.choices[0].message.content,
+                "model": self.model,
+                "tokens_used": {
+                    "prompt": response.usage.prompt_tokens,
+                    "completion": response.usage.completion_tokens,
+                    "total": response.usage.total_tokens
+                },
+                "finish_reason": response.choices[0].finish_reason
+            }
+            
+        except Exception as e:
+            logger.error(f"OpenAI generation error: {e}")
+            raise
+    
+    def _generate_ollama(
+        self,
+        prompt: str,
+        max_tokens: int,
+        temperature: float
+    ) -> Dict[str, Any]:
+        """Generate response using Ollama"""
+        try:
+            import asyncio
+            return asyncio.run(self._generate_ollama_async(prompt, max_tokens, temperature))
+        except Exception as e:
+            logger.error(f"Ollama generation error: {e}")
+            raise
+    
+    async def _generate_ollama_async(
+        self,
+        prompt: str,
+        max_tokens: int,
+        temperature: float
+    ) -> Dict[str, Any]:
+        """Async Ollama generation"""
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": False
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.ollama_url}/api/generate",
+                json=payload,
+                timeout=60.0
+            )
+            response.raise_for_status()
+            result = response.json()
+            
+            return {
+                "text": result.get("response", ""),
+                "model": self.model,
+                "tokens_used": {
+                    "prompt": result.get("prompt_eval_count", 0),
+                    "completion": result.get("eval_count", 0),
+                    "total": result.get("prompt_eval_count", 0) + result.get("eval_count", 0)
+                },
+                "finish_reason": "completed"
+            }
+    
+    def _format_response(
+        self,
+        response: Dict[str, Any],
+        chunks: List[Dict[str, Any]],
+        include_sources: bool
+    ) -> Dict[str, Any]:
+        """Format the final response with metadata"""
+        answer_text = response["text"]
+        
+        # Extract source references from answer
+        sources = self._extract_sources(answer_text, chunks) if include_sources else []
+        
+        return {
+            "answer": answer_text,
+            "sources": sources,
+            "metadata": {
+                "model": response["model"],
+                "provider": self.provider,
+                "tokens_used": response["tokens_used"],
+                "context_chunks": len(chunks),
+                "generated_at": datetime.now().isoformat(),
+                "finish_reason": response.get("finish_reason")
+            }
+        }
+    
+    def _extract_sources(
+        self,
+        answer: str,
+        chunks: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Extract source references from the answer"""
+        import re
+        sources = []
+        
+        # Find all [number] references in the answer
+        references = re.findall(r'\[(\d+)\]', answer)
+        
+        for ref in references:
+            try:
+                idx = int(ref) - 1  # Convert to 0-based index
+                if 0 <= idx < len(chunks):
+                    chunk = chunks[idx]
+                    sources.append({
+                        "reference": f"[{ref}]",
+                        "document_id": chunk.get("document_id", "unknown"),
+                        "chunk_id": chunk.get("chunk_id", "unknown"),
+                        "page_number": chunk.get("page_number", chunk.get("metadata", {}).get("page_number")),
+                        "text": chunk.get("text", "")[:200] + "...",  # Truncate for brevity
+                        "score": chunk.get("score", 0.0)
+                    })
+            except ValueError:
+                continue
+        
+        # Remove duplicates
+        seen = set()
+        unique_sources = []
+        for source in sources:
+            key = (source["document_id"], source["chunk_id"])
+            if key not in seen:
+                seen.add(key)
+                unique_sources.append(source)
+        
+        return unique_sources
+    
+    def generate_streaming(
+        self,
+        question: str,
+        context_chunks: List[Dict[str, Any]],
+        max_tokens: int = 1000,
+        temperature: float = 0.1
+    ) -> Generator[str, None, None]:
+        """Generate streaming response"""
+        if self.provider != "openai":
+            # Fallback to non-streaming for non-OpenAI providers
+            response = self.generate_answer(question, context_chunks, max_tokens, temperature)
+            yield response["answer"]
+            return
+        
+        # Build context and prompt
+        context = self._build_context(context_chunks)
+        prompt = self._create_prompt(question, context, True)
+        
+        try:
+            stream = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "Sen yardımcı bir asistansın."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stream=True
+            )
+            
+            for chunk in stream:
+                if chunk.choices[0].delta.content is not None:
+                    yield chunk.choices[0].delta.content
+                    
+        except Exception as e:
+            logger.error(f"Streaming generation error: {e}")
+            yield f"Hata oluştu: {str(e)}"
+    
+    def summarize_document(
+        self,
+        chunks: List[Dict[str, Any]],
+        max_tokens: int = 500
+    ) -> Dict[str, Any]:
+        """Generate a summary of document chunks"""
+        # Combine all chunks
+        full_text = "\n\n".join([chunk.get("text", "") for chunk in chunks])
+        
+        # Truncate if too long (rough token estimation)
+        if len(full_text) > 10000:  # ~2500 tokens
+            full_text = full_text[:10000] + "..."
+        
+        prompt = f"""Aşağıdaki dokümanın özetini çıkar. Önemli noktaları vurgula ve ana konuları listele.
+
+Dokümant:
+{full_text}
+
+Özet:"""
+        
+        if self.provider == "openai":
+            response = self._generate_openai(prompt, max_tokens, 0.3)
+        elif self.provider == "ollama":
+            response = self._generate_ollama(prompt, max_tokens, 0.3)
+        else:
+            raise ValueError(f"Unsupported provider: {self.provider}")
+        
+        return {
+            "summary": response["text"],
+            "metadata": {
+                "model": response["model"],
+                "provider": self.provider,
+                "chunks_processed": len(chunks),
+                "generated_at": datetime.now().isoformat()
+            }
+        }
+
+
+# Singleton instance
+llm_generator = LLMGenerator()

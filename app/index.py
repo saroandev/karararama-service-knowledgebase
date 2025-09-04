@@ -51,10 +51,10 @@ class MilvusIndexer:
     
     def _create_collection(self):
         """Create Milvus collection with schema"""
-        # Define schema
+        # Define schema  
         fields = [
             FieldSchema(name="id", dtype=DataType.VARCHAR, max_length=100, is_primary=True),
-            FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=1024),
+            FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=384),  # multilingual-e5-small uses 384 dim
             FieldSchema(name="document_id", dtype=DataType.VARCHAR, max_length=100),
             FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, max_length=100),
             FieldSchema(name="chunk_index", dtype=DataType.INT64),
@@ -123,13 +123,14 @@ class MilvusIndexer:
         
         for chunk, embedding in zip(chunks, embeddings):
             # Ensure embedding is correct dimension
-            if len(embedding) != 1024:
-                logger.warning(f"Embedding dimension mismatch: {len(embedding)} != 1024")
+            expected_dim = 384  # multilingual-e5-small dimension
+            if len(embedding) != expected_dim:
+                logger.warning(f"Embedding dimension mismatch: {len(embedding)} != {expected_dim}")
                 # Pad or truncate as needed
-                if len(embedding) < 1024:
-                    embedding = np.pad(embedding, (0, 1024 - len(embedding)))
+                if len(embedding) < expected_dim:
+                    embedding = np.pad(embedding, (0, expected_dim - len(embedding)))
                 else:
-                    embedding = embedding[:1024]
+                    embedding = embedding[:expected_dim]
             
             data["id"].append(chunk.get("chunk_id", ""))
             data["embedding"].append(embedding.tolist())

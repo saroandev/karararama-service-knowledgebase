@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 import uvicorn
 
 from app.ingest import ingestion_pipeline, IngestionProgress
-from app.retrieve import retriever
+from app.retrieve import retrieval_system
 from app.generate import llm_generator
 from app.storage import storage
 from app.index import milvus_indexer
@@ -203,16 +203,25 @@ async def query_documents(request: QueryRequest):
     """Query documents with a question"""
     try:
         # Retrieve relevant chunks
-        chunks = retriever.retrieve(
+        search_results = retrieval_system.search(
             query=request.question,
             top_k=request.top_k,
-            filters=request.filters,
-            use_reranker=request.use_reranker
+            filters=request.filters
         )
+        
+        chunks = search_results.get("chunks", [])
+        
+        if request.use_reranker and chunks:
+            reranked_results = retrieval_system.rerank(
+                query=request.question,
+                chunks=chunks,
+                top_k=request.top_k
+            )
+            chunks = reranked_results.get("chunks", chunks)
         
         if not chunks:
             return QueryResponse(
-                answer="Bu sorunun cevab1 verilen dok�manlarda bulunmuyor.",
+                answer="Bu sorunun cevabı verilen dokümanlarda bulunmuyor.",
                 sources=[],
                 metadata={"chunks_found": 0}
             )
@@ -239,16 +248,25 @@ async def query_documents_stream(request: QueryRequest):
     """Stream query response"""
     try:
         # Retrieve relevant chunks
-        chunks = retriever.retrieve(
+        search_results = retrieval_system.search(
             query=request.question,
             top_k=request.top_k,
-            filters=request.filters,
-            use_reranker=request.use_reranker
+            filters=request.filters
         )
+        
+        chunks = search_results.get("chunks", [])
+        
+        if request.use_reranker and chunks:
+            reranked_results = retrieval_system.rerank(
+                query=request.question,
+                chunks=chunks,
+                top_k=request.top_k
+            )
+            chunks = reranked_results.get("chunks", chunks)
         
         if not chunks:
             async def error_stream():
-                yield "Bu sorunun cevab1 verilen dok�manlarda bulunmuyor."
+                yield "Bu sorunun cevabı verilen dokümanlarda bulunmuyor."
             
             return StreamingResponse(
                 error_stream(),
@@ -312,7 +330,7 @@ async def get_document(document_id: str):
     """Get document details"""
     try:
         # Get chunks for document
-        chunks = storage.get_document_chunks(document_id)
+        chunks = storage.get_chunks(document_id)
         
         if not chunks:
             raise HTTPException(status_code=404, detail="Document not found")
@@ -386,7 +404,7 @@ async def reindex_document(
 async def summarize_document(document_id: str):
     """Generate document summary"""
     try:
-        chunks = storage.get_document_chunks(document_id)
+        chunks = storage.get_chunks(document_id)
         
         if not chunks:
             raise HTTPException(status_code=404, detail="Document not found")
@@ -447,7 +465,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "app.server:app",
         host="0.0.0.0",
-        port=8080,
+        port=8000,
         reload=True,
         log_level="info"
     )

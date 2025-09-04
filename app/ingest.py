@@ -7,7 +7,7 @@ import traceback
 
 from app.storage import storage
 from app.parse import pdf_parser
-from app.chunk import default_chunker, HybridChunker
+from app.chunk import get_default_chunker, HybridChunker
 from app.embed import embedding_generator
 from app.index import milvus_indexer
 
@@ -30,7 +30,7 @@ class IngestionPipeline:
     def __init__(self):
         self.storage = storage
         self.parser = pdf_parser
-        self.chunker = default_chunker
+        self.chunker = get_default_chunker()
         self.embedder = embedding_generator
         self.indexer = milvus_indexer
         

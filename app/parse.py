@@ -53,14 +53,16 @@ class PDFParser:
         
         try:
             # Open PDF from bytes
+            # Hiç .pdf dosyasını diske yazmadan, doğrudan bellekteki PDF bytes içeriğini okuyabiliyorsun.
             pdf_stream = io.BytesIO(file_data)
             doc: Document = pymupdf.open(stream=pdf_stream, filetype="pdf")
-            
+        
             # Extract metadata
             metadata = self._extract_metadata(doc, file_data)
             
             # Extract text from each page
             for page_num in range(len(doc)):
+                #Dokümanın belli bir sayfasını alırsan bir Page nesnesi döner.
                 page = doc[page_num]
                 
                 # Extract text

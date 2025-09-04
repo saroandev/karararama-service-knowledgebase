@@ -15,7 +15,7 @@ class Settings:
     MILVUS_PORT = int(os.getenv("MILVUS_PORT", "19530"))
     MILVUS_COLLECTION = os.getenv("MILVUS_COLLECTION", "rag_chunks")
 
-    EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
+    EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
     RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
 
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")

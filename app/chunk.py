@@ -325,6 +325,127 @@ class SemanticChunker:
         return groups
 
 
+class DocumentBasedChunker:
+    """Document-based chunking that preserves document structure"""
+    
+    def __init__(
+        self,
+        chunk_size: int = 512,
+        chunk_overlap: int = 50
+    ):
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+    
+    def chunk_by_document(
+        self,
+        pages: List[Any],
+        document_id: str,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> List[Chunk]:
+        """
+        Chunk pages while preserving document structure
+        
+        Args:
+            pages: List of PageContent objects
+            document_id: Document identifier
+            metadata: Optional metadata
+        
+        Returns:
+            List of Chunk objects organized by document structure
+        """
+        chunks = []
+        chunk_index = 0
+        
+        for page in pages:
+            # Process each page separately to preserve document structure
+            page_text = page.text
+            page_metadata = {
+                "page_number": page.page_number,
+                "document_structure": "page_based",
+                **page.metadata
+            }
+            
+            if metadata:
+                page_metadata.update(metadata)
+            
+            # Split page into smaller chunks if needed
+            if len(page_text) > self.chunk_size * 4:  # Rough token estimate
+                # Split by paragraphs first
+                paragraphs = self._split_by_paragraphs(page_text)
+                
+                current_chunk = ""
+                for paragraph in paragraphs:
+                    if len(current_chunk) + len(paragraph) <= self.chunk_size * 4:
+                        current_chunk += paragraph + "\n\n"
+                    else:
+                        if current_chunk:
+                            chunk = self._create_chunk(
+                                current_chunk.strip(),
+                                document_id,
+                                chunk_index,
+                                page_metadata
+                            )
+                            chunks.append(chunk)
+                            chunk_index += 1
+                        current_chunk = paragraph + "\n\n"
+                
+                # Add remaining chunk
+                if current_chunk:
+                    chunk = self._create_chunk(
+                        current_chunk.strip(),
+                        document_id,
+                        chunk_index,
+                        page_metadata
+                    )
+                    chunks.append(chunk)
+                    chunk_index += 1
+            else:
+                # Page is small enough, use as single chunk
+                chunk = self._create_chunk(
+                    page_text,
+                    document_id,
+                    chunk_index,
+                    page_metadata
+                )
+                chunks.append(chunk)
+                chunk_index += 1
+        
+        return chunks
+    
+    def _split_by_paragraphs(self, text: str) -> List[str]:
+        """Split text by paragraphs"""
+        paragraphs = re.split(r'\n\s*\n', text)
+        return [p.strip() for p in paragraphs if p.strip()]
+    
+    def _create_chunk(
+        self,
+        text: str,
+        document_id: str,
+        chunk_index: int,
+        metadata: Dict[str, Any]
+    ) -> Chunk:
+        """Create a chunk object"""
+        chunk_hash = hashlib.md5(text.encode()).hexdigest()[:16]
+        chunk_id = f"chunk_{document_id}_{chunk_index:04d}_{chunk_hash}"
+        
+        chunk_metadata = {
+            "document_id": document_id,
+            "chunk_index": chunk_index,
+            "chunk_method": "document_based",
+            **metadata
+        }
+        
+        return Chunk(
+            chunk_id=chunk_id,
+            document_id=document_id,
+            chunk_index=chunk_index,
+            text=text,
+            metadata=chunk_metadata,
+            token_count=len(text) // 4,  # Rough estimate
+            char_count=len(text)
+        )
+
+
 class HybridChunker:
     """Hybrid approach combining multiple chunking strategies"""
     
@@ -335,6 +456,7 @@ class HybridChunker:
     ):
         self.token_chunker = TextChunker(chunk_size, chunk_overlap, "token")
         self.semantic_chunker = SemanticChunker(chunk_size)
+        self.document_chunker = DocumentBasedChunker(chunk_size, chunk_overlap)
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
     
@@ -388,5 +510,9 @@ class HybridChunker:
         return False
 
 
-# Default chunker instance
-default_chunker = TextChunker()
+# Lazy loading chunker instances to avoid import-time dependencies
+def get_default_chunker():
+    return TextChunker()
+
+def get_text_chunker(chunk_size=512, chunk_overlap=50, method="token"):
+    return TextChunker(chunk_size, chunk_overlap, method)
