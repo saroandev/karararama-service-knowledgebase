@@ -23,9 +23,9 @@ Bu proje, PDF dosyalarından bilgi çıkararak kullanıcıların doğal dilde so
 | Metadata Store | ETCD | Milvus metadata yönetimi |
 | PDF Parser | PyMuPDF | PDF dosyalarından metin çıkarma |
 | Text Splitter | LangChain | Metni anlamlı parçalara bölme |
-| Embedding Model | BGE-M3 | Metin → vektör dönüşümü |
-| Reranker | BGE-Reranker-v2-m3 | Arama sonuçlarını yeniden sıralama |
-| LLM | OpenAI/Ollama | Cevap üretimi |
+| Embedding Model | OpenAI text-embedding-3-small | Metin → vektör dönüşümü (1536 boyut) |
+| Reranker | BGE-Reranker-v2-m3 (opsiyonel) | Arama sonuçlarını yeniden sıralama |
+| LLM | OpenAI GPT-4o-mini | Cevap üretimi |
 | Backend | FastAPI | REST API servisi |
 | Containerization | Docker | Tüm servislerin orkestrayonu |
 
@@ -89,7 +89,7 @@ PDF Dosyası
     ↓
 [3. Chunk] → Token bazlı bölme (512 token, 50 overlap)
     ↓
-[4. Embed] → BGE-M3 ile vektör üretimi (1024 dimension)
+[4. Embed] → OpenAI text-embedding-3-small ile vektör üretimi (1536 dimension)
     ↓
 [5. Index] → Milvus'a vektör + metadata kayıt
     ↓
@@ -409,16 +409,15 @@ MILVUS_INDEX_TYPE=IVF_FLAT
 MILVUS_METRIC_TYPE=IP
 MILVUS_NLIST=128
 
-# Embedding Configuration
-EMBEDDING_MODEL=BAAI/bge-m3
-EMBEDDING_BATCH_SIZE=32
-EMBEDDING_DEVICE=cuda  # veya cpu
-RERANKER_MODEL=BAAI/bge-reranker-v2-m3
+# Embedding Configuration (OpenAI API kullanılıyor)
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIMENSIONS=1536
+RERANKER_MODEL=BAAI/bge-reranker-v2-m3  # opsiyonel
 
 # LLM Configuration
 LLM_PROVIDER=openai  # openai veya ollama
 OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4
+OPENAI_MODEL=gpt-4o-mini
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:7b-instruct
 
@@ -453,7 +452,7 @@ LOG_FILE=/app/logs/app.log
     {
       "name": "embedding",
       "type": "FLOAT_VECTOR",
-      "dim": 1024
+      "dim": 1536
     },
     {
       "name": "document_id",

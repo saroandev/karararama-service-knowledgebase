@@ -104,7 +104,7 @@ def test_minio_connection():
                 print(f"   ✅ Bucket zaten var: {bucket_name}")
         
         # Test dosya yükle
-        test_content = b"Bu bir test dosyasıdır."
+        test_content = "Bu bir test dosyasıdır.".encode('utf-8')
         test_filename = "test_file.txt"
         
         from io import BytesIO
