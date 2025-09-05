@@ -1,908 +1,210 @@
-# RAG Pipeline - Mimari Dokümantasyon
+# CLAUDE.md
 
-## 🎯 Proje Özeti
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Bu proje, PDF dosyalarından bilgi çıkararak kullanıcıların doğal dilde sordukları sorulara kaynak göstererek cevap veren bir **Retrieval-Augmented Generation (RAG)** sistemidir. Sistem tamamen Docker üzerinde çalışacak şekilde tasarlanmıştır ve mikroservis mimarisine sahiptir.
+## System Overview
 
-### Temel Özellikler
-- 📄 PDF dosyalarının otomatik işlenmesi ve indekslenmesi
-- 🔍 Semantik arama ile ilgili içeriğin bulunması
-- 💬 Kaynak göstererek doğal dilde cevap üretimi
-- 🚀 Yüksek performanslı vektör araması (Milvus)
-- 📦 Ölçeklenebilir object storage (MinIO)
-- 🔧 RESTful API ve WebSocket desteği
+This is a production-ready RAG (Retrieval-Augmented Generation) pipeline built with FastAPI, Milvus vector database, MinIO object storage, and OpenAI models. The system processes PDF documents and provides intelligent Q&A capabilities with source citations.
 
-## 🏗️ Sistem Mimarisi
+## Key Architecture Components
 
-### Teknoloji Stack'i
+- **FastAPI Server** (`app/server.py`): Development server with comprehensive API endpoints
+- **Production Server** (`production_server.py`): Streamlined production-ready server with persistent storage
+- **Processing Pipeline**: PDF parsing → text chunking → embedding generation → vector indexing
+- **Storage Layer**: Milvus (vectors) + MinIO (objects) + ETCD (metadata)
+- **Docker Services**: All components containerized with health checks
 
-| Bileşen | Teknoloji | Amaç |
-|---------|-----------|------|
-| Object Storage | MinIO | PDF ve chunk dosyalarının saklanması |
-| Vector Database | Milvus | Embedding vektörlerinin saklanması ve aranması |
-| Metadata Store | ETCD | Milvus metadata yönetimi |
-| PDF Parser | PyMuPDF | PDF dosyalarından metin çıkarma |
-| Text Splitter | LangChain | Metni anlamlı parçalara bölme |
-| Embedding Model | OpenAI text-embedding-3-small | Metin → vektör dönüşümü (1536 boyut) |
-| Reranker | BGE-Reranker-v2-m3 (opsiyonel) | Arama sonuçlarını yeniden sıralama |
-| LLM | OpenAI GPT-4o-mini | Cevap üretimi |
-| Backend | FastAPI | REST API servisi |
-| Containerization | Docker | Tüm servislerin orkestrayonu |
+## Essential Commands
 
-### Mimari Diyagram
-
-```mermaid
-graph TB
-    subgraph "Client Layer"
-        UI[Web UI/API Client]
-    end
-    
-    subgraph "API Layer"
-        API[FastAPI Server]
-        WS[WebSocket Handler]
-    end
-    
-    subgraph "Processing Layer"
-        INGEST[Ingest Pipeline]
-        PARSE[PDF Parser]
-        CHUNK[Text Chunker]
-        EMBED[Embedding Generator]
-        RETRIEVE[Retriever]
-        GENERATE[LLM Generator]
-    end
-    
-    subgraph "Storage Layer"
-        MINIO[MinIO<br/>Object Storage]
-        MILVUS[Milvus<br/>Vector DB]
-        ETCD[ETCD<br/>Metadata]
-    end
-    
-    UI --> API
-    UI -.->|real-time updates| WS
-    API --> INGEST
-    API --> RETRIEVE
-    RETRIEVE --> GENERATE
-    
-    INGEST --> PARSE
-    PARSE --> CHUNK
-    CHUNK --> EMBED
-    EMBED --> MILVUS
-    
-    PARSE --> MINIO
-    CHUNK --> MINIO
-    
-    MILVUS --> ETCD
-    RETRIEVE --> MILVUS
-    RETRIEVE --> MINIO
-```
-
-## 📊 Veri Akış Diyagramı
-
-### 1. PDF İndeksleme Akışı (Ingest)
-
-```
-PDF Dosyası 
-    ↓
-[1. Upload] → MinIO (raw-pdfs bucket)
-    ↓
-[2. Parse] → Metin çıkarma + metadata
-    ↓
-[3. Chunk] → Token bazlı bölme (512 token, 50 overlap)
-    ↓
-[4. Embed] → OpenAI text-embedding-3-small ile vektör üretimi (1536 dimension)
-    ↓
-[5. Index] → Milvus'a vektör + metadata kayıt
-    ↓
-[6. Store] → MinIO'ya chunk metinleri kayıt (chunks bucket)
-```
-
-### 2. Soru-Cevap Akışı (Query)
-
-```
-Kullanıcı Sorusu
-    ↓
-[1. Embed] → Soru vektöre dönüştürülür
-    ↓
-[2. Search] → Milvus'ta en yakın K=10 chunk bulunur
-    ↓
-[3. Rerank] → BGE-Reranker ile yeniden sıralama (top 5)
-    ↓
-[4. Retrieve] → MinIO'dan chunk metinleri çekilir
-    ↓
-[5. Context] → Prompt hazırlanır (soru + context + instructions)
-    ↓
-[6. Generate] → LLM ile cevap üretimi
-    ↓
-[7. Response] → JSON formatında kaynaklı cevap
-```
-
-## 📁 Proje Dosya Yapısı
-
-```
-onedocs-rag/
-├── docker-compose.yml          # Docker servisleri orkestrasyonu
-├── Dockerfile                  # FastAPI uygulaması için container
-├── .env                       # Ortam değişkenleri (gitignore)
-├── .env.example              # Ortam değişkenleri şablonu
-├── requirements.txt          # Python bağımlılıkları
-├── Claude.md                # Bu dokümantasyon
-│
-├── app/                     # Ana uygulama kodu
-│   ├── __init__.py
-│   ├── config.py           # Konfigürasyon yönetimi
-│   ├── storage.py          # MinIO işlemleri
-│   ├── parse.py            # PDF parsing fonksiyonları
-│   ├── chunk.py            # Metin bölme fonksiyonları
-│   ├── embed.py            # Embedding üretimi
-│   ├── index.py            # Milvus indeksleme
-│   ├── retrieve.py         # Vektör arama ve retrieval
-│   ├── generate.py         # LLM cevap üretimi
-│   ├── ingest.py           # İndeksleme pipeline orkestrasyonu
-│   └── server.py           # FastAPI endpoints
-│
-├── data/                   # Local veri dizinleri (Docker volumes)
-│   ├── minio/             # MinIO storage
-│   ├── milvus/            # Milvus vektör veritabanı
-│   └── etcd/              # ETCD metadata
-│
-├── tests/                 # Test dosyaları
-│   ├── test_parse.py
-│   ├── test_chunk.py
-│   ├── test_embed.py
-│   └── test_api.py
-│
-└── scripts/              # Yardımcı scriptler
-    ├── setup.sh         # İlk kurulum scripti
-    ├── seed_data.py     # Örnek veri yükleme
-    └── cleanup.sh       # Temizlik scripti
-```
-
-## 🐳 Docker Container Mimarisi
-
-### Container'lar ve İlişkileri
-
-```yaml
-Services:
-  1. minio (minio/minio:latest)
-     - Port: 9000 (API), 9001 (Console)
-     - Volume: ./data/minio:/data
-     - Buckets: raw-pdfs, chunks
-  
-  2. etcd (quay.io/coreos/etcd:latest)
-     - Port: 2379, 2380
-     - Volume: ./data/etcd:/etcd-data
-  
-  3. milvus (milvusdb/milvus:latest)
-     - Port: 19530 (gRPC), 9091 (metrics)
-     - Volume: ./data/milvus:/var/lib/milvus
-     - Depends on: etcd, minio
-  
-  4. attu (zilliz/attu:latest)
-     - Port: 8000
-     - Milvus GUI yönetim arayüzü
-  
-  5. app (custom FastAPI)
-     - Port: 8080
-     - Environment: Production
-     - Depends on: minio, milvus
-```
-
-### Docker Network Yapısı
-
-```
-rag-network (bridge)
-    ├── minio:9000
-    ├── etcd:2379
-    ├── milvus:19530
-    ├── attu:8000
-    └── app:8080
-```
-
-## 🚀 Kurulum ve Çalıştırma
-
-### Gereksinimler
-- Docker & Docker Compose (v2.0+)
-- Python 3.9+ (local development için)
-- 8GB+ RAM (önerilen 16GB)
-- 20GB+ boş disk alanı
-
-### Adım 1: Repository'yi Klonlama
+### Development & Testing
 
 ```bash
-git clone https://github.com/yourusername/onedocs-rag.git
-cd onedocs-rag
+# Start all Docker services
+docker compose up -d
+
+# Check service status
+docker compose ps
+
+# View logs (all services)
+docker compose logs -f
+
+# View specific service logs
+docker compose logs -f milvus
+docker compose logs -f app
+
+# Stop all services
+docker compose down
+
+# Rebuild and restart
+docker compose down && docker compose up -d --build
 ```
 
-### Adım 2: Ortam Değişkenlerini Ayarlama
+### Production Server
 
 ```bash
-cp .env.example .env
-# .env dosyasını düzenleyin ve API key'leri ekleyin
-```
+# Run production server (recommended for deployment)
+PYTHONPATH=/Users/ugur/Desktop/onedocs-rag uvicorn production_server:app --host 0.0.0.0 --port 8080 --reload
 
-### Adım 3: Docker Container'ları Başlatma
+# Run development server
+PYTHONPATH=/Users/ugur/Desktop/onedocs-rag uvicorn app.server:app --host 0.0.0.0 --port 8080 --reload
 
-```bash
-# Tüm servisleri başlat
-docker-compose up -d
-
-# Log'ları takip et
-docker-compose logs -f
-
-# Servis durumlarını kontrol et
-docker-compose ps
-```
-
-### Adım 4: Servislerin Hazır Olmasını Bekleme
-
-```bash
-# Health check (yaklaşık 30-60 saniye)
+# Health check
 curl http://localhost:8080/health
 ```
 
-### Adım 5: İlk PDF'i Yükleme
+### Testing & Validation
 
 ```bash
-# PDF indeksleme
-curl -X POST "http://localhost:8080/ingest" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@sample.pdf" \
-  -F "metadata={\"source\":\"manual\",\"tags\":[\"test\"]}"
+# Basic system validation
+python simple_validation.py
+
+# Docker services test
+python test_docker_services.py
+
+# Full integration test
+python integration_test.py
+
+# Test with sample PDF
+curl -X POST "http://localhost:8080/ingest" -F "file=@POSTA GEZİCİ PERSONELİNE VERİLECEK HARCIRAH TÜZÜĞÜ_78670.pdf"
+
+# Query test
+curl -X POST "http://localhost:8080/query" -H "Content-Type: application/json" -d '{"question": "Bu dokümanda ne anlatılıyor?"}'
 ```
 
-### Adım 6: Soru Sorma
+### Development Setup
 
 ```bash
-# Query endpoint
-curl -X POST "http://localhost:8080/query" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "question": "Bu dokümanda ne anlatılıyor?",
-    "top_k": 5,
-    "use_reranker": true
-  }'
-```
-
-## 📡 API Endpoints
-
-### 1. PDF İndeksleme
-
-```http
-POST /ingest
-Content-Type: multipart/form-data
-
-Parameters:
-  - file: PDF dosyası (required)
-  - metadata: JSON metadata (optional)
-  - chunk_size: Token sayısı (default: 512)
-  - chunk_overlap: Overlap token sayısı (default: 50)
-
-Response:
-{
-  "status": "success",
-  "document_id": "doc_123456",
-  "chunks_created": 42,
-  "processing_time": 3.14
-}
-```
-
-### 2. Soru-Cevap
-
-```http
-POST /query
-Content-Type: application/json
-
-Body:
-{
-  "question": "string",
-  "top_k": 5,
-  "use_reranker": true,
-  "filters": {
-    "document_id": "doc_123456",
-    "date_range": ["2024-01-01", "2024-12-31"]
-  }
-}
-
-Response:
-{
-  "answer": "string",
-  "sources": [
-    {
-      "chunk_id": "chunk_789",
-      "document_id": "doc_123456",
-      "page": 3,
-      "score": 0.92,
-      "text": "relevant chunk text..."
-    }
-  ],
-  "metadata": {
-    "model": "gpt-4",
-    "processing_time": 1.23,
-    "tokens_used": 450
-  }
-}
-```
-
-### 3. Doküman Listeleme
-
-```http
-GET /documents
-Query Parameters:
-  - page: int (default: 1)
-  - limit: int (default: 20)
-  - sort: string (date|name|size)
-
-Response:
-{
-  "documents": [...],
-  "total": 100,
-  "page": 1,
-  "pages": 5
-}
-```
-
-### 4. Doküman Silme
-
-```http
-DELETE /documents/{document_id}
-
-Response:
-{
-  "status": "success",
-  "deleted_chunks": 42
-}
-```
-
-### 5. Health Check
-
-```http
-GET /health
-
-Response:
-{
-  "status": "healthy",
-  "services": {
-    "minio": "connected",
-    "milvus": "connected",
-    "embedding_model": "loaded"
-  },
-  "version": "1.0.0"
-}
-```
-
-### 6. WebSocket - Gerçek Zamanlı İşlem Takibi
-
-```javascript
-// WebSocket bağlantısı
-const ws = new WebSocket('ws://localhost:8080/ws');
-
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  console.log('Progress:', data);
-  // {
-  //   "type": "progress",
-  //   "stage": "parsing",
-  //   "progress": 45,
-  //   "message": "Processing page 12 of 30"
-  // }
-};
-```
-
-## 🔧 Konfigürasyon Detayları
-
-### Ortam Değişkenleri (.env)
-
-```bash
-# MinIO Configuration
-MINIO_ENDPOINT=localhost:9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin
-MINIO_SECURE=false
-MINIO_BUCKET_DOCS=raw-pdfs
-MINIO_BUCKET_CHUNKS=chunks
-
-# Milvus Configuration
-MILVUS_HOST=localhost
-MILVUS_PORT=19530
-MILVUS_COLLECTION=rag_chunks
-MILVUS_INDEX_TYPE=IVF_FLAT
-MILVUS_METRIC_TYPE=IP
-MILVUS_NLIST=128
-
-# Embedding Configuration (OpenAI API kullanılıyor)
-EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_DIMENSIONS=1536
-RERANKER_MODEL=BAAI/bge-reranker-v2-m3  # opsiyonel
-
-# LLM Configuration
-LLM_PROVIDER=openai  # openai veya ollama
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o-mini
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=qwen2.5:7b-instruct
-
-# Chunking Configuration
-CHUNK_SIZE=512
-CHUNK_OVERLAP=50
-CHUNK_METHOD=token  # token veya character
-
-# API Configuration
-API_HOST=0.0.0.0
-API_PORT=8080
-API_WORKERS=4
-CORS_ORIGINS=["http://localhost:3000"]
-
-# Logging
-LOG_LEVEL=INFO
-LOG_FILE=/app/logs/app.log
-```
-
-### Milvus Collection Schema
-
-```python
-{
-  "collection_name": "rag_chunks",
-  "fields": [
-    {
-      "name": "id",
-      "type": "VARCHAR",
-      "max_length": 100,
-      "is_primary": True
-    },
-    {
-      "name": "embedding",
-      "type": "FLOAT_VECTOR",
-      "dim": 1536
-    },
-    {
-      "name": "document_id",
-      "type": "VARCHAR",
-      "max_length": 100
-    },
-    {
-      "name": "chunk_index",
-      "type": "INT64"
-    },
-    {
-      "name": "page_number",
-      "type": "INT64"
-    },
-    {
-      "name": "text_hash",
-      "type": "VARCHAR",
-      "max_length": 64
-    },
-    {
-      "name": "created_at",
-      "type": "INT64"
-    }
-  ],
-  "index_params": {
-    "metric_type": "IP",
-    "index_type": "IVF_FLAT",
-    "params": {"nlist": 128}
-  }
-}
-```
-
-## 📊 Pipeline Detayları
-
-### 1. PDF Parsing (parse.py)
-
-```python
-Fonksiyonlar:
-- extract_text_from_pdf(file_path) -> List[PageContent]
-  - PyMuPDF kullanarak metin çıkarma
-  - Her sayfa için metadata oluşturma
-  - Görüntü ve tablo tespiti
-  
-- extract_metadata(file_path) -> DocumentMetadata
-  - Başlık, yazar, oluşturma tarihi
-  - Sayfa sayısı, dosya boyutu
-  - Dil tespiti
-```
-
-### 2. Text Chunking (chunk.py)
-
-```python
-Stratejiler:
-1. Token-based chunking
-   - tiktoken encoder kullanımı
-   - Overlap ile context korunması
-   - Cümle sınırlarına dikkat
-
-2. Semantic chunking
-   - Paragraf ve bölüm tespiti
-   - Anlamsal bütünlük korunması
-   
-3. Hybrid approach
-   - Token limiti + semantic boundaries
-   - Optimal chunk boyutu
-```
-
-### 3. Embedding Generation (embed.py)
-
-```python
-Özellikler:
-- Batch processing (32 chunks/batch)
-- GPU acceleration (if available)
-- Normalization
-- Dimension reduction (opsiyonel)
-- Cache mekanizması
-```
-
-### 4. Vector Indexing (index.py)
-
-```python
-İndeks Türleri:
-1. IVF_FLAT
-   - Orta ölçekli veri için optimal
-   - nlist=128 clusters
-   
-2. HNSW
-   - Büyük ölçekli veri için
-   - M=16, ef_construction=200
-   
-3. AUTOINDEX
-   - Otomatik optimizasyon
-```
-
-### 5. Retrieval & Reranking (retrieve.py)
-
-```python
-Arama Stratejisi:
-1. Initial retrieval
-   - Top-K=10 semantic search
-   - Cosine similarity
-   
-2. Reranking
-   - Cross-encoder model
-   - Score normalization
-   - Top-5 selection
-   
-3. Diversity
-   - MMR (Maximal Marginal Relevance)
-   - Duplicate removal
-```
-
-### 6. Response Generation (generate.py)
-
-```python
-Prompt Engineering:
-- System prompt: RAG context instructions
-- Context formatting: Numbered sources
-- Citation requirements
-- Hallucination prevention
-- Token management
-```
-
-## 🧪 Test Senaryoları
-
-### Unit Tests
-
-```bash
-# Tüm testleri çalıştır
-pytest tests/
-
-# Belirli bir modülü test et
-pytest tests/test_chunk.py -v
-
-# Coverage raporu
-pytest --cov=app tests/
-```
-
-### Integration Tests
-
-```python
-1. End-to-end PDF processing
-2. Vector search accuracy
-3. API response validation
-4. Concurrent request handling
-5. Error recovery
-```
-
-### Performance Tests
-
-```bash
-# Locust ile yük testi
-locust -f tests/locustfile.py \
-  --host=http://localhost:8080 \
-  --users=100 \
-  --spawn-rate=10
-```
-
-## 📈 Monitoring & Observability
-
-### Metrics
-
-```yaml
-Prometheus Metrics:
-- pdf_processing_duration_seconds
-- embedding_generation_duration_seconds
-- query_latency_seconds
-- milvus_search_duration_seconds
-- llm_generation_tokens_total
-```
-
-### Logging
-
-```python
-Structured Logging:
-{
-  "timestamp": "2024-01-01T12:00:00Z",
-  "level": "INFO",
-  "service": "ingest",
-  "document_id": "doc_123",
-  "stage": "chunking",
-  "chunks_created": 42,
-  "duration_ms": 1234
-}
-```
-
-### Dashboards
-
-- **Grafana Dashboard**: System metrics, API latency, throughput
-- **Milvus Attu**: Vector database management
-- **MinIO Console**: Object storage monitoring
-
-## 🚦 Production Deployment
-
-### Scaling Considerations
-
-```yaml
-1. Horizontal Scaling:
-   - FastAPI workers: 4-8 per container
-   - Load balancer: Nginx/Traefik
-   - Session affinity for WebSocket
-
-2. Database Scaling:
-   - Milvus cluster mode
-   - Read replicas
-   - Partition by date/source
-
-3. Caching:
-   - Redis for embedding cache
-   - CDN for static assets
-   - Query result caching
-```
-
-### Security Best Practices
-
-```yaml
-1. Authentication:
-   - JWT tokens
-   - API key management
-   - Rate limiting
-
-2. Data Security:
-   - Encryption at rest (MinIO)
-   - TLS for all connections
-   - Secrets management (Vault)
-
-3. Input Validation:
-   - File type verification
-   - Size limits
-   - Content scanning
-```
-
-### Backup & Recovery
-
-```bash
-# Milvus backup
-docker exec milvus /milvus/bin/save --collection rag_chunks
-
-# MinIO sync
-mc mirror minio/raw-pdfs s3/backup-bucket/
-
-# Database export
-docker exec milvus /milvus/bin/export --path /backup/
-```
-
-## 🔍 Troubleshooting
-
-### Common Issues
-
-1. **Milvus Connection Error**
-   ```bash
-   # Check Milvus status
-   docker-compose logs milvus
-   # Restart service
-   docker-compose restart milvus
-   ```
-
-2. **Embedding Model Loading**
-   ```bash
-   # Clear model cache
-   rm -rf ~/.cache/huggingface/
-   # Re-download model
-   python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-m3')"
-   ```
-
-3. **Memory Issues**
-   ```yaml
-   # docker-compose.yml içinde memory limits
-   services:
-     app:
-       mem_limit: 4g
-       memswap_limit: 4g
-   ```
-
-## 🎯 Kullanım Örnekleri
-
-### Örnek 1: Teknik Doküman İndeksleme
-
-```python
-import requests
-
-# PDF yükleme
-with open("technical_manual.pdf", "rb") as f:
-    response = requests.post(
-        "http://localhost:8080/ingest",
-        files={"file": f},
-        data={
-            "metadata": json.dumps({
-                "category": "technical",
-                "version": "2.0",
-                "language": "tr"
-            })
-        }
-    )
-
-# Soru sorma
-query = {
-    "question": "Sistemin kurulum gereksinimleri nelerdir?",
-    "filters": {"category": "technical"},
-    "top_k": 3
-}
-
-response = requests.post(
-    "http://localhost:8080/query",
-    json=query
-)
-```
-
-### Örnek 2: Batch Processing
-
-```python
-import asyncio
-import aiohttp
-
-async def process_pdf(session, file_path):
-    async with session.post(
-        "http://localhost:8080/ingest",
-        data={"file": open(file_path, "rb")}
-    ) as response:
-        return await response.json()
-
-async def batch_ingest(pdf_files):
-    async with aiohttp.ClientSession() as session:
-        tasks = [process_pdf(session, f) for f in pdf_files]
-        return await asyncio.gather(*tasks)
-
-# Çoklu PDF işleme
-pdf_list = ["doc1.pdf", "doc2.pdf", "doc3.pdf"]
-results = asyncio.run(batch_ingest(pdf_list))
-```
-
-### Örnek 3: WebSocket ile Gerçek Zamanlı İzleme
-
-```javascript
-// Frontend JavaScript
-class RAGClient {
-    constructor(apiUrl) {
-        this.apiUrl = apiUrl;
-        this.ws = null;
-    }
-    
-    connectWebSocket() {
-        this.ws = new WebSocket(`${this.apiUrl}/ws`);
-        
-        this.ws.onopen = () => {
-            console.log("WebSocket connected");
-        };
-        
-        this.ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            this.handleProgress(data);
-        };
-    }
-    
-    handleProgress(data) {
-        switch(data.type) {
-            case 'parsing':
-                console.log(`Parsing: ${data.progress}%`);
-                break;
-            case 'chunking':
-                console.log(`Chunking: ${data.chunks_created} chunks`);
-                break;
-            case 'embedding':
-                console.log(`Embedding: ${data.progress}%`);
-                break;
-            case 'complete':
-                console.log(`Processing complete: ${data.document_id}`);
-                break;
-        }
-    }
-    
-    async uploadPDF(file) {
-        const formData = new FormData();
-        formData.append('file', file);
-        
-        const response = await fetch(`${this.apiUrl}/ingest`, {
-            method: 'POST',
-            body: formData
-        });
-        
-        return response.json();
-    }
-}
-```
-
-## 🛠️ Development Workflow
-
-### Local Development
-
-```bash
-# Virtual environment oluşturma
+# Python environment (if not using Docker)
 python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# veya
-venv\Scripts\activate  # Windows
-
-# Dependencies kurulumu
+source venv/bin/activate  # Mac/Linux
 pip install -r requirements.txt
 
-# Development server
-uvicorn app.server:app --reload --port 8080
+# Set Python path for local development
+export PYTHONPATH=/Users/ugur/Desktop/onedocs-rag
 
-# Code formatting
+# Code formatting (if needed)
 black app/
 isort app/
-
-# Type checking
-mypy app/
-
-# Linting
-flake8 app/
 ```
 
-### Git Workflow
+## Critical Configuration
 
-```bash
-# Feature branch
-git checkout -b feature/new-chunking-strategy
+### Environment Setup
+- Copy `.env.example` to `.env` and configure OpenAI API key
+- Current config uses `intfloat/multilingual-e5-small` for embeddings but production server uses OpenAI embeddings
+- Production server uses Milvus collection `rag_production_v1`
+- Development server uses collection name from `.env` (`rag_chunks`)
 
-# Commit convention
-git commit -m "feat: add semantic chunking support"
-git commit -m "fix: resolve embedding dimension mismatch"
-git commit -m "docs: update API documentation"
+### Port Configuration
+- **FastAPI**: 8080
+- **MinIO**: 9000 (API), 9001 (Console)
+- **Milvus**: 19530 (gRPC), 9091 (metrics)
+- **Attu (Milvus GUI)**: 8000
+- **ETCD**: 2379
 
-# Pull request
-git push origin feature/new-chunking-strategy
-```
+## Code Structure & Patterns
 
-## 📚 Kaynaklar
+### Main Application Modules (`app/`)
+- `config.py`: Centralized configuration management
+- `storage.py`: MinIO operations for document storage
+- `parse.py`: PDF text extraction using PyMuPDF
+- `chunk.py`: Text chunking strategies (token-based)
+- `embed.py`: Embedding generation (supports both OpenAI and local models)
+- `index.py`: Milvus vector database operations
+- `retrieve.py`: Vector search and reranking
+- `generate.py`: LLM response generation
+- `ingest.py`: Complete ingestion pipeline orchestration
+- `server.py`: FastAPI application with comprehensive endpoints
 
-### Dokümantasyon
-- [Milvus Docs](https://milvus.io/docs)
-- [MinIO Docs](https://docs.min.io)
-- [FastAPI Docs](https://fastapi.tiangolo.com)
-- [BGE Models](https://huggingface.co/BAAI)
+### Server Architecture
+- **Development Server** (`app/server.py`): Full-featured with WebSocket support, background tasks, comprehensive API
+- **Production Server** (`production_server.py`): Simplified, optimized for production use with direct Milvus operations
 
-### Papers & Research
-- "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks" (Lewis et al., 2020)
-- "Dense Passage Retrieval for Open-Domain Question Answering" (Karpukhin et al., 2020)
+### Key Design Patterns
+- All processing uses async/await patterns
+- Progress tracking via WebSocket for long operations
+- Comprehensive error handling with HTTP status codes
+- Modular pipeline components for easy maintenance
+- Docker-first deployment strategy
 
-### Community
-- [GitHub Issues](https://github.com/yourusername/onedocs-rag/issues)
-- [Discord Server](#)
+## Data Flow
 
-## 📄 Lisans
+### Ingestion Pipeline
+1. PDF upload via FastAPI multipart/form-data
+2. PyMuPDF parsing with metadata extraction
+3. Text chunking (512 tokens, 50 overlap default)
+4. Embedding generation (OpenAI text-embedding-3-small)
+5. Vector storage in Milvus with metadata
+6. Raw text storage in MinIO
 
-MIT License - Detaylar için [LICENSE](LICENSE) dosyasına bakın.
+### Query Pipeline  
+1. Question embedding generation
+2. Vector similarity search in Milvus (top-k)
+3. Optional reranking with BGE-reranker-v2-m3
+4. Context assembly with retrieved chunks
+5. LLM generation with source citation
 
----
+## Production Readiness Status
 
-**Version:** 1.0.0  
-**Last Updated:** 2024-12-04  
-**Maintainer:** AI Team
+### ✅ Ready Components
+- Docker containerization with health checks
+- Production server optimized for deployment
+- Persistent storage (Milvus + MinIO)
+- API key management via environment variables
+- Comprehensive logging and error handling
+- CORS middleware configured
+- OpenAI API integration stable
+
+### ⚠️ Production Gaps Identified
+- No authentication/authorization system
+- Rate limiting not implemented  
+- No input validation for malicious content
+- Missing backup/restore procedures
+- No monitoring/metrics collection
+- SSL/TLS configuration not included
+- No graceful shutdown handling
+
+### 🛠️ Deployment Requirements
+- Minimum 8GB RAM (16GB recommended)
+- Docker & Docker Compose v2.0+
+- Valid OpenAI API key with sufficient credits
+- Stable internet connection for API calls
+- 20GB+ disk space for data storage
+
+## Testing & Validation
+
+Sample PDF exists in repository: `POSTA GEZİCİ PERSONELİNE VERİLECEK HARCIRAH TÜZÜĞÜ_78670.pdf`
+
+Test results are stored in `test_output/` directory with JSON reports for:
+- Document processing results
+- System integration tests  
+- Performance benchmarks
+
+## Common Operations
+
+### Adding New Features
+1. Implement in appropriate module (`app/`)
+2. Add corresponding endpoint to `server.py`
+3. Update `production_server.py` if needed
+4. Test with Docker environment
+5. Update documentation
+
+### Debugging Issues
+1. Check service health: `curl http://localhost:8080/health`
+2. View logs: `docker compose logs -f [service_name]`
+3. Test individual components with validation scripts
+4. Use Attu GUI for Milvus debugging: http://localhost:8000
+5. Use MinIO console for storage debugging: http://localhost:9001
+
+### Performance Optimization
+- Milvus indexing parameters in `app/index.py`
+- Chunking strategy configuration in `app/chunk.py`
+- Embedding batch processing in `app/embed.py`
+- Connection pooling and resource management
+
+## Model & API Dependencies
+
+- **OpenAI Models**: gpt-4o-mini (generation), text-embedding-3-small (embeddings)
+- **Local Models**: intfloat/multilingual-e5-small, BAAI/bge-reranker-v2-m3
+- **Embedding Dimensions**: 1536 (OpenAI), variable for local models
+- **Token Limits**: 512 chunks with 50 token overlap
