@@ -113,15 +113,15 @@ services:
             - rag-network
         restart: unless-stopped
 
-    frontend:
-        container_name: rag-frontend
+    streamlit:
+        container_name: rag-streamlit
         build:
-            context: ./frontend
-            dockerfile: Dockerfile
+            context: .
+            dockerfile: Dockerfile.streamlit
         ports:
-            - "3000:80"
+            - "8501:8501"
         environment:
-            - REACT_APP_API_URL=http://localhost:8090
+            - API_BASE_URL=http://app:8080
         depends_on:
             - app
         networks:
