@@ -516,3 +516,7 @@ def get_default_chunker():
 
 def get_text_chunker(chunk_size=512, chunk_overlap=50, method="token"):
     return TextChunker(chunk_size, chunk_overlap, method)
+
+def get_document_chunker(chunk_size=512, chunk_overlap=50):
+    """Factory function to create DocumentBasedChunker instances"""
+    return DocumentBasedChunker(chunk_size, chunk_overlap)
