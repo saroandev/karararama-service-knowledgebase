@@ -16,6 +16,7 @@ class Settings:
     MILVUS_COLLECTION = os.getenv("MILVUS_COLLECTION", "rag_chunks")
 
     EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
+    EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))
     RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
 
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")

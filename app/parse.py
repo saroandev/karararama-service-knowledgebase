@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime
 import hashlib
 
-import pymupdf
-from pymupdf import Document
+import fitz as pymupdf
+from fitz import Document
 
 logger = logging.getLogger(__name__)
 

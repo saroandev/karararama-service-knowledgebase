@@ -13,7 +13,7 @@ class EmbeddingGenerator:
         self,
         model_name: Optional[str] = None,
         device: Optional[str] = None,
-        batch_size: int = 32
+        batch_size: Optional[int] = 32
     ):
         """
         Initialize embedding generator
@@ -24,7 +24,7 @@ class EmbeddingGenerator:
             batch_size: Batch size for encoding
         """
         self.model_name = model_name or settings.EMBEDDING_MODEL
-        self.batch_size = batch_size
+        self.batch_size = batch_size or settings.EMBEDDING_BATCH_SIZE
         
         # Determine device
         if device:

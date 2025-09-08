@@ -70,7 +70,12 @@ class DocumentInfo(BaseModel):
 
 # Global imports (to avoid repeated imports)
 import sys
+import os
 sys.path.append('.')
+
+# Import MinIO storage
+from minio import Minio
+from minio.error import S3Error
 
 @app.get("/health")
 async def health_check():
@@ -119,7 +124,39 @@ async def ingest_document(file: UploadFile = File(...)):
         
         logger.info(f"Document ID: {document_id}, Hash: {file_hash}")
         
-        # 1. PDF Parse
+        # 1. Initialize MinIO client (MANDATORY)
+        try:
+            import urllib3
+            # Create custom HTTP client with longer timeout
+            http_client = urllib3.PoolManager(
+                timeout=30,
+                maxsize=10,
+                retries=urllib3.Retry(
+                    total=3,
+                    backoff_factor=0.2,
+                    status_forcelist=[500, 502, 503, 504]
+                )
+            )
+            
+            minio_client = Minio(
+                os.getenv('MINIO_ENDPOINT', 'localhost:9000'),
+                access_key=os.getenv('MINIO_ACCESS_KEY', 'minioadmin'),
+                secret_key=os.getenv('MINIO_SECRET_KEY', 'minioadmin'),
+                secure=False,
+                http_client=http_client
+            )
+            
+            # Ensure buckets exist
+            for bucket_name in ['raw-documents', 'chunks', 'processed-texts']:
+                if not minio_client.bucket_exists(bucket_name):
+                    minio_client.make_bucket(bucket_name)
+                    logger.info(f"Created bucket: {bucket_name}")
+            logger.info("MinIO connected successfully")
+        except Exception as e:
+            logger.warning(f"MinIO connection failed: {e}. Continuing without MinIO.")
+            minio_client = None
+        
+        # 2. PDF Parse
         from app.parse import PDFParser
         parser = PDFParser()
         pages, metadata = parser.extract_text_from_pdf(pdf_data)
@@ -127,7 +164,58 @@ async def ingest_document(file: UploadFile = File(...)):
         document_title = metadata.title or file.filename.replace('.pdf', '')
         logger.info(f"Parsed {len(pages)} pages, title: {document_title}")
         
-        # 2. Text chunking (simple approach to avoid sentence-transformers)
+        # 3. Save original PDF to MinIO (MANDATORY)
+        try:
+            pdf_path = f"{document_id}/original.pdf"
+            minio_client.put_object(
+                bucket_name="raw-documents",
+                object_name=pdf_path,
+                data=BytesIO(pdf_data),
+                length=len(pdf_data),
+                content_type="application/pdf",
+                metadata={
+                    "document-id": document_id,
+                    "upload-time": datetime.datetime.now().isoformat()
+                }
+            )
+            logger.info(f"Saved original PDF to MinIO: {pdf_path}")
+        except Exception as e:
+            logger.error(f"Failed to save PDF to MinIO: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to save PDF to MinIO: {str(e)}"
+            )
+        
+        # 4. Save metadata to MinIO (MANDATORY)
+        metadata_obj = {
+            "document_id": document_id,
+            "title": document_title,
+            "filename": file.filename,
+            "file_hash": file_hash,
+            "page_count": len(pages),
+            "file_size": len(pdf_data),
+            "upload_time": datetime.datetime.now().isoformat(),
+            "processing_status": "in_progress"
+        }
+        
+        try:
+            metadata_path = f"{document_id}/metadata.json"
+            minio_client.put_object(
+                bucket_name="raw-documents",
+                object_name=metadata_path,
+                data=BytesIO(json.dumps(metadata_obj).encode()),
+                length=len(json.dumps(metadata_obj).encode()),
+                content_type="application/json"
+            )
+            logger.info(f"Saved metadata to MinIO: {metadata_path}")
+        except Exception as e:
+            logger.error(f"Failed to save metadata to MinIO: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to save metadata to MinIO: {str(e)}"
+            )
+        
+        # 5. Text chunking (simple approach to avoid sentence-transformers)
         chunks = []
         for i, page in enumerate(pages):
             text = page.text.strip()
@@ -148,10 +236,34 @@ async def ingest_document(file: UploadFile = File(...)):
                     page_number=page.page_number
                 )
                 chunks.append(chunk)
+                
+                # Save chunk to MinIO (MANDATORY)
+                chunk_data = {
+                    "chunk_id": chunk_id,
+                    "document_id": document_id,
+                    "document_title": document_title,
+                    "text": text,
+                    "page_number": page.page_number,
+                    "chunk_index": i,
+                    "metadata": {
+                        "char_count": len(text),
+                        "word_count": len(text.split()),
+                        "created_at": datetime.datetime.now().isoformat()
+                    }
+                }
+                
+                chunk_path = f"{document_id}/chunk_{i:04d}.json"
+                minio_client.put_object(
+                    bucket_name="chunks",
+                    object_name=chunk_path,
+                    data=BytesIO(json.dumps(chunk_data, ensure_ascii=False).encode()),
+                    length=len(json.dumps(chunk_data, ensure_ascii=False).encode()),
+                    content_type="application/json"
+                )
         
-        logger.info(f"Created {len(chunks)} chunks")
+        logger.info(f"Created {len(chunks)} chunks and saved to MinIO")
         
-        # 3. Connect to production Milvus
+        # 6. Connect to production Milvus
         from pymilvus import connections, Collection
         connections.connect('default', host='localhost', port='19530')
         collection = Collection('rag_production_v1')
@@ -174,7 +286,7 @@ async def ingest_document(file: UploadFile = File(...)):
                 message="Document already exists in database"
             )
         
-        # 4. Generate embeddings
+        # 7. Generate embeddings
         from openai import OpenAI
         client = OpenAI()
         
@@ -213,7 +325,7 @@ async def ingest_document(file: UploadFile = File(...)):
             if (i + 1) % 5 == 0:
                 logger.info(f"Processed {i + 1}/{len(chunks)} chunks")
         
-        # 5. Insert to Milvus (PERSISTENT)
+        # 8. Insert to Milvus (PERSISTENT)
         logger.info("Inserting to production Milvus...")
         
         data = [
@@ -223,6 +335,19 @@ async def ingest_document(file: UploadFile = File(...)):
         
         insert_result = collection.insert(data)
         collection.load()  # Reload for immediate search
+        
+        # 9. Update metadata in MinIO (mark as completed)
+        metadata_obj["processing_status"] = "completed"
+        metadata_obj["chunks_created"] = len(chunks)
+        metadata_obj["processing_time"] = (datetime.datetime.now() - start_time).total_seconds()
+        
+        minio_client.put_object(
+            bucket_name="raw-documents",
+            object_name=f"{document_id}/metadata.json",
+            data=BytesIO(json.dumps(metadata_obj).encode()),
+            length=len(json.dumps(metadata_obj).encode()),
+            content_type="application/json"
+        )
         
         processing_time = (datetime.datetime.now() - start_time).total_seconds()
         
@@ -262,13 +387,29 @@ async def query_documents(request: QueryRequest):
     try:
         logger.info(f"Query: {request.question}")
         
-        # Connect to Milvus
+        # Connect to services
         from pymilvus import connections, Collection
         from openai import OpenAI
         
         connections.connect('default', host='localhost', port='19530')
         collection = Collection('rag_production_v1')
         client = OpenAI()
+        
+        # Initialize MinIO client (MANDATORY for full text retrieval)
+        try:
+            minio_client = Minio(
+                os.getenv('MINIO_ENDPOINT', 'localhost:9000'),
+                access_key=os.getenv('MINIO_ACCESS_KEY', 'minioadmin'),
+                secret_key=os.getenv('MINIO_SECRET_KEY', 'minioadmin'),
+                secure=False
+            )
+            logger.info("MinIO connected for query processing")
+        except Exception as e:
+            logger.error(f"MinIO connection failed for query: {e}")
+            raise HTTPException(
+                status_code=503,
+                detail=f"MinIO storage is required but not available: {str(e)}"
+            )
         
         # Generate query embedding
         query_response = client.embeddings.create(
@@ -300,7 +441,7 @@ async def query_documents(request: QueryRequest):
                 model_used="gpt-4o-mini"
             )
         
-        # Prepare context
+        # Prepare context and load full texts from MinIO
         sources = []
         context_parts = []
         
@@ -312,17 +453,29 @@ async def query_documents(request: QueryRequest):
             page_num = result.entity.get('page_num')
             created_at = result.entity.get('created_at')
             
+            # Try to load full text from MinIO if available
+            try:
+                chunk_path = f"{doc_id}/chunk_{i:04d}.json"
+                response = minio_client.get_object("chunks", chunk_path)
+                chunk_data = json.loads(response.read().decode('utf-8'))
+                full_text = chunk_data.get('text', text)
+                response.close()
+                response.release_conn()
+            except Exception as e:
+                logger.debug(f"Could not load chunk from MinIO: {e}, using cached text")
+                full_text = text
+            
             sources.append({
                 "rank": i + 1,
                 "score": round(score, 3),
                 "document_id": doc_id,
                 "document_title": doc_title,
                 "page_number": page_num,
-                "text_preview": text[:200] + "..." if len(text) > 200 else text,
+                "text_preview": full_text[:200] + "..." if len(full_text) > 200 else full_text,
                 "created_at": created_at
             })
             
-            context_parts.append(f"[Kaynak {i+1} - Sayfa {page_num}]: {text}")
+            context_parts.append(f"[Kaynak {i+1} - Sayfa {page_num}]: {full_text}")
         
         # Generate answer
         context = "\n\n".join(context_parts)
