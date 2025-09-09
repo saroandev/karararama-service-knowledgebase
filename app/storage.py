@@ -402,6 +402,27 @@ class MinIOStorage:
             logger.error(f"Error listing documents: {e}")
             return []
     
+    def upload_chunk(self, document_id: str, chunk_id: str, chunk_text: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Upload a single chunk to MinIO
+        
+        Args:
+            document_id: Document identifier
+            chunk_id: Chunk identifier
+            chunk_text: Text content of the chunk
+            metadata: Optional metadata for the chunk
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        chunk_data = {
+            "document_id": document_id,
+            "chunk_id": chunk_id,
+            "text": chunk_text,
+            "metadata": metadata or {}
+        }
+        return self.save_chunk(document_id, chunk_id, chunk_data)
+    
     def delete_document(self, document_id: str) -> bool:
         """
         Delete document and all its chunks
