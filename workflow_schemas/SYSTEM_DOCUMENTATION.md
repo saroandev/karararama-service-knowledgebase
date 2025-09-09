@@ -12,6 +12,8 @@ Bu dokümantasyon, OneDocs RAG (Retrieval-Augmented Generation) sisteminin tüm 
 PDF Upload → Parse → Chunk → Embed → Store → Index → Retrieve → Generate → Response
 ```
 
+**Detaylı veri akışı için bakınız:** [DETAILED_DATA_FLOW.md](./DETAILED_DATA_FLOW.md)
+
 ### Teknoloji Stack
 
 -   **Storage**: MinIO (S3-uyumlu object storage)
@@ -43,6 +45,9 @@ PDF Upload → Parse → Chunk → Embed → Store → Index → Retrieve → Ge
 
 ### 2. **parse.py** - PDF Döküman İşleme
 
+**Input:** `bytes` (PDF binary data)  
+**Output:** `Tuple[List[PageContent], DocumentMetadata]` (sayfa listesi + doküman metadatası)
+
 **Önemli Noktalar:**
 
 -   PyMuPDF (fitz) kullanılarak PDF'ler bellekte işleniyor - disk I/O'dan kaçınılıyor
@@ -62,6 +67,9 @@ PDF Upload → Parse → Chunk → Embed → Store → Index → Retrieve → Ge
 ---
 
 ### 3. **chunk.py** - Metin Parçalama Stratejileri
+
+**Input:** `List[PageContent]` (parse'dan gelen sayfalar)  
+**Output:** `List[Chunk]` (parçalanmış metin blokları, her biri ~512 token)
 
 **Önemli Noktalar:**
 
@@ -97,6 +105,9 @@ PDF Upload → Parse → Chunk → Embed → Store → Index → Retrieve → Ge
 
 ### 4. **embed.py** - Embedding Üretimi
 
+**Input:** `List[str]` (chunk metinleri)  
+**Output:** `List[List[float]]` (vektörler, boyut: 1536 OpenAI veya 384-768 local)
+
 **Önemli Noktalar:**
 
 -   SentenceTransformer ile normalize edilmiş embedding'ler - cosine similarity için optimize
@@ -127,6 +138,9 @@ PDF Upload → Parse → Chunk → Embed → Store → Index → Retrieve → Ge
 
 ### 5. **index.py** - Vector Database İndeksleme
 
+**Input:** `List[Dict]` (chunks) + `List[List[float]]` (embeddings)  
+**Output:** `int` (indekslenen chunk sayısı)
+
 **Önemli Noktalar:**
 
 -   Milvus vector database kullanılarak 384 boyutlu embedding'ler indeksleniyor
@@ -150,6 +164,9 @@ PDF Upload → Parse → Chunk → Embed → Store → Index → Retrieve → Ge
 ---
 
 ### 6. **storage.py** - Object Storage Yönetimi
+
+**Input:** `bytes` (PDF) veya `List[Dict]` (chunks)  
+**Output:** `str` (document_id) veya `int` (saved count)
 
 **Önemli Noktalar:**
 
@@ -176,6 +193,9 @@ PDF Upload → Parse → Chunk → Embed → Store → Index → Retrieve → Ge
 ---
 
 ### 7. **retrieve.py** - Akıllı Bilgi Getirme
+
+**Input:** `str` (query text)  
+**Output:** `List[Dict]` (en alakalı chunks + scores)
 
 **Önemli Noktalar:**
 
@@ -213,6 +233,9 @@ PDF Upload → Parse → Chunk → Embed → Store → Index → Retrieve → Ge
 
 ### 8. **generate.py** - LLM ile Yanıt Üretimi
 
+**Input:** `str` (question) + `List[Dict]` (context chunks)  
+**Output:** `str` (generated answer)
+
 **Önemli Noktalar:**
 
 -   İki provider desteği: OpenAI (GPT-4) ve Ollama (yerel LLM) - maliyet ve gizlilik dengesi
@@ -243,6 +266,9 @@ PDF Upload → Parse → Chunk → Embed → Store → Index → Retrieve → Ge
 ---
 
 ### 9. **ingest.py** - Ana Veri İşleme Pipeline'ı
+
+**Input:** `bytes` (PDF file) + metadata  
+**Output:** `Dict` (processing results: document_id, stats, timing)
 
 **Önemli Noktalar:**
 
@@ -278,6 +304,9 @@ PDF Upload → Parse → Chunk → Embed → Store → Index → Retrieve → Ge
 ---
 
 ### 10. **server.py** - REST API ve WebSocket Server
+
+**Input:** HTTP requests (multipart/form-data veya JSON)  
+**Output:** JSON responses veya WebSocket messages
 
 **Önemli Noktalar:**
 
