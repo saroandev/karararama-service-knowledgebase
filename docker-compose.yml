@@ -27,15 +27,23 @@ services:
             MINIO_ROOT_USER: minioadmin
             MINIO_ROOT_PASSWORD: minioadmin
             MINIO_SCANNER_SPEED: slowest
-            MINIO_API_REQUESTS_MAX: 1600
-            MINIO_API_REQUESTS_DEADLINE: 10s
+            MINIO_API_REQUESTS_MAX: 100000
+            MINIO_API_REQUESTS_DEADLINE: 10m
             MINIO_UPDATE_MINISIGN_PUBKEY: off
+            MINIO_API_TRANSITION_WORKERS: 500
+            MINIO_API_REPLICATION_MAX_WORKERS: 500
+            MINIO_STORAGE_CLASS_STANDARD: EC:0
+            MINIO_API_SYNC_EVENTS: off
+            MINIO_CACHE: off
+            MINIO_CACHE_EXCLUDE: "*.pdf"
         ports:
             - "9000:9000"
             - "9001:9001"
         volumes:
             - ./data/minio:/data
-        command: server /data --console-address ":9001"
+        command: server /data --console-address ":9001" --address ":9000"
+        mem_limit: 4g
+        memswap_limit: 4g
         ulimits:
             nofile:
                 soft: 65536

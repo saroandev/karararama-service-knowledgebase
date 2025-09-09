@@ -59,7 +59,7 @@ class MilvusIndexer:
             FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, max_length=100),
             FieldSchema(name="chunk_index", dtype=DataType.INT64),
             FieldSchema(name="page_number", dtype=DataType.INT64),
-            FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=65535),
+            FieldSchema(name="minio_object_path", dtype=DataType.VARCHAR, max_length=500),  # MinIO reference
             FieldSchema(name="metadata", dtype=DataType.VARCHAR, max_length=65535),
             FieldSchema(name="created_at", dtype=DataType.INT64)
         ]
@@ -114,7 +114,7 @@ class MilvusIndexer:
             "chunk_id": [],
             "chunk_index": [],
             "page_number": [],
-            "text": [],
+            "minio_object_path": [],
             "metadata": [],
             "created_at": []
         }
@@ -138,7 +138,7 @@ class MilvusIndexer:
             data["chunk_id"].append(chunk.get("chunk_id", ""))
             data["chunk_index"].append(chunk.get("chunk_index", 0))
             data["page_number"].append(chunk.get("metadata", {}).get("page_number", 0))
-            data["text"].append(chunk.get("text", "")[:65535])  # Truncate if too long
+            data["minio_object_path"].append(chunk.get("minio_object_path", ""))  # MinIO reference
             data["metadata"].append(json.dumps(chunk.get("metadata", {}))[:65535])
             data["created_at"].append(timestamp)
         
@@ -192,7 +192,7 @@ class MilvusIndexer:
             param=search_params,
             limit=top_k,
             expr=filters,
-            output_fields=["document_id", "chunk_id", "chunk_index", "page_number", "text", "metadata"]
+            output_fields=["document_id", "chunk_id", "chunk_index", "page_number", "minio_object_path", "metadata"]
         )
         
         # Format results
@@ -206,7 +206,7 @@ class MilvusIndexer:
                     "chunk_id": hit.entity.get("chunk_id"),
                     "chunk_index": hit.entity.get("chunk_index"),
                     "page_number": hit.entity.get("page_number"),
-                    "text": hit.entity.get("text"),
+                    "minio_object_path": hit.entity.get("minio_object_path"),
                     "metadata": json.loads(hit.entity.get("metadata", "{}"))
                 }
                 search_results.append(result)
@@ -321,7 +321,7 @@ class MilvusIndexer:
             param=search_params,
             limit=top_k,
             expr=filters,
-            output_fields=["document_id", "chunk_id", "chunk_index", "page_number", "text", "metadata"]
+            output_fields=["document_id", "chunk_id", "chunk_index", "page_number", "minio_object_path", "metadata"]
         )
         
         # Format results for each query
@@ -336,7 +336,7 @@ class MilvusIndexer:
                     "chunk_id": hit.entity.get("chunk_id"),
                     "chunk_index": hit.entity.get("chunk_index"),
                     "page_number": hit.entity.get("page_number"),
-                    "text": hit.entity.get("text"),
+                    "minio_object_path": hit.entity.get("minio_object_path"),
                     "metadata": json.loads(hit.entity.get("metadata", "{}"))
                 }
                 query_hits.append(result)

@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="0" skipped="0" tests="1" time="0.406" timestamp="2025-09-08T16:55:13.758302+03:00" hostname="MacBookAir.home"><testcase classname="" name="tests.unit.test_chunk" time="0.000"><error message="collection failure">ImportError while importing test module '/Users/ugur/Desktop/Onedocs-RAG-Project/workspaces/system-test/tests/unit/test_chunk.py'.
-Hint: make sure your test modules/packages have valid Python names.
-Traceback:
-/Users/ugur/opt/anaconda3/lib/python3.9/importlib/__init__.py:127: in import_module
-    return _bootstrap._gcd_import(name[level:], package, level)
-tests/unit/test_chunk.py:6: in &lt;module&gt;
-    from app.chunk import DocumentBasedChunker, get_document_chunker
-E   ImportError: cannot import name 'get_document_chunker' from 'app.chunk' (/Users/ugur/Desktop/Onedocs-RAG-Project/workspaces/system-test/app/chunk.py)</error></testcase></testsuite></testsuites>

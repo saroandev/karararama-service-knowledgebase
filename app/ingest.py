@@ -123,34 +123,37 @@ class IngestionPipeline:
             chunk_texts = [chunk.text for chunk in chunks]
             embeddings = self.embedder.generate_embeddings_batch(chunk_texts, show_progress=False)
             
-            # Stage 5: Save chunks to storage
-            self._update_progress("storing", 70.0, "Saving chunks to storage", 5, 6)
+            # Stage 5: Save chunks to MinIO storage FIRST
+            self._update_progress("storing", 70.0, "Saving chunks to MinIO storage", 5, 6)
             
-            # Prepare chunk data for storage
+            # Prepare chunk data for storage with full text
             chunk_data_list = []
             for chunk in chunks:
                 chunk_dict = {
                     "chunk_id": chunk.chunk_id,
+                    "document_id": chunk.document_id,
                     "text": chunk.text,
                     "metadata": chunk.metadata,
                     "token_count": chunk.token_count,
-                    "char_count": chunk.char_count
+                    "char_count": chunk.char_count,
+                    "chunk_index": chunk.chunk_index
                 }
                 chunk_data_list.append(chunk_dict)
             
-            saved_count = self.storage.save_chunks_batch(document_id, chunk_data_list)
+            # Save to MinIO and get paths
+            minio_paths = self.storage.save_chunks_batch(document_id, chunk_data_list)
             
-            # Stage 6: Index in vector database
-            self._update_progress("indexing", 85.0, "Indexing chunks in vector database", 6, 6)
+            # Stage 6: Index in vector database (without text, only reference)
+            self._update_progress("indexing", 85.0, "Indexing chunks in Milvus with MinIO references", 6, 6)
             
-            # Prepare data for Milvus
+            # Prepare data for Milvus with MinIO references
             milvus_chunks = []
-            for chunk in chunks:
+            for i, chunk in enumerate(chunks):
                 milvus_chunk = {
                     "chunk_id": chunk.chunk_id,
                     "document_id": chunk.document_id,
                     "chunk_index": chunk.chunk_index,
-                    "text": chunk.text,
+                    "minio_object_path": minio_paths[i] if i < len(minio_paths) else "",
                     "metadata": chunk.metadata
                 }
                 milvus_chunks.append(milvus_chunk)
@@ -171,7 +174,7 @@ class IngestionPipeline:
                 "stats": {
                     "pages_processed": len(pages),
                     "chunks_created": len(chunks),
-                    "chunks_saved": saved_count,
+                    "chunks_saved": len(minio_paths),
                     "chunks_indexed": indexed_count,
                     "total_tokens": sum(chunk.token_count for chunk in chunks),
                     "avg_chunk_size": sum(chunk.token_count for chunk in chunks) / len(chunks) if chunks else 0

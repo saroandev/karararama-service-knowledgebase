@@ -162,26 +162,46 @@ class Retriever:
     
     def _enrich_results(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Enrich results with additional data from storage
+        Enrich results by fetching text from MinIO using the stored paths
         
         Args:
-            results: Search results
+            results: Search results from Milvus
         
         Returns:
-            Enriched results
+            Enriched results with text from MinIO
         """
-        enriched = []
-        
+        # Collect all MinIO paths
+        minio_paths = []
         for result in results:
-            # Try to get full chunk data from storage
-            chunk_data = self.storage.get_chunk(
-                result["document_id"],
-                result["chunk_id"].split("_")[-2] + "_" + result["chunk_id"].split("_")[-1]
-            )
-            
-            if chunk_data:
-                # Merge storage data with search result
-                result.update(chunk_data)
+            path = result.get("minio_object_path")
+            if path:
+                minio_paths.append(path)
+            else:
+                minio_paths.append(None)
+        
+        # Batch fetch from MinIO
+        chunk_data_list = self.storage.get_chunks_batch([p for p in minio_paths if p])
+        
+        # Map back to results
+        enriched = []
+        chunk_idx = 0
+        
+        for i, result in enumerate(results):
+            if minio_paths[i]:
+                if chunk_idx < len(chunk_data_list) and chunk_data_list[chunk_idx]:
+                    # Merge MinIO data with search result
+                    chunk_data = chunk_data_list[chunk_idx]
+                    result["text"] = chunk_data.get("text", "")
+                    result["token_count"] = chunk_data.get("token_count", 0)
+                    result["char_count"] = chunk_data.get("char_count", 0)
+                    # Merge additional metadata
+                    if "metadata" in chunk_data:
+                        result["metadata"].update(chunk_data["metadata"])
+                chunk_idx += 1
+            else:
+                # No MinIO path, text not available
+                result["text"] = ""
+                logger.warning(f"No MinIO path for chunk {result.get('chunk_id')}")
             
             enriched.append(result)
         
