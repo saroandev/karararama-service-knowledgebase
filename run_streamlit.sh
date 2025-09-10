@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Streamlit Development Server Startup Script
+# Streamlit Chat Interface Startup Script
 
-echo "🎨 Starting Streamlit Development Server..."
+echo "💬 Starting RAG Chat Interface..."
 
 # Set API base URL
 export API_BASE_URL=http://localhost:8080
@@ -30,11 +30,19 @@ if [ $? -ne 0 ]; then
     pip install streamlit
 fi
 
+# Check if python-dotenv is installed
+python -c "import dotenv" 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo "⚠️ python-dotenv not found. Installing..."
+    pip install python-dotenv
+fi
+
 # Display environment configuration
 echo ""
 echo "📋 Configuration:"
 echo "  - API_BASE_URL: $API_BASE_URL"
-echo "  - Streamlit URL: http://localhost:8501"
+echo "  - Chat Interface URL: http://localhost:8501"
+echo "  - Interface Type: ChatGPT-like UI"
 echo ""
 
 # Check if FastAPI is running
@@ -42,14 +50,19 @@ echo "🔍 Checking FastAPI connection..."
 curl -s -o /dev/null -w "FastAPI Status: %{http_code}\n" http://localhost:8080/health
 if [ $? -ne 0 ]; then
     echo "⚠️ Warning: FastAPI server might not be running at http://localhost:8080"
-    echo "   Please ensure FastAPI is running before using the Streamlit interface"
+    echo "   Please ensure FastAPI is running before using the chat interface"
 fi
 
 echo ""
-echo "🌐 Starting Streamlit at http://localhost:8501"
+echo "🌐 Starting Chat Interface at http://localhost:8501"
+echo "💡 Features:"
+echo "   • ChatGPT-like interface"
+echo "   • Multi-file upload support"
+echo "   • Conversation history"
+echo "   • Auto-ingest on file upload"
 echo ""
 echo "Press Ctrl+C to stop the server"
 echo "----------------------------------------"
 
-# Run streamlit
-streamlit run streamlit_app.py --server.port=8501 --server.address=0.0.0.0
+# Run streamlit with the new chat app
+streamlit run streamlit_chat_app.py --server.port=8501 --server.address=0.0.0.0
