@@ -460,6 +460,20 @@ class MinIOStorage:
                     obj.object_name
                 )
             
+            # Delete from raw-documents bucket
+            raw_objects = self.client.list_objects(
+                "raw-documents",
+                prefix=f"{document_id}/",
+                recursive=True
+            )
+            
+            for obj in raw_objects:
+                self.client.remove_object(
+                    "raw-documents",
+                    obj.object_name
+                )
+                logger.info(f"Deleted from raw-documents: {obj.object_name}")
+            
             logger.info(f"Deleted document and chunks: {document_id}")
             return True
         except S3Error as e:
@@ -536,22 +550,51 @@ class MinIOStorage:
             # Sanitize filename for MinIO while preserving original in metadata
             import unicodedata
             import re
+            import os
             
-            # Normalize unicode and replace problematic characters
-            sanitized_filename = unicodedata.normalize('NFKD', filename)
-            # Replace Turkish characters with ASCII equivalents
+            # Convert to lowercase first
+            sanitized_filename = filename.lower()
+            
+            # Replace Turkish characters with proper ASCII equivalents
+            # More comprehensive Turkish character mapping
             replacements = {
-                'İ': 'I', 'ı': 'i', 'Ğ': 'G', 'ğ': 'g',
-                'Ü': 'U', 'ü': 'u', 'Ş': 'S', 'ş': 's',
-                'Ö': 'O', 'ö': 'o', 'Ç': 'C', 'ç': 'c'
+                'ı': 'i', 'ğ': 'g', 'ü': 'u', 'ş': 's', 'ö': 'o', 'ç': 'c',
+                'İ': 'i', 'Ğ': 'g', 'Ü': 'u', 'Ş': 's', 'Ö': 'o', 'Ç': 'c',
+                'â': 'a', 'î': 'i', 'û': 'u', 'ê': 'e', 'ô': 'o',
+                'Â': 'a', 'Î': 'i', 'Û': 'u', 'Ê': 'e', 'Ô': 'o'
             }
             for tr_char, ascii_char in replacements.items():
                 sanitized_filename = sanitized_filename.replace(tr_char, ascii_char)
             
-            # Keep only alphanumeric, underscore, dash, and dot
-            sanitized_filename = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', sanitized_filename)
-            # Remove consecutive underscores
-            sanitized_filename = re.sub(r'_+', '_', sanitized_filename)
+            # Normalize unicode to handle any remaining special characters
+            sanitized_filename = unicodedata.normalize('NFKD', sanitized_filename)
+            sanitized_filename = sanitized_filename.encode('ascii', 'ignore').decode('ascii')
+            
+            # Get the name and extension separately
+            name_part, ext = os.path.splitext(sanitized_filename)
+            
+            # Replace punctuation and special chars with spaces, keep numbers and letters
+            name_part = re.sub(r'[^a-z0-9\s]', ' ', name_part)
+            
+            # Replace multiple spaces with single space
+            name_part = re.sub(r'\s+', ' ', name_part)
+            
+            # Remove leading/trailing spaces
+            name_part = name_part.strip()
+            
+            # Replace spaces with underscores for the filename
+            name_part = name_part.replace(' ', '_')
+            
+            # Handle long filenames - truncate to 200 chars + extension
+            MAX_NAME_LENGTH = 200
+            if len(name_part) > MAX_NAME_LENGTH:
+                # Keep first 195 chars and add a short hash suffix for uniqueness
+                import hashlib
+                hash_suffix = hashlib.md5(filename.encode()).hexdigest()[:5]
+                name_part = f"{name_part[:195]}_{hash_suffix}"
+            
+            # Reconstruct filename with extension
+            sanitized_filename = f"{name_part}{ext}" if ext else name_part
             
             # Upload PDF with sanitized filename
             pdf_object_name = f"{document_id}/{sanitized_filename}"
