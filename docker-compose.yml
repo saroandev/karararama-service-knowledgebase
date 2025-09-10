@@ -100,49 +100,49 @@ services:
         networks:
             - rag-network
 
-    app:
-        container_name: rag-app
-        build:
-            context: .
-            dockerfile: Dockerfile
-        ports:
-            - "8080:8080"
-        environment:
-            - MINIO_ENDPOINT=minio:9000
-            - MINIO_ACCESS_KEY=minioadmin
-            - MINIO_SECRET_KEY=minioadmin
-            - MINIO_SECURE=false
-            - MILVUS_HOST=milvus
-            - MILVUS_PORT=19530
-            - PYTHONUNBUFFERED=1
-        env_file:
-            - .env
-        volumes:
-            - ./app:/app/app
-            - ./logs:/app/logs
-        depends_on:
-            milvus:
-                condition: service_healthy
-            minio:
-                condition: service_healthy
-        networks:
-            - rag-network
-        restart: unless-stopped
+    # app:
+    #     container_name: rag-app
+    #     build:
+    #         context: .
+    #         dockerfile: Dockerfile
+    #     ports:
+    #         - "8080:8080"
+    #     environment:
+    #         - MINIO_ENDPOINT=minio:9000
+    #         - MINIO_ACCESS_KEY=minioadmin
+    #         - MINIO_SECRET_KEY=minioadmin
+    #         - MINIO_SECURE=false
+    #         - MILVUS_HOST=milvus
+    #         - MILVUS_PORT=19530
+    #         - PYTHONUNBUFFERED=1
+    #     env_file:
+    #         - .env
+    #     volumes:
+    #         - ./app:/app/app
+    #         - ./logs:/app/logs
+    #     depends_on:
+    #         milvus:
+    #             condition: service_healthy
+    #         minio:
+    #             condition: service_healthy
+    #     networks:
+    #         - rag-network
+    #     restart: unless-stopped
 
-    streamlit:
-        container_name: rag-streamlit
-        build:
-            context: .
-            dockerfile: Dockerfile.streamlit
-        ports:
-            - "8501:8501"
-        environment:
-            - API_BASE_URL=http://app:8080
-        depends_on:
-            - app
-        networks:
-            - rag-network
-        restart: unless-stopped
+    # streamlit:
+    #     container_name: rag-streamlit
+    #     build:
+    #         context: .
+    #         dockerfile: Dockerfile.streamlit
+    #     ports:
+    #         - "8501:8501"
+    #     environment:
+    #         - API_BASE_URL=http://app:8080
+    #     depends_on:
+    #         - app
+    #     networks:
+    #         - rag-network
+    #     restart: unless-stopped
 
 networks:
     rag-network:
