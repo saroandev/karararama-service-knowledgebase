@@ -511,6 +511,88 @@ class MinIOStorage:
         except S3Error as e:
             logger.error(f"Error getting document chunks: {e}")
             return []
+    
+    def upload_pdf_to_raw_documents(self, document_id: str, file_data: bytes, 
+                                   filename: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Upload PDF to raw-documents bucket with original filename
+        
+        Args:
+            document_id: Document identifier (e.g., doc_xxx)
+            file_data: PDF file bytes
+            filename: Original filename to preserve
+            metadata: Optional metadata dictionary
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Ensure raw-documents bucket exists
+            raw_bucket = "raw-documents"
+            if not self.client.bucket_exists(raw_bucket):
+                self.client.make_bucket(raw_bucket)
+                logger.info(f"Created bucket: {raw_bucket}")
+            
+            # Sanitize filename for MinIO while preserving original in metadata
+            import unicodedata
+            import re
+            
+            # Normalize unicode and replace problematic characters
+            sanitized_filename = unicodedata.normalize('NFKD', filename)
+            # Replace Turkish characters with ASCII equivalents
+            replacements = {
+                'İ': 'I', 'ı': 'i', 'Ğ': 'G', 'ğ': 'g',
+                'Ü': 'U', 'ü': 'u', 'Ş': 'S', 'ş': 's',
+                'Ö': 'O', 'ö': 'o', 'Ç': 'C', 'ç': 'c'
+            }
+            for tr_char, ascii_char in replacements.items():
+                sanitized_filename = sanitized_filename.replace(tr_char, ascii_char)
+            
+            # Keep only alphanumeric, underscore, dash, and dot
+            sanitized_filename = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', sanitized_filename)
+            # Remove consecutive underscores
+            sanitized_filename = re.sub(r'_+', '_', sanitized_filename)
+            
+            # Upload PDF with sanitized filename
+            pdf_object_name = f"{document_id}/{sanitized_filename}"
+            self.client.put_object(
+                raw_bucket,
+                pdf_object_name,
+                io.BytesIO(file_data),
+                len(file_data),
+                content_type="application/pdf"
+            )
+            logger.info(f"Uploaded PDF to raw-documents: {pdf_object_name}")
+            
+            # Prepare and upload metadata
+            if metadata is None:
+                metadata = {}
+            
+            metadata.update({
+                "document_id": document_id,
+                "original_filename": filename,
+                "upload_timestamp": datetime.now().isoformat(),
+                "file_size": len(file_data)
+            })
+            
+            # Save metadata as {document_id}_metadata.json
+            metadata_object_name = f"{document_id}/{document_id}_metadata.json"
+            metadata_json = json.dumps(metadata, ensure_ascii=False, indent=2).encode('utf-8')
+            
+            self.client.put_object(
+                raw_bucket,
+                metadata_object_name,
+                io.BytesIO(metadata_json),
+                len(metadata_json),
+                content_type="application/json"
+            )
+            logger.info(f"Uploaded metadata to raw-documents: {metadata_object_name}")
+            
+            return True
+            
+        except S3Error as e:
+            logger.error(f"Error uploading to raw-documents: {e}")
+            return False
 
 
 # Singleton instance

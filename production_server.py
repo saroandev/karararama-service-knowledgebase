@@ -207,17 +207,35 @@ async def ingest_document(file: UploadFile = File(...)):
         
         logger.info(f"Document ID: {document_id}, Hash: {file_hash}")
         
-        # Upload PDF to MinIO
+        # Upload PDF to MinIO (rag-docs bucket for chunking)
         try:
             minio_doc_id = storage_service.upload_pdf(
                 file_data=pdf_data,
                 filename=file.filename,
                 metadata={"document_id": document_id, "file_hash": file_hash}
             )
-            logger.info(f"PDF uploaded to MinIO: {minio_doc_id}")
+            logger.info(f"PDF uploaded to MinIO rag-docs: {minio_doc_id}")
         except Exception as e:
-            logger.error(f"MinIO upload failed: {e}")
+            logger.error(f"MinIO rag-docs upload failed: {e}")
             # Continue without MinIO if it fails
+        
+        # Also upload to raw-documents bucket with original filename
+        try:
+            success = storage_service.upload_pdf_to_raw_documents(
+                document_id=document_id,
+                file_data=pdf_data,
+                filename=file.filename,
+                metadata={
+                    "document_id": document_id,
+                    "file_hash": file_hash,
+                    "original_filename": file.filename
+                }
+            )
+            if success:
+                logger.info(f"PDF uploaded to raw-documents: {document_id}/{file.filename}")
+        except Exception as e:
+            logger.error(f"Raw-documents upload failed: {e}")
+            # Continue even if raw-documents upload fails
         
         # 1. PDF Parse
         from app.parse import PDFParser
@@ -241,7 +259,7 @@ async def ingest_document(file: UploadFile = File(...)):
                     text: str
                     page_number: int
                 
-                chunk_id = f"chunk_{document_id}_{i:04d}_{hash(text[:100]) & 0xffff:04x}"
+                chunk_id = f"{document_id}_{i:04d}"
                 chunk = SimpleChunk(
                     chunk_id=chunk_id,
                     text=text,
