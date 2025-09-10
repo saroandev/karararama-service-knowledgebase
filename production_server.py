@@ -208,7 +208,7 @@ async def ingest_document(file: UploadFile = File(...)):
         # 1. PDF Parse
         from app.parse import PDFParser
         parser = PDFParser()
-        pages, metadata = parser.extract_pdf_data(pdf_data)
+        pages, metadata = parser.extract_text_from_pdf(pdf_data)
         
         document_title = metadata.title or file.filename.replace('.pdf', '')
         logger.info(f"Parsed {len(pages)} pages, title: {document_title}")
@@ -384,17 +384,30 @@ async def ingest_document(file: UploadFile = File(...)):
         # Generate unique IDs for chunks
         ids = [f"{document_id}_{i:04d}" for i in range(len(chunk_ids))]
         
-        # Data order must match schema: id, embedding, document_id, chunk_id, chunk_index, page_number, minio_object_path, metadata, created_at
+        # Text data is already prepared in the texts list from embedding generation
+        # No need to re-extract from chunks
+        
+        # Combine all metadata into single field for each chunk
+        combined_metadata = []
+        for i in range(len(chunks)):
+            meta = {
+                "chunk_id": chunk_ids[i],
+                "page_number": page_nums[i],
+                "minio_object_path": minio_object_paths[i],
+                "document_title": document_titles[i],
+                "file_hash": file_hashes[i],
+                "created_at": int(datetime.datetime.now().timestamp() * 1000)
+            }
+            combined_metadata.append(meta)
+        
+        # Data order must match schema: id, document_id, chunk_index, text, embedding, metadata
         data = [
             ids,                 # id field (VARCHAR)
-            embeddings,          # embedding field
             document_ids,        # document_id field
-            chunk_ids,           # chunk_id field
             chunk_indices,       # chunk_index field
-            page_nums,           # page_number field
-            minio_object_paths,  # minio_object_path field
-            metadata_list,       # metadata field (as JSON string)
-            [int(datetime.datetime.now().timestamp() * 1000) for _ in range(len(chunk_ids))]  # created_at field (timestamp in milliseconds)
+            texts,              # text field
+            embeddings,          # embedding field
+            combined_metadata    # metadata field (as dict, not JSON string)
         ]
         
         insert_result = collection.insert(data)
@@ -478,7 +491,7 @@ async def query_documents(request: QueryRequest):
             {'metric_type': 'IP'},  # Inner Product metric
             limit=request.top_k,
             expr=expr,
-            output_fields=['document_id', 'chunk_id', 'metadata', 'page_number', 'created_at']
+            output_fields=['document_id', 'chunk_index', 'text', 'metadata']
         )
         
         if not search_results[0]:
@@ -495,25 +508,22 @@ async def query_documents(request: QueryRequest):
         
         for i, result in enumerate(search_results[0]):
             score = result.score
-            doc_id = result.entity.get('document_id')
-            chunk_id = result.entity.get('chunk_id')
-            metadata = result.entity.get('metadata')
-            page_num = result.entity.get('page_number')
-            created_at = result.entity.get('created_at')
+            # Access entity fields directly as attributes
+            doc_id = result.entity.document_id
+            chunk_index = result.entity.chunk_index if hasattr(result.entity, 'chunk_index') else 0
+            text = result.entity.text if hasattr(result.entity, 'text') else ''
+            metadata = result.entity.metadata if hasattr(result.entity, 'metadata') else {}
             
-            # Parse metadata JSON
-            meta_dict = json.loads(metadata) if metadata else {}
+            # Parse metadata (now it's a dict, not JSON string)
+            if isinstance(metadata, str):
+                meta_dict = json.loads(metadata)
+            else:
+                meta_dict = metadata if metadata else {}
+            
             doc_title = meta_dict.get('document_title', 'Unknown')
-            
-            # Get chunk text from MinIO
-            try:
-                chunk_text = storage_service.get_chunk(doc_id, chunk_id)
-                if chunk_text and isinstance(chunk_text, dict):
-                    text = chunk_text.get('text', '')
-                else:
-                    text = str(chunk_text) if chunk_text else ''
-            except:
-                text = f"[Chunk {chunk_id} içeriği alınamadı]"
+            chunk_id = meta_dict.get('chunk_id', f'chunk_{chunk_index}')
+            page_num = meta_dict.get('page_number', 0)
+            created_at = meta_dict.get('created_at', 0)
             
             sources.append({
                 "rank": i + 1,
