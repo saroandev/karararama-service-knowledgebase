@@ -25,7 +25,7 @@ load_dotenv()
 
 # Import app modules
 from app.config import settings
-from app.storage import MinIOStorage
+from app.storage import storage
 # Note: EmbeddingGenerator import removed to avoid TensorFlow issues
 # We'll use OpenAI embeddings directly in production
 
@@ -95,8 +95,8 @@ class DocumentInfo(BaseModel):
 import sys
 sys.path.append('.')
 
-# Initialize storage service
-storage_service = MinIOStorage()
+# Storage service is imported from app.storage
+storage_service = storage
 
 # Connection management for Milvus
 class MilvusConnectionManager:
