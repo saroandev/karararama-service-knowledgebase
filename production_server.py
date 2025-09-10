@@ -14,7 +14,7 @@ from functools import wraps
 import os
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uvicorn
@@ -33,11 +33,25 @@ from app.storage import MinIOStorage
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Custom JSON encoder for proper UTF-8 handling
+import json as builtin_json
+
+class CustomJSONResponse(JSONResponse):
+    def render(self, content: Any) -> bytes:
+        return builtin_json.dumps(
+            content,
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=None,
+            separators=(",", ":")
+        ).encode("utf-8")
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Production RAG API",
     description="Production-ready RAG system with persistent storage",
-    version="2.0.0"
+    version="2.0.0",
+    default_response_class=CustomJSONResponse
 )
 
 # CORS middleware
@@ -289,10 +303,10 @@ async def ingest_document(file: UploadFile = File(...)):
                 try:
                     response = openai_client.embeddings.create(
                         model='text-embedding-3-small',
-                        input=batch_texts,
-                        dimensions=384  # Match the collection dimension
+                        input=batch_texts
                     )
-                    batch_embeddings = [data.embedding for data in response.data]
+                    # Truncate embeddings to 384 dimensions to match collection
+                    batch_embeddings = [data.embedding[:384] for data in response.data]
                 except Exception as e:
                     logger.error(f"OpenAI embedding generation failed: {e}")
                     raise HTTPException(status_code=500, detail=f"Embedding generation failed: {e}")
@@ -327,10 +341,10 @@ async def ingest_document(file: UploadFile = File(...)):
                 try:
                     response = openai_client.embeddings.create(
                         model='text-embedding-3-small',
-                        input=batch_texts,
-                        dimensions=384  # Match the collection dimension
+                        input=batch_texts
                     )
-                    batch_embeddings = [data.embedding for data in response.data]
+                    # Truncate embeddings to 384 dimensions to match collection
+                    batch_embeddings = [data.embedding[:384] for data in response.data]
                 except Exception as e:
                     logger.error(f"OpenAI embedding generation failed: {e}")
                     raise HTTPException(status_code=500, detail=f"Embedding generation failed: {e}")
@@ -462,10 +476,10 @@ async def query_documents(request: QueryRequest):
             
             query_response = client.embeddings.create(
                 model='text-embedding-3-small',
-                input=request.question,
-                dimensions=384  # Match the collection dimension
+                input=request.question
             )
-            query_embedding = query_response.data[0].embedding
+            # Truncate embedding to 384 dimensions to match collection
+            query_embedding = query_response.data[0].embedding[:384]
         else:
             # Fallback to OpenAI for embeddings
             logger.warning("Local embedding models require TensorFlow. Using OpenAI.")
@@ -474,10 +488,10 @@ async def query_documents(request: QueryRequest):
             
             query_response = client.embeddings.create(
                 model='text-embedding-3-small',
-                input=request.question,
-                dimensions=384  # Match the collection dimension
+                input=request.question
             )
-            query_embedding = query_response.data[0].embedding
+            # Truncate embedding to 384 dimensions to match collection
+            query_embedding = query_response.data[0].embedding[:384]
         
         # Prepare search expression (filters)
         expr = None
@@ -551,10 +565,23 @@ async def query_documents(request: QueryRequest):
                 messages=[
                 {
                     "role": "system", 
-                    "content": """Sen bir RAG (Retrieval-Augmented Generation) asistanısın. 
-                    Verilen kaynak belgelerden faydalanarak soruları cevaplıyorsun.
-                    Cevabını verirken kaynak numaralarını belirt (Örn: [Kaynak 1]).
-                    Eğer sorunun cevabı kaynak belgelerde yoksa, bunu açıkça belirt."""
+                    "content": """Sen yardımsever bir RAG (Retrieval-Augmented Generation) asistanısın.
+
+GÖREVİN:
+• Verilen kaynak belgelerden faydalanarak soruları net ve anlaşılır şekilde cevaplamak
+• Cevaplarını Türkçe dilbilgisi kurallarına uygun, akıcı bir dille yazmak
+• Her zaman kaynak numaralarını belirtmek (Örn: [Kaynak 1], [Kaynak 2-3])
+
+CEVAP FORMATI:
+1. Soruya doğrudan ve özlü bir cevap ver
+2. Gerekirse madde madde veya paragraflar halinde açıkla
+3. Her bilgi için hangi kaynaktan alındığını belirt
+4. Eğer sorunun cevabı kaynak belgelerde yoksa, "Sağlanan kaynaklarda bu soruya ilişkin bilgi bulunmamaktadır" de
+
+ÖNEMLI:
+• Sadece verilen kaynaklardaki bilgileri kullan
+• Kendi bilgini ekleme, sadece kaynakları yorumla
+• Belirsizlik varsa bunu belirt"""
                 },
                 {
                     "role": "user",
@@ -602,7 +629,7 @@ async def list_documents():
         # Get unique documents
         results = collection.query(
             expr="chunk_index == 0",  # Only first chunk of each document
-            output_fields=['document_id', 'metadata', 'created_at']
+            output_fields=['document_id', 'metadata']
         )
         
         documents = []
@@ -610,10 +637,22 @@ async def list_documents():
             doc_id = result.get('document_id')
             metadata = result.get('metadata')
             
-            # Parse metadata to get document title and file hash
-            meta_dict = json.loads(metadata) if metadata else {}
+            # Parse metadata - it's already a dict, not JSON string
+            if isinstance(metadata, str):
+                meta_dict = json.loads(metadata)
+            else:
+                meta_dict = metadata if metadata else {}
+            
             doc_title = meta_dict.get('document_title', 'Unknown')
             file_hash = meta_dict.get('file_hash', '')
+            created_at = meta_dict.get('created_at', 0)
+            
+            # Convert timestamp to ISO format if exists
+            if created_at:
+                # created_at is stored as milliseconds timestamp
+                created_at_str = datetime.datetime.fromtimestamp(created_at / 1000).isoformat()
+            else:
+                created_at_str = datetime.datetime.now().isoformat()
             
             # Count chunks for this document
             chunk_count = len(collection.query(
@@ -625,7 +664,7 @@ async def list_documents():
                 document_id=doc_id,
                 title=doc_title,
                 chunks_count=chunk_count,
-                created_at=str(result.get('created_at', '')),
+                created_at=created_at_str,
                 file_hash=file_hash
             ))
         
