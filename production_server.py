@@ -106,6 +106,25 @@ class DocumentInfo(BaseModel):
     created_at: str
     file_hash: str
 
+# Batch ingestion response models
+class FileIngestStatus(BaseModel):
+    filename: str
+    status: str  # "success", "failed", "processing"
+    document_id: Optional[str] = None
+    chunks_created: Optional[int] = None
+    processing_time: Optional[float] = None
+    error: Optional[str] = None
+    file_hash: Optional[str] = None
+
+class BatchIngestResponse(BaseModel):
+    total_files: int
+    successful: int
+    failed: int
+    skipped: int  # Already existing documents
+    results: List[FileIngestStatus]
+    total_processing_time: float
+    message: str
+
 # Global imports (to avoid repeated imports)
 import sys
 sys.path.append('.')
@@ -788,6 +807,235 @@ async def delete_document(document_id: str):
     except Exception as e:
         logger.error(f"Delete document error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")
+
+@app.post("/batch-ingest", response_model=BatchIngestResponse)
+async def batch_ingest_documents(
+    files: List[UploadFile] = File(...),
+    parallel: bool = True,
+    max_files: int = 10
+):
+    """
+    Batch ingest multiple PDF documents
+    
+    Args:
+        files: List of PDF files to ingest
+        parallel: Whether to process files in parallel (not fully implemented yet)
+        max_files: Maximum number of files to process in one batch
+    
+    Returns:
+        BatchIngestResponse with status of each file
+    """
+    start_time = datetime.datetime.now()
+    
+    # Validate file count
+    if len(files) > max_files:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Too many files. Maximum {max_files} files allowed per batch"
+        )
+    
+    # Validate all files are PDFs
+    for file in files:
+        if not file.filename.lower().endswith('.pdf'):
+            raise HTTPException(
+                status_code=400,
+                detail=f"File {file.filename} is not a PDF. Only PDF files are supported"
+            )
+    
+    results = []
+    successful = 0
+    failed = 0
+    skipped = 0
+    
+    logger.info(f"Starting batch ingest for {len(files)} files")
+    
+    # Process each file
+    for file in files:
+        file_start_time = datetime.datetime.now()
+        
+        try:
+            # Read file data
+            pdf_data = await file.read()
+            file_hash = hashlib.md5(pdf_data).hexdigest()
+            document_id = f"doc_{file_hash[:16]}"
+            
+            # Check if document already exists
+            collection = milvus_manager.get_collection()
+            search_existing = collection.query(
+                expr=f'document_id == "{document_id}"',
+                output_fields=['id'],
+                limit=1
+            )
+            
+            if search_existing:
+                # Document already exists
+                skipped += 1
+                processing_time = (datetime.datetime.now() - file_start_time).total_seconds()
+                
+                results.append(FileIngestStatus(
+                    filename=file.filename,
+                    status="skipped",
+                    document_id=document_id,
+                    file_hash=file_hash,
+                    processing_time=processing_time,
+                    error="Document already exists in database"
+                ))
+                logger.info(f"Skipped {file.filename} - already exists")
+                continue
+            
+            # Process the document (reuse existing ingestion logic)
+            # Parse PDF
+            from app.parse import PDFParser
+            parser = PDFParser()
+            pages, metadata = parser.extract_text_from_pdf(pdf_data)
+            
+            document_title = metadata.title or file.filename.replace('.pdf', '')
+            
+            # Create chunks
+            chunks = []
+            for i, page in enumerate(pages):
+                text = page.text.strip()
+                if len(text) > 100:
+                    from dataclasses import dataclass
+                    
+                    @dataclass
+                    class SimpleChunk:
+                        chunk_id: str
+                        text: str
+                        page_number: int
+                    
+                    chunk_id = f"{document_id}_{i:04d}"
+                    chunk = SimpleChunk(
+                        chunk_id=chunk_id,
+                        text=text,
+                        page_number=page.page_number
+                    )
+                    chunks.append(chunk)
+            
+            if not chunks:
+                raise ValueError("No valid chunks created from document")
+            
+            # Upload to MinIO
+            try:
+                storage_service.upload_pdf(
+                    file_data=pdf_data,
+                    filename=file.filename,
+                    metadata={"document_id": document_id, "file_hash": file_hash}
+                )
+                
+                storage_service.upload_pdf_to_raw_documents(
+                    document_id=document_id,
+                    file_data=pdf_data,
+                    filename=file.filename,
+                    metadata={
+                        "document_id": document_id,
+                        "file_hash": file_hash,
+                        "original_filename": file.filename
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"MinIO upload failed for {file.filename}: {e}")
+            
+            # Generate embeddings
+            chunk_ids = []
+            document_ids = []
+            document_titles = []
+            texts = []
+            embeddings = []
+            
+            # Process embeddings (simplified for batch)
+            if settings.LLM_PROVIDER == 'openai':
+                from openai import OpenAI
+                openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+                
+                batch_texts = [chunk.text for chunk in chunks]
+                batch_size = 20
+                
+                for batch_start in range(0, len(batch_texts), batch_size):
+                    batch_end = min(batch_start + batch_size, len(batch_texts))
+                    batch = batch_texts[batch_start:batch_end]
+                    
+                    response = openai_client.embeddings.create(
+                        model=settings.EMBEDDING_MODEL,
+                        input=batch
+                    )
+                    batch_embeddings = [data.embedding for data in response.data]
+                    embeddings.extend(batch_embeddings)
+                
+                # Prepare data for Milvus
+                for i, chunk in enumerate(chunks):
+                    chunk_ids.append(chunk.chunk_id)
+                    document_ids.append(document_id)
+                    document_titles.append(document_title)
+                    texts.append(chunk.text)
+            
+            # Insert to Milvus
+            current_time = datetime.datetime.now().isoformat()
+            ids = [f"{document_id}_{i:04d}" for i in range(len(chunks))]
+            
+            combined_metadata = []
+            for i, chunk in enumerate(chunks):
+                meta = {
+                    "chunk_id": chunk_ids[i],
+                    "page_number": chunk.page_number,
+                    "document_title": document_title,
+                    "file_hash": file_hash,
+                    "created_at": int(datetime.datetime.now().timestamp() * 1000)
+                }
+                combined_metadata.append(meta)
+            
+            data = [
+                ids,
+                document_ids,
+                [i for i in range(len(chunks))],  # chunk_indices
+                texts,
+                embeddings,
+                combined_metadata
+            ]
+            
+            collection.insert(data)
+            collection.load()
+            
+            # Success
+            successful += 1
+            processing_time = (datetime.datetime.now() - file_start_time).total_seconds()
+            
+            results.append(FileIngestStatus(
+                filename=file.filename,
+                status="success",
+                document_id=document_id,
+                chunks_created=len(chunks),
+                processing_time=processing_time,
+                file_hash=file_hash
+            ))
+            
+            logger.info(f"Successfully ingested {file.filename} with {len(chunks)} chunks")
+            
+        except Exception as e:
+            # Failed
+            failed += 1
+            processing_time = (datetime.datetime.now() - file_start_time).total_seconds()
+            
+            results.append(FileIngestStatus(
+                filename=file.filename,
+                status="failed",
+                processing_time=processing_time,
+                error=str(e)
+            ))
+            
+            logger.error(f"Failed to ingest {file.filename}: {str(e)}")
+    
+    total_processing_time = (datetime.datetime.now() - start_time).total_seconds()
+    
+    return BatchIngestResponse(
+        total_files=len(files),
+        successful=successful,
+        failed=failed,
+        skipped=skipped,
+        results=results,
+        total_processing_time=total_processing_time,
+        message=f"Processed {len(files)} files: {successful} successful, {failed} failed, {skipped} skipped"
+    )
 
 if __name__ == "__main__":
     uvicorn.run(
