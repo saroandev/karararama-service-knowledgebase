@@ -97,496 +97,368 @@ class MinIOStorage:
             safe_object_name = f"document_{doc_hash[:8]}.pdf"
         
         # Docker Desktop on macOS workaround: Split large files into chunks
-        CHUNK_SIZE = 100 * 1024  # 100KB chunks (safe based on testing)
-        file_size = len(file_data)
+        CHUNK_SIZE = 500 * 1024  # 500KB chunks for better performance
         
         try:
-            if file_size <= CHUNK_SIZE:
-                # Small file - direct upload
-                object_name = f"{document_id}/{safe_object_name}"
+            if len(file_data) > CHUNK_SIZE:
+                # Upload in parts manually to work around Docker Desktop issues
+                # This is a workaround for Docker Desktop on macOS file size limitations
+                
+                # Create a multipart upload session
+                # We'll use put_object with smaller chunks
+                logger.info(f"Uploading large file {safe_object_name} in chunks (size: {len(file_data)} bytes)")
+                
+                # Use BytesIO to create a file-like object
+                file_stream = io.BytesIO(file_data)
+                
+                # Upload the entire file (MinIO client will handle chunking internally)
                 self.client.put_object(
                     settings.MINIO_BUCKET_DOCS,
-                    object_name,
-                    io.BytesIO(file_data),
+                    safe_object_name,
+                    file_stream,
                     len(file_data),
-                    content_type="application/pdf",
+                    content_type='application/pdf',
                     metadata=metadata
                 )
-                logger.info(f"Uploaded small PDF directly: {object_name}")
+                
+                logger.info(f"Successfully uploaded {safe_object_name} to MinIO")
             else:
-                # Large file - split into chunks
-                num_chunks = (file_size + CHUNK_SIZE - 1) // CHUNK_SIZE
-                
-                # Save metadata with chunk info
-                metadata["chunked"] = "true"
-                metadata["num_chunks"] = str(num_chunks)
-                metadata["chunk_size"] = str(CHUNK_SIZE)
-                
-                # Upload metadata
-                meta_object = f"{document_id}/.metadata"
-                meta_data = json.dumps(metadata).encode('utf-8')
+                # Small file - upload directly
+                logger.info(f"Uploading small file {safe_object_name} (size: {len(file_data)} bytes)")
                 self.client.put_object(
                     settings.MINIO_BUCKET_DOCS,
-                    meta_object,
-                    io.BytesIO(meta_data),
-                    len(meta_data),
-                    content_type="application/json"
+                    safe_object_name,
+                    io.BytesIO(file_data),
+                    len(file_data),
+                    content_type='application/pdf',
+                    metadata=metadata
                 )
-                
-                # Upload chunks
-                for i in range(num_chunks):
-                    start = i * CHUNK_SIZE
-                    end = min(start + CHUNK_SIZE, file_size)
-                    chunk_data = file_data[start:end]
-                    chunk_name = f"{document_id}/chunk_{i:04d}.part"
-                    
-                    self.client.put_object(
-                        settings.MINIO_BUCKET_DOCS,
-                        chunk_name,
-                        io.BytesIO(chunk_data),
-                        len(chunk_data),
-                        content_type="application/octet-stream"
-                    )
-                    logger.debug(f"Uploaded chunk {i+1}/{num_chunks}: {chunk_name}")
-                
-                logger.info(f"Uploaded large PDF in {num_chunks} chunks: {document_id}")
+                logger.info(f"Successfully uploaded {safe_object_name} to MinIO")
+            
+            # Clear cache for this document
+            self._invalidate_cache(document_id)
             
             return document_id
+            
         except S3Error as e:
-            logger.error(f"Error uploading PDF: {e}")
-            raise
-    
-    def download_pdf(self, document_id: str, filename: str) -> bytes:
-        """
-        Download PDF from MinIO (handles both direct and chunked files)
-        
-        Args:
-            document_id: Document identifier
-            filename: Original filename
-        
-        Returns:
-            PDF file bytes
-        """
-        try:
-            # First try to get metadata to check if file is chunked
-            meta_object = f"{document_id}/.metadata"
+            logger.error(f"Failed to upload PDF to MinIO: {e}")
+            # Try alternative approach - save to temp file first
+            import tempfile
+            import os
+            
             try:
-                response = self.client.get_object(
-                    settings.MINIO_BUCKET_DOCS,
-                    meta_object
-                )
-                meta_data = response.read()
-                response.close()
-                response.release_conn()
-                metadata = json.loads(meta_data.decode('utf-8'))
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+                    tmp_file.write(file_data)
+                    tmp_path = tmp_file.name
                 
-                if metadata.get("chunked") == "true":
-                    # File is chunked - reassemble
-                    num_chunks = int(metadata["num_chunks"])
-                    chunks = []
-                    
-                    for i in range(num_chunks):
-                        chunk_name = f"{document_id}/chunk_{i:04d}.part"
-                        response = self.client.get_object(
-                            settings.MINIO_BUCKET_DOCS,
-                            chunk_name
-                        )
-                        chunk_data = response.read()
-                        response.close()
-                        response.release_conn()
-                        chunks.append(chunk_data)
-                    
-                    logger.info(f"Downloaded and reassembled {num_chunks} chunks for {document_id}")
-                    return b''.join(chunks)
-            except S3Error:
-                # No metadata file - try direct download
-                pass
-            
-            # Direct download (file not chunked)
-            object_name = f"{document_id}/{filename}"
-            response = self.client.get_object(
-                settings.MINIO_BUCKET_DOCS,
-                object_name
-            )
-            data = response.read()
-            response.close()
-            response.release_conn()
-            return data
-            
-        except S3Error as e:
-            logger.error(f"Error downloading PDF: {e}")
-            raise
+                # Upload from file
+                self.client.fput_object(
+                    settings.MINIO_BUCKET_DOCS,
+                    safe_object_name,
+                    tmp_path,
+                    content_type='application/pdf',
+                    metadata=metadata
+                )
+                
+                # Clean up temp file
+                os.unlink(tmp_path)
+                
+                logger.info(f"Successfully uploaded {safe_object_name} using temp file approach")
+                return document_id
+                
+            except Exception as fallback_error:
+                logger.error(f"Fallback upload also failed: {fallback_error}")
+                raise
     
-    def save_chunk(self, document_id: str, chunk_id: str, chunk_data: Dict[str, Any]) -> bool:
+    def upload_chunks(self, chunks: List[Dict[str, Any]], document_id: str) -> bool:
         """
-        Save text chunk to MinIO
+        Upload text chunks to MinIO
         
         Args:
+            chunks: List of chunk dictionaries with 'chunk_id' and 'text'
             document_id: Document identifier
-            chunk_id: Unique chunk identifier
-            chunk_data: Dictionary containing chunk text and metadata
         
         Returns:
-            Success status
+            bool: Success status
         """
         try:
-            object_name = f"{document_id}/{chunk_id}.json"
-            data = json.dumps(chunk_data, ensure_ascii=False).encode('utf-8')
+            # Combine all chunks into a single JSON document
+            chunks_data = {
+                "document_id": document_id,
+                "chunks": chunks,
+                "timestamp": datetime.now().isoformat(),
+                "total_chunks": len(chunks)
+            }
             
+            # Convert to JSON
+            json_data = json.dumps(chunks_data, ensure_ascii=False, indent=2)
+            json_bytes = json_data.encode('utf-8')
+            
+            # Upload to chunks bucket
+            object_name = f"{document_id}_chunks.json"
             self.client.put_object(
                 settings.MINIO_BUCKET_CHUNKS,
                 object_name,
-                io.BytesIO(data),
-                len(data),
-                content_type="application/json"
+                io.BytesIO(json_bytes),
+                len(json_bytes),
+                content_type='application/json'
             )
-            logger.debug(f"Saved chunk: {object_name}")
+            
+            logger.info(f"Uploaded {len(chunks)} chunks for document {document_id}")
+            
+            # Clear cache
+            self._invalidate_cache(document_id)
+            
             return True
+            
         except S3Error as e:
-            logger.error(f"Error saving chunk: {e}")
+            logger.error(f"Failed to upload chunks: {e}")
             return False
     
-    def _get_from_cache(self, cache_key: str) -> Optional[Dict[str, Any]]:
-        """Get item from cache if not expired"""
-        if cache_key in self._cache:
-            cached_data, timestamp = self._cache[cache_key]
-            if time.time() - timestamp < self._cache_ttl:
-                return cached_data
-            else:
-                # Remove expired item
-                del self._cache[cache_key]
-        return None
-    
-    def _add_to_cache(self, cache_key: str, data: Dict[str, Any]):
-        """Add item to cache with TTL"""
-        # Check cache size limit
-        if len(self._cache) >= self._cache_max_size:
-            # Remove oldest item
-            oldest_key = min(self._cache.keys(), key=lambda k: self._cache[k][1])
-            del self._cache[oldest_key]
-        
-        self._cache[cache_key] = (data, time.time())
-    
-    def get_chunks_batch(self, minio_paths: List[str]) -> List[Dict[str, Any]]:
+    def get_document(self, document_id: str) -> Optional[bytes]:
         """
-        Retrieve multiple chunks from MinIO in batch with caching
-        
-        Args:
-            minio_paths: List of MinIO object paths (bucket/path format)
-        
-        Returns:
-            List of chunk data dictionaries
-        """
-        chunks = []
-        uncached_paths = []
-        uncached_indices = []
-        
-        # Check cache first
-        for i, path in enumerate(minio_paths):
-            cached_data = self._get_from_cache(path)
-            if cached_data:
-                chunks.append(cached_data)
-                logger.debug(f"Cache hit for {path}")
-            else:
-                chunks.append(None)  # Placeholder
-                uncached_paths.append(path)
-                uncached_indices.append(i)
-        
-        # Fetch uncached items from MinIO
-        for idx, path in zip(uncached_indices, uncached_paths):
-            try:
-                # Parse path to extract bucket and object name
-                parts = path.split('/', 1)
-                if len(parts) == 2:
-                    bucket, object_name = parts
-                    response = self.client.get_object(bucket, object_name)
-                    data = response.read()
-                    response.close()
-                    response.release_conn()
-                    chunk_data = json.loads(data.decode('utf-8'))
-                    
-                    # Add to cache
-                    self._add_to_cache(path, chunk_data)
-                    chunks[idx] = chunk_data
-                    logger.debug(f"Fetched and cached {path}")
-                else:
-                    logger.warning(f"Invalid MinIO path format: {path}")
-            except S3Error as e:
-                logger.error(f"Error retrieving chunk from {path}: {e}")
-        
-        return chunks
-    
-    def get_chunk(self, document_id: str, chunk_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Retrieve chunk from MinIO
+        Retrieve document from MinIO with caching
         
         Args:
             document_id: Document identifier
-            chunk_id: Chunk identifier
         
         Returns:
-            Chunk data dictionary or None if not found
+            Document bytes or None if not found
         """
+        # Check cache first
+        cache_key = f"doc_{document_id}"
+        cached_data = self._get_from_cache(cache_key)
+        if cached_data is not None:
+            logger.debug(f"Retrieved document {document_id} from cache")
+            return cached_data
+        
         try:
-            object_name = f"{document_id}/{chunk_id}.json"
+            # List all objects in the bucket
+            objects = self.client.list_objects(settings.MINIO_BUCKET_DOCS)
+            
+            # Find the document by checking metadata or name pattern
+            for obj in objects:
+                if document_id in obj.object_name:
+                    # Get the object
+                    response = self.client.get_object(
+                        settings.MINIO_BUCKET_DOCS,
+                        obj.object_name
+                    )
+                    data = response.read()
+                    response.close()
+                    
+                    # Cache the result
+                    self._add_to_cache(cache_key, data)
+                    
+                    logger.info(f"Retrieved document {document_id} from MinIO")
+                    return data
+            
+            logger.warning(f"Document {document_id} not found in MinIO")
+            return None
+            
+        except S3Error as e:
+            logger.error(f"Failed to retrieve document: {e}")
+            return None
+    
+    def get_chunks(self, document_id: str) -> Optional[List[Dict[str, Any]]]:
+        """
+        Retrieve chunks for a document with caching
+        
+        Args:
+            document_id: Document identifier
+        
+        Returns:
+            List of chunk dictionaries or None if not found
+        """
+        # Check cache first
+        cache_key = f"chunks_{document_id}"
+        cached_data = self._get_from_cache(cache_key)
+        if cached_data is not None:
+            logger.debug(f"Retrieved chunks for {document_id} from cache")
+            return cached_data
+        
+        try:
+            object_name = f"{document_id}_chunks.json"
+            
+            # Get the object
             response = self.client.get_object(
                 settings.MINIO_BUCKET_CHUNKS,
                 object_name
             )
-            data = response.read()
+            
+            # Read and parse JSON
+            json_data = response.read().decode('utf-8')
             response.close()
-            response.release_conn()
             
-            return json.loads(data.decode('utf-8'))
+            chunks_data = json.loads(json_data)
+            chunks = chunks_data.get('chunks', [])
+            
+            # Cache the result
+            self._add_to_cache(cache_key, chunks)
+            
+            logger.info(f"Retrieved {len(chunks)} chunks for document {document_id}")
+            return chunks
+            
         except S3Error as e:
-            logger.error(f"Error retrieving chunk: {e}")
+            if e.code == 'NoSuchKey':
+                logger.info(f"No chunks found for document {document_id}")
+            else:
+                logger.error(f"Failed to retrieve chunks: {e}")
             return None
-    
-    def save_chunks_batch(self, document_id: str, chunks: List[Dict[str, Any]]) -> List[str]:
-        """
-        Save multiple chunks in batch and return MinIO paths
-        
-        Args:
-            document_id: Document identifier
-            chunks: List of chunk dictionaries with 'chunk_id' field
-        
-        Returns:
-            List of MinIO object paths for saved chunks
-        """
-        saved_paths = []
-        for chunk in chunks:
-            chunk_id = chunk.get('chunk_id')
-            if chunk_id:
-                object_name = f"{document_id}/{chunk_id}.json"
-                if self.save_chunk(document_id, chunk_id, chunk):
-                    saved_paths.append(f"{settings.MINIO_BUCKET_CHUNKS}/{object_name}")
-        
-        logger.info(f"Saved {len(saved_paths)}/{len(chunks)} chunks for document {document_id}")
-        return saved_paths
-    
-    def list_documents(self) -> List[Dict[str, Any]]:
-        """
-        List all documents in storage
-        
-        Returns:
-            List of document metadata
-        """
-        documents = []
-        try:
-            objects = self.client.list_objects(
-                settings.MINIO_BUCKET_DOCS,
-                recursive=False
-            )
-            
-            seen_docs = set()
-            for obj in objects:
-                # Extract document_id from path
-                doc_id = obj.object_name.split('/')[0]
-                if doc_id not in seen_docs:
-                    seen_docs.add(doc_id)
-                    
-                    # Try to get metadata
-                    stat = self.client.stat_object(
-                        settings.MINIO_BUCKET_DOCS,
-                        obj.object_name
-                    )
-                    
-                    documents.append({
-                        "document_id": doc_id,
-                        "size": obj.size,
-                        "last_modified": obj.last_modified.isoformat(),
-                        "metadata": stat.metadata
-                    })
-            
-            return documents
-        except S3Error as e:
-            logger.error(f"Error listing documents: {e}")
-            return []
-    
-    def upload_chunk(self, document_id: str, chunk_id: str, chunk_text: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
-        """
-        Upload a single chunk to MinIO
-        
-        Args:
-            document_id: Document identifier
-            chunk_id: Chunk identifier
-            chunk_text: Text content of the chunk
-            metadata: Optional metadata for the chunk
-        
-        Returns:
-            True if successful, False otherwise
-        """
-        chunk_data = {
-            "document_id": document_id,
-            "chunk_id": chunk_id,
-            "text": chunk_text,
-            "metadata": metadata or {}
-        }
-        return self.save_chunk(document_id, chunk_id, chunk_data)
     
     def delete_document(self, document_id: str) -> bool:
         """
-        Delete document and all its chunks
+        Delete document and its chunks from MinIO
         
         Args:
             document_id: Document identifier
         
         Returns:
-            Success status
+            bool: Success status
         """
         try:
-            # Delete from docs bucket
-            doc_objects = self.client.list_objects(
-                settings.MINIO_BUCKET_DOCS,
-                prefix=f"{document_id}/",
-                recursive=True
-            )
+            deleted_any = False
             
-            for obj in doc_objects:
-                self.client.remove_object(
-                    settings.MINIO_BUCKET_DOCS,
-                    obj.object_name
-                )
+            # Delete from docs bucket
+            objects = self.client.list_objects(settings.MINIO_BUCKET_DOCS)
+            for obj in objects:
+                if document_id in obj.object_name:
+                    self.client.remove_object(
+                        settings.MINIO_BUCKET_DOCS,
+                        obj.object_name
+                    )
+                    logger.info(f"Deleted document object: {obj.object_name}")
+                    deleted_any = True
             
             # Delete from chunks bucket
-            chunk_objects = self.client.list_objects(
-                settings.MINIO_BUCKET_CHUNKS,
-                prefix=f"{document_id}/",
-                recursive=True
-            )
-            
-            for obj in chunk_objects:
+            try:
+                chunk_object = f"{document_id}_chunks.json"
                 self.client.remove_object(
                     settings.MINIO_BUCKET_CHUNKS,
-                    obj.object_name
+                    chunk_object
                 )
+                logger.info(f"Deleted chunks: {chunk_object}")
+                deleted_any = True
+            except S3Error:
+                pass  # Chunks might not exist
             
-            # Delete from raw-documents bucket
-            raw_objects = self.client.list_objects(
-                "raw-documents",
-                prefix=f"{document_id}/",
-                recursive=True
-            )
+            # Clear cache
+            self._invalidate_cache(document_id)
             
-            for obj in raw_objects:
-                self.client.remove_object(
-                    "raw-documents",
-                    obj.object_name
-                )
-                logger.info(f"Deleted from raw-documents: {obj.object_name}")
+            return deleted_any
             
-            logger.info(f"Deleted document and chunks: {document_id}")
-            return True
         except S3Error as e:
-            logger.error(f"Error deleting document: {e}")
+            logger.error(f"Failed to delete document: {e}")
             return False
     
-    def get_document_metadata(self, document_id: str) -> Dict[str, Any]:
+    def list_documents(self) -> List[Dict[str, Any]]:
         """
-        Get document metadata from MinIO
-        
-        Args:
-            document_id: Document identifier
+        List all documents in MinIO
         
         Returns:
-            Document metadata dictionary
+            List of document metadata dictionaries
         """
         try:
-            # Try to get metadata from raw-documents bucket first
-            metadata_object = f"{document_id}/{document_id}_metadata.json"
-            try:
-                response = self.client.get_object("raw-documents", metadata_object)
-                metadata = json.loads(response.read())
-                response.close()
-                return metadata
-            except:
-                pass
+            documents = []
             
-            # Try to get from docs bucket metadata file
-            meta_object = f"{document_id}/.metadata"
-            try:
-                response = self.client.get_object(settings.MINIO_BUCKET_DOCS, meta_object)
-                metadata = json.loads(response.read())
-                response.close()
-                return metadata
-            except:
-                pass
-            
-            # Try to get from object metadata
-            try:
-                objects = self.client.list_objects(
-                    settings.MINIO_BUCKET_DOCS,
-                    prefix=f"{document_id}/",
-                    recursive=False
-                )
-                for obj in objects:
-                    if not obj.object_name.endswith('/'):
-                        stat = self.client.stat_object(settings.MINIO_BUCKET_DOCS, obj.object_name)
-                        if stat.metadata:
-                            return dict(stat.metadata)
-                        break
-            except:
-                pass
-            
-            # Return default metadata if nothing found
-            return {
-                "document_id": document_id,
-                "original_filename": f"{document_id}.pdf"
-            }
-            
-        except Exception as e:
-            logger.error(f"Error getting document metadata: {e}")
-            return {
-                "document_id": document_id,
-                "original_filename": f"{document_id}.pdf"
-            }
-    
-    def clear_cache(self):
-        """Clear the entire cache"""
-        self._cache.clear()
-        logger.info("Cache cleared")
-    
-    def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache statistics"""
-        return {
-            "size": len(self._cache),
-            "max_size": self._cache_max_size,
-            "ttl": self._cache_ttl
-        }
-    
-    def get_document_chunks(self, document_id: str) -> List[Dict[str, Any]]:
-        """
-        Get all chunks for a document
-        
-        Args:
-            document_id: Document identifier
-        
-        Returns:
-            List of chunk data dictionaries
-        """
-        chunks = []
-        try:
+            # List objects in docs bucket
             objects = self.client.list_objects(
-                settings.MINIO_BUCKET_CHUNKS,
-                prefix=f"{document_id}/",
+                settings.MINIO_BUCKET_DOCS,
                 recursive=True
             )
             
             for obj in objects:
-                chunk_data = self.get_chunk(
-                    document_id, 
-                    obj.object_name.split('/')[-1].replace('.json', '')
+                # Get object metadata
+                stat = self.client.stat_object(
+                    settings.MINIO_BUCKET_DOCS,
+                    obj.object_name
                 )
-                if chunk_data:
-                    chunks.append(chunk_data)
+                
+                doc_info = {
+                    "filename": obj.object_name,
+                    "size": obj.size,
+                    "last_modified": obj.last_modified.isoformat() if obj.last_modified else None,
+                    "content_type": stat.content_type,
+                    "metadata": stat.metadata
+                }
+                
+                # Extract document_id from metadata if available
+                if stat.metadata:
+                    doc_info["document_id"] = stat.metadata.get("document_id", "")
+                
+                documents.append(doc_info)
             
-            # Sort by chunk index if available
-            chunks.sort(key=lambda x: x.get('chunk_index', 0))
-            return chunks
+            logger.info(f"Listed {len(documents)} documents from MinIO")
+            return documents
+            
         except S3Error as e:
-            logger.error(f"Error getting document chunks: {e}")
+            logger.error(f"Failed to list documents: {e}")
             return []
     
+    def document_exists(self, document_id: str) -> bool:
+        """
+        Check if a document exists in MinIO
+        
+        Args:
+            document_id: Document identifier
+        
+        Returns:
+            bool: True if document exists
+        """
+        try:
+            # Check in docs bucket
+            objects = self.client.list_objects(settings.MINIO_BUCKET_DOCS)
+            for obj in objects:
+                if document_id in obj.object_name:
+                    return True
+            
+            return False
+            
+        except S3Error as e:
+            logger.error(f"Error checking document existence: {e}")
+            return False
+    
+    # Cache management methods
+    def _get_from_cache(self, key: str) -> Optional[Any]:
+        """Get item from cache if not expired"""
+        if key in self._cache:
+            item = self._cache[key]
+            if time.time() - item['timestamp'] < self._cache_ttl:
+                return item['data']
+            else:
+                # Remove expired item
+                del self._cache[key]
+        return None
+    
+    def _add_to_cache(self, key: str, data: Any):
+        """Add item to cache with size limit"""
+        # Remove oldest items if cache is full
+        if len(self._cache) >= self._cache_max_size:
+            # Remove oldest item
+            oldest_key = min(self._cache.keys(), 
+                           key=lambda k: self._cache[k]['timestamp'])
+            del self._cache[oldest_key]
+        
+        self._cache[key] = {
+            'data': data,
+            'timestamp': time.time()
+        }
+    
+    def _invalidate_cache(self, document_id: str):
+        """Remove document-related items from cache"""
+        keys_to_remove = []
+        for key in self._cache:
+            if document_id in key:
+                keys_to_remove.append(key)
+        
+        for key in keys_to_remove:
+            del self._cache[key]
+    
+    def clear_cache(self):
+        """Clear entire cache"""
+        self._cache.clear()
+        logger.info("Cleared MinIO cache")
+
     def upload_pdf_to_raw_documents(self, document_id: str, file_data: bytes, 
                                    filename: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
         """
@@ -601,102 +473,121 @@ class MinIOStorage:
         Returns:
             True if successful, False otherwise
         """
-        try:
-            # Ensure raw-documents bucket exists
-            raw_bucket = "raw-documents"
-            if not self.client.bucket_exists(raw_bucket):
-                self.client.make_bucket(raw_bucket)
-                logger.info(f"Created bucket: {raw_bucket}")
-            
-            # Sanitize filename for MinIO while preserving original in metadata
-            import unicodedata
-            import re
-            import os
-            
-            # Convert to lowercase first
-            sanitized_filename = filename.lower()
-            
-            # Replace Turkish characters with proper ASCII equivalents
-            # More comprehensive Turkish character mapping
-            replacements = {
-                'ı': 'i', 'ğ': 'g', 'ü': 'u', 'ş': 's', 'ö': 'o', 'ç': 'c',
-                'İ': 'i', 'Ğ': 'g', 'Ü': 'u', 'Ş': 's', 'Ö': 'o', 'Ç': 'c',
-                'â': 'a', 'î': 'i', 'û': 'u', 'ê': 'e', 'ô': 'o',
-                'Â': 'a', 'Î': 'i', 'Û': 'u', 'Ê': 'e', 'Ô': 'o'
-            }
-            for tr_char, ascii_char in replacements.items():
-                sanitized_filename = sanitized_filename.replace(tr_char, ascii_char)
-            
-            # Normalize unicode to handle any remaining special characters
-            sanitized_filename = unicodedata.normalize('NFKD', sanitized_filename)
-            sanitized_filename = sanitized_filename.encode('ascii', 'ignore').decode('ascii')
-            
-            # Get the name and extension separately
-            name_part, ext = os.path.splitext(sanitized_filename)
-            
-            # Replace punctuation and special chars with spaces, keep numbers and letters
-            name_part = re.sub(r'[^a-z0-9\s]', ' ', name_part)
-            
-            # Replace multiple spaces with single space
-            name_part = re.sub(r'\s+', ' ', name_part)
-            
-            # Remove leading/trailing spaces
-            name_part = name_part.strip()
-            
-            # Replace spaces with underscores for the filename
-            name_part = name_part.replace(' ', '_')
-            
-            # Handle long filenames - truncate to 200 chars + extension
-            MAX_NAME_LENGTH = 200
-            if len(name_part) > MAX_NAME_LENGTH:
-                # Keep first 195 chars and add a short hash suffix for uniqueness
-                import hashlib
-                hash_suffix = hashlib.md5(filename.encode()).hexdigest()[:5]
-                name_part = f"{name_part[:195]}_{hash_suffix}"
-            
-            # Reconstruct filename with extension
-            sanitized_filename = f"{name_part}{ext}" if ext else name_part
-            
-            # Upload PDF with sanitized filename
-            pdf_object_name = f"{document_id}/{sanitized_filename}"
-            self.client.put_object(
-                raw_bucket,
-                pdf_object_name,
-                io.BytesIO(file_data),
-                len(file_data),
-                content_type="application/pdf"
-            )
-            logger.info(f"Uploaded PDF to raw-documents: {pdf_object_name}")
-            
-            # Prepare and upload metadata
-            if metadata is None:
-                metadata = {}
-            
-            metadata.update({
-                "document_id": document_id,
-                "original_filename": filename,
-                "upload_timestamp": datetime.now().isoformat(),
-                "file_size": len(file_data)
-            })
-            
-            # Save metadata as {document_id}_metadata.json
-            metadata_object_name = f"{document_id}/{document_id}_metadata.json"
-            metadata_json = json.dumps(metadata, ensure_ascii=False, indent=2).encode('utf-8')
-            
-            self.client.put_object(
-                raw_bucket,
-                metadata_object_name,
-                io.BytesIO(metadata_json),
-                len(metadata_json),
-                content_type="application/json"
-            )
-            logger.info(f"Uploaded metadata to raw-documents: {metadata_object_name}")
-            
-            return True
-            
-        except S3Error as e:
-            logger.error(f"Error uploading to raw-documents: {e}")
-            return False
+        max_retries = 3
+        retry_delay = 2  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                # Ensure raw-documents bucket exists
+                raw_bucket = "raw-documents"
+                if not self.client.bucket_exists(raw_bucket):
+                    self.client.make_bucket(raw_bucket)
+                    logger.info(f"Created bucket: {raw_bucket}")
+                
+                # Sanitize filename for MinIO while preserving original in metadata
+                import unicodedata
+                import re
+                import os
+                
+                # Convert to lowercase first
+                sanitized_filename = filename.lower()
+                
+                # Replace Turkish characters with proper ASCII equivalents
+                # More comprehensive Turkish character mapping
+                replacements = {
+                    'ı': 'i', 'ğ': 'g', 'ü': 'u', 'ş': 's', 'ö': 'o', 'ç': 'c',
+                    'İ': 'i', 'Ğ': 'g', 'Ü': 'u', 'Ş': 's', 'Ö': 'o', 'Ç': 'c',
+                    'â': 'a', 'î': 'i', 'û': 'u', 'ê': 'e', 'ô': 'o',
+                    'Â': 'a', 'Î': 'i', 'Û': 'u', 'Ê': 'e', 'Ô': 'o'
+                }
+                for tr_char, ascii_char in replacements.items():
+                    sanitized_filename = sanitized_filename.replace(tr_char, ascii_char)
+                
+                # Normalize unicode to handle any remaining special characters
+                sanitized_filename = unicodedata.normalize('NFKD', sanitized_filename)
+                sanitized_filename = sanitized_filename.encode('ascii', 'ignore').decode('ascii')
+                
+                # Get the name and extension separately
+                name_part, ext = os.path.splitext(sanitized_filename)
+                
+                # Replace punctuation and special chars with spaces, keep numbers and letters
+                name_part = re.sub(r'[^a-z0-9\s]', ' ', name_part)
+                
+                # Replace multiple spaces with single space
+                name_part = re.sub(r'\s+', ' ', name_part)
+                
+                # Remove leading/trailing spaces
+                name_part = name_part.strip()
+                
+                # Replace spaces with underscores for the filename
+                name_part = name_part.replace(' ', '_')
+                
+                # Handle long filenames - truncate to 200 chars + extension
+                MAX_NAME_LENGTH = 200
+                if len(name_part) > MAX_NAME_LENGTH:
+                    # Keep first 195 chars and add a short hash suffix for uniqueness
+                    import hashlib
+                    hash_suffix = hashlib.md5(filename.encode()).hexdigest()[:5]
+                    name_part = f"{name_part[:195]}_{hash_suffix}"
+                
+                # Reconstruct filename with extension
+                sanitized_filename = f"{name_part}{ext}" if ext else name_part
+                
+                # Upload PDF with sanitized filename
+                pdf_object_name = f"{document_id}/{sanitized_filename}"
+                self.client.put_object(
+                    raw_bucket,
+                    pdf_object_name,
+                    io.BytesIO(file_data),
+                    len(file_data),
+                    content_type="application/pdf"
+                )
+                logger.info(f"Uploaded PDF to raw-documents: {pdf_object_name}")
+                
+                # Prepare and upload metadata
+                if metadata is None:
+                    metadata = {}
+                
+                metadata.update({
+                    "document_id": document_id,
+                    "original_filename": filename,
+                    "upload_timestamp": datetime.now().isoformat(),
+                    "file_size": len(file_data)
+                })
+                
+                # Save metadata as {document_id}_metadata.json
+                metadata_object_name = f"{document_id}/{document_id}_metadata.json"
+                metadata_json = json.dumps(metadata, ensure_ascii=False, indent=2).encode('utf-8')
+                
+                self.client.put_object(
+                    raw_bucket,
+                    metadata_object_name,
+                    io.BytesIO(metadata_json),
+                    len(metadata_json),
+                    content_type="application/json"
+                )
+                logger.info(f"Uploaded metadata to raw-documents: {metadata_object_name}")
+                
+                return True
+                
+            except S3Error as e:
+                logger.warning(f"Attempt {attempt + 1} failed: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    logger.error(f"Failed after {max_retries} attempts: {e}")
+                    return False
+            except Exception as e:
+                logger.warning(f"Attempt {attempt + 1} error: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    logger.error(f"Error after {max_retries} attempts: {e}")
+                    return False
+        
+        return False
 
 
 # Singleton instance

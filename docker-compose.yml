@@ -26,16 +26,8 @@ services:
         environment:
             MINIO_ROOT_USER: minioadmin
             MINIO_ROOT_PASSWORD: minioadmin
-            MINIO_SCANNER_SPEED: slowest
-            MINIO_API_REQUESTS_MAX: 100000
-            MINIO_API_REQUESTS_DEADLINE: 10m
-            MINIO_UPDATE_MINISIGN_PUBKEY: off
-            MINIO_API_TRANSITION_WORKERS: 500
-            MINIO_API_REPLICATION_MAX_WORKERS: 500
-            MINIO_STORAGE_CLASS_STANDARD: EC:0
-            MINIO_API_SYNC_EVENTS: off
-            MINIO_CACHE: off
-            MINIO_CACHE_EXCLUDE: "*.pdf"
+            MINIO_API_REQUESTS_MAX: 10000
+            MINIO_API_REQUESTS_DEADLINE: 30s
         ports:
             - "9000:9000"
             - "9001:9001"
