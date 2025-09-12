@@ -239,19 +239,40 @@ Cevap:"""
     ) -> List[Dict[str, Any]]:
         """Extract source references from the answer"""
         import re
+        from app.storage import storage
         sources = []
         
         # Find all [number] references in the answer
         references = re.findall(r'\[(\d+)\]', answer)
+        
+        # Cache for document metadata to avoid multiple fetches
+        doc_metadata_cache = {}
         
         for ref in references:
             try:
                 idx = int(ref) - 1  # Convert to 0-based index
                 if 0 <= idx < len(chunks):
                     chunk = chunks[idx]
+                    doc_id = chunk.get("document_id", "unknown")
+                    
+                    # Get document metadata if not cached
+                    if doc_id not in doc_metadata_cache and doc_id != "unknown":
+                        doc_metadata_cache[doc_id] = storage.get_document_metadata(doc_id)
+                    
+                    # Get the original filename from metadata
+                    original_filename = "unknown.pdf"
+                    if doc_id in doc_metadata_cache:
+                        original_filename = doc_metadata_cache[doc_id].get("original_filename", f"{doc_id}.pdf")
+                    
+                    # Generate document URL (MinIO console URL for viewing)
+                    # This assumes MinIO is accessible at localhost:9001
+                    document_url = f"http://localhost:9001/browser/raw-documents/{doc_id}/{original_filename}"
+                    
                     sources.append({
                         "reference": f"[{ref}]",
-                        "document_id": chunk.get("document_id", "unknown"),
+                        "document_id": doc_id,
+                        "document_name": original_filename,
+                        "document_url": document_url,
                         "chunk_id": chunk.get("chunk_id", "unknown"),
                         "page_number": chunk.get("page_number", chunk.get("metadata", {}).get("page_number")),
                         "text": chunk.get("text", "")[:200] + "...",  # Truncate for brevity

@@ -538,6 +538,9 @@ async def query_documents(request: QueryRequest):
         sources = []
         context_parts = []
         
+        # Cache for document metadata
+        doc_metadata_cache = {}
+        
         for i, result in enumerate(search_results[0]):
             score = result.score
             # Access entity fields directly as attributes
@@ -552,16 +555,38 @@ async def query_documents(request: QueryRequest):
             else:
                 meta_dict = metadata if metadata else {}
             
-            doc_title = meta_dict.get('document_title', 'Unknown')
+            # Get the original filename from metadata
+            document_title = meta_dict.get('document_title', 'Unknown')
+            
+            # Try to get better metadata from MinIO if needed
+            if doc_id not in doc_metadata_cache:
+                doc_metadata_cache[doc_id] = storage.get_document_metadata(doc_id)
+            
+            # Use document title from Milvus metadata, fallback to MinIO metadata
+            if document_title and document_title != 'Unknown':
+                original_filename = f"{document_title}.pdf" if not document_title.endswith('.pdf') else document_title
+            elif doc_id in doc_metadata_cache:
+                original_filename = doc_metadata_cache[doc_id].get("original_filename", f'{doc_id}.pdf')
+            else:
+                original_filename = f'{doc_id}.pdf'
+            
+            doc_title = document_title if document_title != 'Unknown' else original_filename.replace('.pdf', '')
             chunk_id = meta_dict.get('chunk_id', f'chunk_{chunk_index}')
             page_num = meta_dict.get('page_number', 0)
             created_at = meta_dict.get('created_at', 0)
+            
+            # Generate document URL for MinIO console (properly encoded)
+            from urllib.parse import quote
+            encoded_filename = quote(original_filename)
+            document_url = f"http://localhost:9001/browser/raw-documents/{doc_id}/{encoded_filename}"
             
             sources.append({
                 "rank": i + 1,
                 "score": round(score, 3),
                 "document_id": doc_id,
+                "document_name": original_filename,
                 "document_title": doc_title,
+                "document_url": document_url,
                 "page_number": page_num,
                 "text_preview": text[:200] + "..." if len(text) > 200 else text,
                 "created_at": created_at

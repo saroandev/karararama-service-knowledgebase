@@ -330,8 +330,22 @@ for message in st.session_state.messages:
         # Show sources if available
         if "sources" in message and message["sources"]:
             with st.expander("📚 Kaynaklar"):
-                for source in message["sources"]:
-                    st.write(f"• {source.get('metadata', {}).get('source', 'Unknown')}")
+                for i, source in enumerate(message["sources"], 1):
+                    st.write(f"**Kaynak {i}:**")
+                    doc_name = source.get('document_name', source.get('document_id', 'Bilinmeyen'))
+                    doc_url = source.get('document_url', '')
+                    page_num = source.get('page_number', 'N/A')
+                    text_preview = source.get('text', '')[:150] + '...' if source.get('text') else ''
+                    score = source.get('score', 0.0)
+                    
+                    st.write(f"📄 Doküman: {doc_name}")
+                    if doc_url:
+                        st.write(f"🔗 [Dokümanı Görüntüle]({doc_url})")
+                    st.write(f"📑 Sayfa: {page_num}")
+                    if text_preview:
+                        st.write(f"📝 İçerik: *{text_preview}*")
+                    st.write(f"⭐ Skor: {score:.3f}")
+                    st.write("---")
 
 # File upload button - minimal design
 uploaded_files = st.file_uploader(
@@ -402,8 +416,20 @@ if prompt := st.chat_input("Sorunuzu yazın...", disabled=st.session_state.proce
                 with st.expander("📚 Kaynaklar"):
                     for i, source in enumerate(sources, 1):
                         st.write(f"**Kaynak {i}:**")
-                        st.write(f"• İçerik: {source.get('content', '')[:200]}...")
-                        st.write(f"• Skor: {source.get('score', 'N/A')}")
+                        doc_name = source.get('document_name', source.get('document_id', 'Bilinmeyen'))
+                        doc_url = source.get('document_url', '')
+                        page_num = source.get('page_number', 'N/A')
+                        text_preview = source.get('text', '')[:150] + '...' if source.get('text') else ''
+                        score = source.get('score', 0.0)
+                        
+                        st.write(f"📄 Doküman: {doc_name}")
+                        if doc_url:
+                            st.write(f"🔗 [Dokümanı Görüntüle]({doc_url})")
+                        st.write(f"📑 Sayfa: {page_num}")
+                        if text_preview:
+                            st.write(f"📝 İçerik: *{text_preview}*")
+                        st.write(f"⭐ Skor: {score:.3f}")
+                        st.write("---")
             
             # Add assistant message with sources
             message_data = {"role": "assistant", "content": assistant_response}

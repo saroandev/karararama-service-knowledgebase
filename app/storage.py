@@ -74,6 +74,7 @@ class MinIOStorage:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         document_id = f"doc_{doc_hash[:8]}_{timestamp}"
         
+        
         # Prepare metadata (ASCII-safe for MinIO)
         if metadata is None:
             metadata = {}
@@ -479,6 +480,66 @@ class MinIOStorage:
         except S3Error as e:
             logger.error(f"Error deleting document: {e}")
             return False
+    
+    def get_document_metadata(self, document_id: str) -> Dict[str, Any]:
+        """
+        Get document metadata from MinIO
+        
+        Args:
+            document_id: Document identifier
+        
+        Returns:
+            Document metadata dictionary
+        """
+        try:
+            # Try to get metadata from raw-documents bucket first
+            metadata_object = f"{document_id}/{document_id}_metadata.json"
+            try:
+                response = self.client.get_object("raw-documents", metadata_object)
+                metadata = json.loads(response.read())
+                response.close()
+                return metadata
+            except:
+                pass
+            
+            # Try to get from docs bucket metadata file
+            meta_object = f"{document_id}/.metadata"
+            try:
+                response = self.client.get_object(settings.MINIO_BUCKET_DOCS, meta_object)
+                metadata = json.loads(response.read())
+                response.close()
+                return metadata
+            except:
+                pass
+            
+            # Try to get from object metadata
+            try:
+                objects = self.client.list_objects(
+                    settings.MINIO_BUCKET_DOCS,
+                    prefix=f"{document_id}/",
+                    recursive=False
+                )
+                for obj in objects:
+                    if not obj.object_name.endswith('/'):
+                        stat = self.client.stat_object(settings.MINIO_BUCKET_DOCS, obj.object_name)
+                        if stat.metadata:
+                            return dict(stat.metadata)
+                        break
+            except:
+                pass
+            
+            # Return default metadata if nothing found
+            return {
+                "document_id": document_id,
+                "original_filename": f"{document_id}.pdf"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting document metadata: {e}")
+            return {
+                "document_id": document_id,
+                "original_filename": f"{document_id}.pdf"
+            }
     
     def clear_cache(self):
         """Clear the entire cache"""
