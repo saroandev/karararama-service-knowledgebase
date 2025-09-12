@@ -152,9 +152,8 @@ def retry_with_backoff(max_retries=3, backoff_factor=2):
 # Get embedding dimension based on model
 def get_embedding_dimension():
     """Get embedding dimension based on configured model"""
-    # We're using 384 dimensions to match the existing collection
-    # text-embedding-3-small supports custom dimensions
-    return 384
+    # Get dimension from settings, with backward compatibility
+    return settings.EMBEDDING_DIMENSION
 
 @app.get("/health")
 async def health_check():
@@ -320,11 +319,11 @@ async def ingest_document(file: UploadFile = File(...)):
                 # Generate embeddings for batch
                 try:
                     response = openai_client.embeddings.create(
-                        model='text-embedding-3-small',
+                        model=settings.EMBEDDING_MODEL,
                         input=batch_texts
                     )
-                    # Truncate embeddings to 384 dimensions to match collection
-                    batch_embeddings = [data.embedding[:384] for data in response.data]
+                    # Get full embeddings without truncation
+                    batch_embeddings = [data.embedding for data in response.data]
                 except Exception as e:
                     logger.error(f"OpenAI embedding generation failed: {e}")
                     raise HTTPException(status_code=500, detail=f"Embedding generation failed: {e}")
@@ -358,11 +357,11 @@ async def ingest_document(file: UploadFile = File(...)):
                 
                 try:
                     response = openai_client.embeddings.create(
-                        model='text-embedding-3-small',
+                        model=settings.EMBEDDING_MODEL,
                         input=batch_texts
                     )
-                    # Truncate embeddings to 384 dimensions to match collection
-                    batch_embeddings = [data.embedding[:384] for data in response.data]
+                    # Get full embeddings without truncation
+                    batch_embeddings = [data.embedding for data in response.data]
                 except Exception as e:
                     logger.error(f"OpenAI embedding generation failed: {e}")
                     raise HTTPException(status_code=500, detail=f"Embedding generation failed: {e}")
@@ -493,11 +492,11 @@ async def query_documents(request: QueryRequest):
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
             
             query_response = client.embeddings.create(
-                model='text-embedding-3-small',
+                model=settings.EMBEDDING_MODEL,
                 input=request.question
             )
-            # Truncate embedding to 384 dimensions to match collection
-            query_embedding = query_response.data[0].embedding[:384]
+            # Get full embedding without truncation
+            query_embedding = query_response.data[0].embedding
         else:
             # Fallback to OpenAI for embeddings
             logger.warning("Local embedding models require TensorFlow. Using OpenAI.")
@@ -505,11 +504,11 @@ async def query_documents(request: QueryRequest):
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
             
             query_response = client.embeddings.create(
-                model='text-embedding-3-small',
+                model=settings.EMBEDDING_MODEL,
                 input=request.question
             )
-            # Truncate embedding to 384 dimensions to match collection
-            query_embedding = query_response.data[0].embedding[:384]
+            # Get full embedding without truncation
+            query_embedding = query_response.data[0].embedding
         
         # Prepare search expression (filters)
         expr = None
@@ -604,7 +603,7 @@ async def query_documents(request: QueryRequest):
                 client = OpenAI(api_key=settings.OPENAI_API_KEY)
             
             chat_response = client.chat.completions.create(
-                model=os.getenv('OPENAI_MODEL', 'gpt-4o-mini'),
+                model=settings.OPENAI_MODEL,
                 messages=[
                 {
                     "role": "system", 
@@ -640,7 +639,7 @@ Lütfen bu soruya kaynak belgelere dayanarak cevap ver ve hangi kaynak(lardan) b
             )
             
             answer = chat_response.choices[0].message.content
-            model_used = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
+            model_used = settings.OPENAI_MODEL
         else:
             # Use Ollama or other local LLM
             # This would need to be implemented based on your Ollama setup

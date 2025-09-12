@@ -16,11 +16,13 @@ class Settings:
     MILVUS_COLLECTION = os.getenv("MILVUS_COLLECTION", "rag_chunks")
 
     EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
+    EMBEDDING_DIMENSION = int(os.getenv("EMBEDDING_DIMENSION", "384"))
     EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))
     RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
 
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
     OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b-instruct")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+    OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 settings = Settings()

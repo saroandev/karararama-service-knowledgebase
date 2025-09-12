@@ -54,7 +54,7 @@ class MilvusIndexer:
         # Define schema  
         fields = [
             FieldSchema(name="id", dtype=DataType.VARCHAR, max_length=100, is_primary=True),
-            FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=384),  # multilingual-e5-small uses 384 dim
+            FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=settings.EMBEDDING_DIMENSION),  # Configurable dimension
             FieldSchema(name="document_id", dtype=DataType.VARCHAR, max_length=100),
             FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, max_length=100),
             FieldSchema(name="chunk_index", dtype=DataType.INT64),
@@ -123,7 +123,7 @@ class MilvusIndexer:
         
         for chunk, embedding in zip(chunks, embeddings):
             # Ensure embedding is correct dimension
-            expected_dim = 384  # multilingual-e5-small dimension
+            expected_dim = settings.EMBEDDING_DIMENSION
             if len(embedding) != expected_dim:
                 logger.warning(f"Embedding dimension mismatch: {len(embedding)} != {expected_dim}")
                 # Pad or truncate as needed
