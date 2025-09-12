@@ -8,7 +8,7 @@ import asyncio
 import hashlib
 import datetime
 import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from io import BytesIO
 from functools import wraps
 import os
@@ -64,14 +64,29 @@ app.add_middleware(
 )
 
 # Pydantic models
-class IngestResponse(BaseModel):
-    success: bool
+
+# Base response class for ingestion
+class BaseIngestResponse(BaseModel):
     document_id: str
     document_title: str
-    chunks_created: int
-    processing_time: float
     file_hash: str
+    processing_time: float
     message: str
+
+# Successful document ingestion
+class SuccessfulIngestResponse(BaseIngestResponse):
+    success: bool = True
+    chunks_created: int
+    
+# Document already exists response
+class ExistingDocumentResponse(BaseIngestResponse):
+    success: bool = False
+    chunks_count: int = 0
+    
+# Failed ingestion response
+class FailedIngestResponse(BaseIngestResponse):
+    success: bool = False
+    error_details: Optional[str] = None
 
 class QueryRequest(BaseModel):
     question: str = Field(..., description="Question to ask")
@@ -182,7 +197,7 @@ async def health_check():
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Service unavailable: {str(e)}")
 
-@app.post("/ingest", response_model=IngestResponse)
+@app.post("/ingest", response_model=Union[SuccessfulIngestResponse, ExistingDocumentResponse, FailedIngestResponse])
 @retry_with_backoff(max_retries=3)
 async def ingest_document(file: UploadFile = File(...)):
     """
@@ -205,6 +220,45 @@ async def ingest_document(file: UploadFile = File(...)):
         document_id = f"doc_{file_hash[:16]}"
         
         logger.info(f"Document ID: {document_id}, Hash: {file_hash}")
+        
+        # Early check for document existence to avoid unnecessary processing
+        try:
+            collection = milvus_manager.get_collection()
+            search_existing = collection.query(
+                expr=f'document_id == "{document_id}"',
+                output_fields=['id', 'metadata'],
+                limit=1
+            )
+            
+            if search_existing:
+                # Document already exists, return early
+                processing_time = (datetime.datetime.now() - start_time).total_seconds()
+                
+                # Try to get the document title from existing metadata
+                document_title = file.filename.replace('.pdf', '')
+                if search_existing and 'metadata' in search_existing[0]:
+                    try:
+                        existing_metadata = search_existing[0]['metadata']
+                        if isinstance(existing_metadata, str):
+                            existing_metadata = json.loads(existing_metadata)
+                        if isinstance(existing_metadata, dict):
+                            document_title = existing_metadata.get('document_title', document_title)
+                    except:
+                        pass
+                
+                logger.info(f"Document {document_id} already exists. Skipping ingestion.")
+                
+                return ExistingDocumentResponse(
+                    document_id=document_id,
+                    document_title=document_title,
+                    processing_time=processing_time,
+                    file_hash=file_hash,
+                    message="Document already exists in database",
+                    chunks_count=len(search_existing)  # Show how many chunks already exist
+                )
+        except Exception as e:
+            logger.warning(f"Could not check document existence: {e}. Proceeding with ingestion.")
+            # Continue with ingestion if check fails
         
         # Upload PDF to MinIO (rag-docs bucket for chunking)
         try:
@@ -268,26 +322,8 @@ async def ingest_document(file: UploadFile = File(...)):
         
         logger.info(f"Created {len(chunks)} chunks")
         
-        # 3. Connect to production Milvus
+        # 3. Connect to production Milvus (already connected in early check)
         collection = milvus_manager.get_collection()
-        
-        # Check if document already exists
-        search_existing = collection.query(
-            expr=f'document_id == "{document_id}"',
-            output_fields=['id'],
-            limit=1
-        )
-        
-        if search_existing:
-            return IngestResponse(
-                success=False,
-                document_id=document_id,
-                document_title=document_title,
-                chunks_created=0,
-                processing_time=0,
-                file_hash=file_hash,
-                message="Document already exists in database"
-            )
         
         # 4. Generate embeddings with batch processing
         chunk_ids = []
@@ -448,8 +484,7 @@ async def ingest_document(file: UploadFile = File(...)):
         
         logger.info(f"Successfully ingested {len(chunks)} chunks in {processing_time:.2f}s")
         
-        return IngestResponse(
-            success=True,
+        return SuccessfulIngestResponse(
             document_id=document_id,
             document_title=document_title,
             chunks_created=len(chunks),
@@ -462,14 +497,13 @@ async def ingest_document(file: UploadFile = File(...)):
         logger.error(f"Ingest error: {str(e)}")
         processing_time = (datetime.datetime.now() - start_time).total_seconds()
         
-        return IngestResponse(
-            success=False,
-            document_id="",
-            document_title="",
-            chunks_created=0,
+        return FailedIngestResponse(
+            document_id=document_id if 'document_id' in locals() else "",
+            document_title=document_title if 'document_title' in locals() else "",
             processing_time=processing_time,
-            file_hash="",
-            message=f"Ingest failed: {str(e)}"
+            file_hash=file_hash if 'file_hash' in locals() else "",
+            message=f"Ingest failed: {str(e)}",
+            error_details=str(e)
         )
 
 @app.post("/query", response_model=QueryResponse)
