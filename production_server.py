@@ -1036,7 +1036,7 @@ async def batch_ingest_documents(
         total_processing_time=total_processing_time,
         message=f"Processed {len(files)} files: {successful} successful, {failed} failed, {skipped} skipped"
     )
-
+# Run the app with Uvicorn
 if __name__ == "__main__":
     uvicorn.run(
         "production_server:app",
