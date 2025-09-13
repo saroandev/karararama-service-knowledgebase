@@ -7,8 +7,14 @@ echo "🚀 Starting FastAPI Development Server..."
 # Set Python path
 export PYTHONPATH=/Users/ugur/Desktop/Onedocs-RAG-Project/main
 
+# Load environment variables from .env file
+if [ -f "/Users/ugur/Desktop/Onedocs-RAG-Project/main/.env" ]; then
+    export $(cat /Users/ugur/Desktop/Onedocs-RAG-Project/main/.env | grep -v '^#' | xargs)
+    echo "✅ Environment variables loaded from .env"
+fi
+
 # Activate virtual environment
-source ../venv/bin/activate
+source venv/bin/activate
 
 # Check if virtual environment is activated
 if [[ "$VIRTUAL_ENV" != "" ]]; then

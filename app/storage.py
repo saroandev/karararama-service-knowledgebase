@@ -170,6 +170,51 @@ class MinIOStorage:
                 logger.error(f"Fallback upload also failed: {fallback_error}")
                 raise
     
+    def upload_chunk(self, document_id: str, chunk_id: str, chunk_text: str,
+                     metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Upload a single chunk to MinIO
+
+        Args:
+            document_id: Document identifier
+            chunk_id: Unique chunk identifier
+            chunk_text: The text content of the chunk
+            metadata: Optional metadata for the chunk
+
+        Returns:
+            bool: Success status
+        """
+        try:
+            # Prepare chunk data
+            chunk_data = {
+                "document_id": document_id,
+                "chunk_id": chunk_id,
+                "text": chunk_text,
+                "metadata": metadata or {},
+                "timestamp": datetime.now().isoformat()
+            }
+
+            # Convert to JSON
+            json_data = json.dumps(chunk_data, ensure_ascii=False, indent=2)
+            json_bytes = json_data.encode('utf-8')
+
+            # Upload individual chunk to chunks bucket
+            object_name = f"{document_id}/{chunk_id}.json"
+            self.client.put_object(
+                settings.MINIO_BUCKET_CHUNKS,
+                object_name,
+                io.BytesIO(json_bytes),
+                len(json_bytes),
+                content_type='application/json'
+            )
+
+            logger.debug(f"Uploaded chunk {chunk_id} for document {document_id}")
+            return True
+
+        except S3Error as e:
+            logger.error(f"Failed to upload chunk {chunk_id}: {e}")
+            return False
+
     def upload_chunks(self, chunks: List[Dict[str, Any]], document_id: str) -> bool:
         """
         Upload text chunks to MinIO
