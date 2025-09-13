@@ -5,7 +5,7 @@
 echo "🚀 Starting FastAPI Development Server..."
 
 # Set Python path
-export PYTHONPATH=/Users/ugur/Desktop/Onedocs-RAG-Project/main
+export PYTHONPATH=/Users/ugur/Desktop/Onedocs-RAG-Project
 
 # Load environment variables from .env file
 if [ -f "/Users/ugur/Desktop/Onedocs-RAG-Project/main/.env" ]; then

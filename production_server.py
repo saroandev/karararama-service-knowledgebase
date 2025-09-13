@@ -279,19 +279,20 @@ async def ingest_document(file: UploadFile = File(...)):
             logger.warning(f"Could not check document existence: {e}. Proceeding with ingestion.")
             # Continue with ingestion if check fails
         
-        # Upload PDF to MinIO (rag-docs bucket for chunking)
-        try:
-            minio_doc_id = storage_service.upload_pdf(
-                file_data=pdf_data,
-                filename=file.filename,
-                metadata={"document_id": document_id, "file_hash": file_hash}
-            )
-            logger.info(f"PDF uploaded to MinIO rag-docs: {minio_doc_id}")
-        except Exception as e:
-            logger.error(f"MinIO rag-docs upload failed: {e}")
-            # Continue without MinIO if it fails
-        
-        # Also upload to raw-documents bucket with original filename
+        # Upload PDF to MinIO (rag-docs bucket for chunking) - COMMENTED OUT
+        # We only use raw-documents bucket now
+        # try:
+        #     minio_doc_id = storage_service.upload_pdf(
+        #         file_data=pdf_data,
+        #         filename=file.filename,
+        #         metadata={"document_id": document_id, "file_hash": file_hash}
+        #     )
+        #     logger.info(f"PDF uploaded to MinIO rag-docs: {minio_doc_id}")
+        # except Exception as e:
+        #     logger.error(f"MinIO rag-docs upload failed: {e}")
+        #     # Continue without MinIO if it fails
+
+        # Upload to raw-documents bucket with original filename
         try:
             success = storage_service.upload_pdf_to_raw_documents(
                 document_id=document_id,
@@ -1036,7 +1037,7 @@ async def batch_ingest_documents(
         total_processing_time=total_processing_time,
         message=f"Processed {len(files)} files: {successful} successful, {failed} failed, {skipped} skipped"
     )
-
+# Run the app with Uvicorn
 if __name__ == "__main__":
     uvicorn.run(
         "production_server:app",

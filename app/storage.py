@@ -169,11 +169,10 @@ class MinIOStorage:
             except Exception as fallback_error:
                 logger.error(f"Fallback upload also failed: {fallback_error}")
                 raise
-    
-    def upload_chunk(self, document_id: str, chunk_id: str, chunk_text: str,
-                     metadata: Optional[Dict[str, Any]] = None) -> bool:
+
+    def upload_chunk(self, document_id: str, chunk_id: str, chunk_text: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
         """
-        Upload a single chunk to MinIO
+        Upload a single text chunk to MinIO
 
         Args:
             document_id: Document identifier
@@ -198,8 +197,9 @@ class MinIOStorage:
             json_data = json.dumps(chunk_data, ensure_ascii=False, indent=2)
             json_bytes = json_data.encode('utf-8')
 
-            # Upload individual chunk to chunks bucket
+            # Upload to chunks bucket with path structure: document_id/chunk_id.json
             object_name = f"{document_id}/{chunk_id}.json"
+
             self.client.put_object(
                 settings.MINIO_BUCKET_CHUNKS,
                 object_name,
@@ -504,135 +504,120 @@ class MinIOStorage:
         self._cache.clear()
         logger.info("Cleared MinIO cache")
 
-    def upload_pdf_to_raw_documents(self, document_id: str, file_data: bytes, 
+    def upload_pdf_to_raw_documents(self, document_id: str, file_data: bytes,
                                    filename: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
         """
         Upload PDF to raw-documents bucket with original filename
-        
+
         Args:
             document_id: Document identifier (e.g., doc_xxx)
             file_data: PDF file bytes
             filename: Original filename to preserve
             metadata: Optional metadata dictionary
-        
+
         Returns:
             True if successful, False otherwise
         """
-        max_retries = 3
-        retry_delay = 2  # seconds
-        
-        for attempt in range(max_retries):
-            try:
-                # Ensure raw-documents bucket exists
-                raw_bucket = "raw-documents"
-                if not self.client.bucket_exists(raw_bucket):
-                    self.client.make_bucket(raw_bucket)
-                    logger.info(f"Created bucket: {raw_bucket}")
-                
-                # Sanitize filename for MinIO while preserving original in metadata
-                import unicodedata
-                import re
-                import os
-                
-                # Convert to lowercase first
-                sanitized_filename = filename.lower()
-                
-                # Replace Turkish characters with proper ASCII equivalents
-                # More comprehensive Turkish character mapping
-                replacements = {
+        # No retry mechanism - try once and return result
+        try:
+            # Ensure raw-documents bucket exists
+            raw_bucket = "raw-documents"
+            if not self.client.bucket_exists(raw_bucket):
+                self.client.make_bucket(raw_bucket)
+                logger.info(f"Created bucket: {raw_bucket}")
+
+            # Sanitize filename for MinIO while preserving original in metadata
+            import unicodedata
+            import re
+            import os
+
+            # Convert to lowercase first
+            sanitized_filename = filename.lower()
+
+            # Replace Turkish characters with proper ASCII equivalents
+            # More comprehensive Turkish character mapping
+            replacements = {
                     'ı': 'i', 'ğ': 'g', 'ü': 'u', 'ş': 's', 'ö': 'o', 'ç': 'c',
                     'İ': 'i', 'Ğ': 'g', 'Ü': 'u', 'Ş': 's', 'Ö': 'o', 'Ç': 'c',
                     'â': 'a', 'î': 'i', 'û': 'u', 'ê': 'e', 'ô': 'o',
                     'Â': 'a', 'Î': 'i', 'Û': 'u', 'Ê': 'e', 'Ô': 'o'
-                }
-                for tr_char, ascii_char in replacements.items():
-                    sanitized_filename = sanitized_filename.replace(tr_char, ascii_char)
-                
-                # Normalize unicode to handle any remaining special characters
-                sanitized_filename = unicodedata.normalize('NFKD', sanitized_filename)
-                sanitized_filename = sanitized_filename.encode('ascii', 'ignore').decode('ascii')
-                
-                # Get the name and extension separately
-                name_part, ext = os.path.splitext(sanitized_filename)
-                
-                # Replace punctuation and special chars with spaces, keep numbers and letters
-                name_part = re.sub(r'[^a-z0-9\s]', ' ', name_part)
-                
-                # Replace multiple spaces with single space
-                name_part = re.sub(r'\s+', ' ', name_part)
-                
-                # Remove leading/trailing spaces
-                name_part = name_part.strip()
-                
-                # Replace spaces with underscores for the filename
-                name_part = name_part.replace(' ', '_')
-                
-                # Handle long filenames - truncate to 200 chars + extension
-                MAX_NAME_LENGTH = 200
-                if len(name_part) > MAX_NAME_LENGTH:
-                    # Keep first 195 chars and add a short hash suffix for uniqueness
-                    import hashlib
-                    hash_suffix = hashlib.md5(filename.encode()).hexdigest()[:5]
-                    name_part = f"{name_part[:195]}_{hash_suffix}"
-                
-                # Reconstruct filename with extension
-                sanitized_filename = f"{name_part}{ext}" if ext else name_part
-                
-                # Upload PDF with sanitized filename
-                pdf_object_name = f"{document_id}/{sanitized_filename}"
-                self.client.put_object(
+            }
+            for tr_char, ascii_char in replacements.items():
+                sanitized_filename = sanitized_filename.replace(tr_char, ascii_char)
+
+            # Normalize unicode to handle any remaining special characters
+            sanitized_filename = unicodedata.normalize('NFKD', sanitized_filename)
+            sanitized_filename = sanitized_filename.encode('ascii', 'ignore').decode('ascii')
+
+            # Get the name and extension separately
+            name_part, ext = os.path.splitext(sanitized_filename)
+
+            # Replace punctuation and special chars with spaces, keep numbers and letters
+            name_part = re.sub(r'[^a-z0-9\s]', ' ', name_part)
+
+            # Replace multiple spaces with single space
+            name_part = re.sub(r'\s+', ' ', name_part)
+
+            # Remove leading/trailing spaces
+            name_part = name_part.strip()
+
+            # Replace spaces with underscores for the filename
+            name_part = name_part.replace(' ', '_')
+
+            # Handle long filenames - truncate to 200 chars + extension
+            MAX_NAME_LENGTH = 200
+            if len(name_part) > MAX_NAME_LENGTH:
+                # Keep first 195 chars and add a short hash suffix for uniqueness
+                import hashlib
+                hash_suffix = hashlib.md5(filename.encode()).hexdigest()[:5]
+                name_part = f"{name_part[:195]}_{hash_suffix}"
+
+            # Reconstruct filename with extension
+            sanitized_filename = f"{name_part}{ext}" if ext else name_part
+
+            # Upload PDF with sanitized filename
+            pdf_object_name = f"{document_id}/{sanitized_filename}"
+            self.client.put_object(
                     raw_bucket,
                     pdf_object_name,
                     io.BytesIO(file_data),
                     len(file_data),
                     content_type="application/pdf"
-                )
-                logger.info(f"Uploaded PDF to raw-documents: {pdf_object_name}")
-                
-                # Prepare and upload metadata
-                if metadata is None:
-                    metadata = {}
-                
-                metadata.update({
+            )
+            logger.info(f"Uploaded PDF to raw-documents: {pdf_object_name}")
+
+            # Prepare and upload metadata
+            if metadata is None:
+                metadata = {}
+
+            metadata.update({
                     "document_id": document_id,
                     "original_filename": filename,
                     "upload_timestamp": datetime.now().isoformat(),
                     "file_size": len(file_data)
-                })
-                
-                # Save metadata as {document_id}_metadata.json
-                metadata_object_name = f"{document_id}/{document_id}_metadata.json"
-                metadata_json = json.dumps(metadata, ensure_ascii=False, indent=2).encode('utf-8')
-                
-                self.client.put_object(
+            })
+
+            # Save metadata as {document_id}_metadata.json
+            metadata_object_name = f"{document_id}/{document_id}_metadata.json"
+            metadata_json = json.dumps(metadata, ensure_ascii=False, indent=2).encode('utf-8')
+
+            self.client.put_object(
                     raw_bucket,
                     metadata_object_name,
                     io.BytesIO(metadata_json),
                     len(metadata_json),
                     content_type="application/json"
-                )
-                logger.info(f"Uploaded metadata to raw-documents: {metadata_object_name}")
+            )
+            logger.info(f"Uploaded metadata to raw-documents: {metadata_object_name}")
                 
-                return True
-                
-            except S3Error as e:
-                logger.warning(f"Attempt {attempt + 1} failed: {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                    continue
-                else:
-                    logger.error(f"Failed after {max_retries} attempts: {e}")
-                    return False
-            except Exception as e:
-                logger.warning(f"Attempt {attempt + 1} error: {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                    continue
-                else:
-                    logger.error(f"Error after {max_retries} attempts: {e}")
-                    return False
-        
-        return False
+            return True
+
+        except S3Error as e:
+            logger.error(f"Failed to upload to raw-documents: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error uploading to raw-documents: {e}")
+            return False
 
 
 # Singleton instance
