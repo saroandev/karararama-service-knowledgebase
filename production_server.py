@@ -573,7 +573,7 @@ async def query_documents(request: QueryRequest):
         search_results = collection.search(
             [query_embedding],
             'embedding',
-            {'metric_type': 'IP'},  # Inner Product metric
+            {'metric_type': 'COSINE'},  # COSINE metric to match collection index
             limit=request.top_k,
             expr=expr,
             output_fields=['document_id', 'chunk_index', 'text', 'metadata']

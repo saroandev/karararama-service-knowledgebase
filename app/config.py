@@ -8,7 +8,7 @@ class Settings:
     MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
     MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
     MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
-    MINIO_BUCKET_DOCS = os.getenv("MINIO_BUCKET_DOCS", "rag-docs")
+    MINIO_BUCKET_DOCS = os.getenv("MINIO_BUCKET_DOCS", "raw-documents")
     MINIO_BUCKET_CHUNKS = os.getenv("MINIO_BUCKET_CHUNKS", "rag-chunks")
 
     MILVUS_HOST = os.getenv("MILVUS_HOST", "localhost")

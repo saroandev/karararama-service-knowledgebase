@@ -11,6 +11,11 @@ from minio import Minio
 from minio.error import S3Error
 from app.config import settings
 
+# Sanitize filename for MinIO while preserving original in metadata
+import unicodedata
+import re
+import os
+
 logger = logging.getLogger(__name__)
 
 
@@ -443,10 +448,10 @@ class MinIOStorage:
     def document_exists(self, document_id: str) -> bool:
         """
         Check if a document exists in MinIO
-        
+
         Args:
             document_id: Document identifier
-        
+
         Returns:
             bool: True if document exists
         """
@@ -456,12 +461,86 @@ class MinIOStorage:
             for obj in objects:
                 if document_id in obj.object_name:
                     return True
-            
+
             return False
-            
+
         except S3Error as e:
             logger.error(f"Error checking document existence: {e}")
             return False
+
+    def get_document_metadata(self, document_id: str) -> Dict[str, Any]:
+        """
+        Get document metadata from MinIO
+
+        Args:
+            document_id: Document identifier
+
+        Returns:
+            Dictionary containing document metadata
+        """
+        try:
+            # Try to find the document in the docs bucket
+            objects = self.client.list_objects(
+                settings.MINIO_BUCKET_DOCS,
+                recursive=True
+            )
+
+            for obj in objects:
+                if document_id in obj.object_name:
+                    # Get object stat for metadata
+                    stat = self.client.stat_object(
+                        settings.MINIO_BUCKET_DOCS,
+                        obj.object_name
+                    )
+
+                    # Extract metadata
+                    metadata = {
+                        "document_id": document_id,
+                        "original_filename": obj.object_name,
+                        "size": obj.size,
+                        "last_modified": obj.last_modified.isoformat() if obj.last_modified else None,
+                        "content_type": stat.content_type if stat else "application/pdf"
+                    }
+
+                    # Add custom metadata if available
+                    if stat and stat.metadata:
+                        # MinIO metadata keys are lowercase
+                        for key, value in stat.metadata.items():
+                            # Map common metadata keys
+                            if key == "x-amz-meta-original-filename":
+                                metadata["original_filename"] = value
+                            elif key == "x-amz-meta-document-id":
+                                metadata["document_id"] = value
+                            elif key == "x-amz-meta-upload-timestamp":
+                                metadata["upload_timestamp"] = value
+                            else:
+                                # Store other metadata as-is
+                                clean_key = key.replace("x-amz-meta-", "").replace("-", "_")
+                                metadata[clean_key] = value
+
+                    return metadata
+
+            # Document not found, return default metadata
+            logger.warning(f"Document {document_id} not found in MinIO")
+            return {
+                "document_id": document_id,
+                "original_filename": f"{document_id}.pdf",
+                "size": 0,
+                "last_modified": None,
+                "content_type": "application/pdf"
+            }
+
+        except S3Error as e:
+            logger.error(f"Error getting document metadata: {e}")
+            # Return safe default metadata on error
+            return {
+                "document_id": document_id,
+                "original_filename": f"{document_id}.pdf",
+                "size": 0,
+                "last_modified": None,
+                "content_type": "application/pdf",
+                "error": str(e)
+            }
     
     # Cache management methods
     def _get_from_cache(self, key: str) -> Optional[Any]:
@@ -521,15 +600,10 @@ class MinIOStorage:
         # No retry mechanism - try once and return result
         try:
             # Ensure raw-documents bucket exists
-            raw_bucket = "raw-documents"
+            raw_bucket = settings.MINIO_BUCKET_DOCS
             if not self.client.bucket_exists(raw_bucket):
                 self.client.make_bucket(raw_bucket)
                 logger.info(f"Created bucket: {raw_bucket}")
-
-            # Sanitize filename for MinIO while preserving original in metadata
-            import unicodedata
-            import re
-            import os
 
             # Convert to lowercase first
             sanitized_filename = filename.lower()

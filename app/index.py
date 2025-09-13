@@ -77,7 +77,7 @@ class MilvusIndexer:
         
         # Create index for vector field
         index_params = {
-            "metric_type": "IP",  # Inner Product for normalized vectors
+            "metric_type": "COSINE",  # COSINE metric for similarity
             "index_type": "IVF_FLAT",
             "params": {"nlist": 128}
         }
@@ -181,7 +181,7 @@ class MilvusIndexer:
         
         # Prepare search parameters
         search_params = {
-            "metric_type": "IP",
+            "metric_type": "COSINE",
             "params": {"nprobe": 16}
         }
         
@@ -272,7 +272,7 @@ class MilvusIndexer:
         
         # Create new index
         index_params = {
-            "metric_type": "IP",
+            "metric_type": "COSINE",
             "index_type": "IVF_FLAT",
             "params": {"nlist": 128}
         }
@@ -307,7 +307,7 @@ class MilvusIndexer:
         
         # Prepare search parameters
         search_params = {
-            "metric_type": "IP",
+            "metric_type": "COSINE",
             "params": {"nprobe": 16}
         }
         
