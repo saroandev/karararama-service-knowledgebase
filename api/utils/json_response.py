@@ -15,5 +15,5 @@ class CustomJSONResponse(JSONResponse):
             ensure_ascii=False,
             allow_nan=False,
             indent=None,
-            separators=(",", ":")
+            separators=(" , ", " : ")
         ).encode("utf-8")

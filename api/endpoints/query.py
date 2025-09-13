@@ -37,10 +37,8 @@ async def query_documents(request: QueryRequest):
         # Generate query embedding
         query_embedding = embedding_service.generate_embedding(request.question)
 
-        # Prepare search expression (filters)
+        # No filters - search in all documents
         expr = None
-        if request.document_id:
-            expr = f'document_id == "{request.document_id}"'
 
         # Vector search
         search_results = collection.search(
