@@ -8,7 +8,7 @@ echo "💬 Starting RAG Chat Interface..."
 export API_BASE_URL=http://localhost:8080
 
 # Activate virtual environment
-source ../venv/bin/activate
+source venv/bin/activate
 
 # Check if virtual environment is activated
 if [[ "$VIRTUAL_ENV" != "" ]]; then
