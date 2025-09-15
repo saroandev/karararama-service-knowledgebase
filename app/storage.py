@@ -24,12 +24,12 @@ class MinIOStorage:
         # Create MinIO client with custom HTTP client for larger files
         import urllib3
         http_client = urllib3.PoolManager(
-            timeout=urllib3.Timeout(connect=30.0, read=600.0),
-            maxsize=50,
+            timeout=urllib3.Timeout(connect=60.0, read=600.0),
+            maxsize=100,
             retries=urllib3.Retry(
-                total=5,
-                backoff_factor=0.5,
-                status_forcelist=[500, 502, 503, 504]
+                total=3,
+                backoff_factor=1.0,
+                status_forcelist=[502, 503, 504]
             )
         )
         
@@ -597,13 +597,44 @@ class MinIOStorage:
         Returns:
             True if successful, False otherwise
         """
-        # No retry mechanism - try once and return result
+        logger.info(f"[UPLOAD_START] Starting upload_pdf_to_raw_documents for document_id: {document_id}")
+        logger.info(f"[UPLOAD_START] Filename: {filename}, Size: {len(file_data)} bytes")
+
         try:
-            # Ensure raw-documents bucket exists
+            # Create a completely new MinIO client for this operation to avoid deadlock
+            from minio import Minio
+            import urllib3
+
+            # Create fresh HTTP client for this upload
+            fresh_http = urllib3.PoolManager(
+                timeout=urllib3.Timeout(connect=30.0, read=60.0),
+                maxsize=10,  # Small pool size
+                retries=urllib3.Retry(total=0)  # No retries at HTTP level, we handle it ourselves
+            )
+
+            # Create fresh client with its own HTTP client
+            fresh_client = Minio(
+                settings.MINIO_ENDPOINT,
+                access_key=settings.MINIO_ACCESS_KEY,
+                secret_key=settings.MINIO_SECRET_KEY,
+                secure=settings.MINIO_SECURE,
+                http_client=fresh_http  # Use dedicated HTTP client
+            )
+            logger.info(f"[CLIENT_CREATED] Fresh MinIO client with dedicated HTTP pool created successfully")
+
             raw_bucket = settings.MINIO_BUCKET_DOCS
-            if not self.client.bucket_exists(raw_bucket):
-                self.client.make_bucket(raw_bucket)
-                logger.info(f"Created bucket: {raw_bucket}")
+            logger.info(f"[CONFIG_CHECK] MINIO_BUCKET_DOCS = {settings.MINIO_BUCKET_DOCS}")
+
+            # Check if bucket exists using fresh client
+            try:
+                if not fresh_client.bucket_exists(raw_bucket):
+                    logger.warning(f"Bucket does not exist: {raw_bucket}, attempting to create...")
+                    fresh_client.make_bucket(raw_bucket)
+                    logger.info(f"Created bucket: {raw_bucket}")
+            except Exception as bucket_error:
+                logger.debug(f"Bucket check/create info: {bucket_error}")
+
+            logger.info(f"[BUCKET_CHECK] Bucket {raw_bucket} exists or created")
 
             # Convert to lowercase first
             sanitized_filename = filename.lower()
@@ -648,17 +679,47 @@ class MinIOStorage:
 
             # Reconstruct filename with extension
             sanitized_filename = f"{name_part}{ext}" if ext else name_part
+            logger.info(f"[FILENAME_SANITIZED] Original: {filename} -> Sanitized: {sanitized_filename}")
 
             # Upload PDF with sanitized filename
             pdf_object_name = f"{document_id}/{sanitized_filename}"
-            self.client.put_object(
-                    raw_bucket,
-                    pdf_object_name,
-                    io.BytesIO(file_data),
-                    len(file_data),
-                    content_type="application/pdf"
-            )
-            logger.info(f"Uploaded PDF to raw-documents: {pdf_object_name}")
+            file_size = len(file_data)
+
+            # Upload with retry mechanism
+            logger.info(f"[UPLOAD_ATTEMPT] About to call fresh_client.put_object()")
+            logger.info(f"[UPLOAD_PARAMS] Bucket: {raw_bucket}, Object: {pdf_object_name}, Size: {file_size}")
+
+            # Try upload with retries
+            import time
+            max_retries = 3
+            retry_delay = 2  # seconds
+
+            for attempt in range(max_retries):
+                try:
+                    if attempt > 0:
+                        logger.info(f"[RETRY] Attempt {attempt + 1}/{max_retries} after {retry_delay}s delay")
+                        time.sleep(retry_delay)
+
+                    # Direct upload without multipart - all files
+                    fresh_client.put_object(
+                        raw_bucket,
+                        pdf_object_name,
+                        io.BytesIO(file_data),
+                        file_size,
+                        content_type="application/pdf"
+                        # No part_size parameter - direct upload
+                    )
+
+                    logger.info(f"[PDF_UPLOADED] PDF successfully uploaded to MinIO: {pdf_object_name}")
+                    break  # Success, exit retry loop
+
+                except Exception as upload_error:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"[RETRY_NEEDED] Upload attempt {attempt + 1} failed: {upload_error}")
+                        continue
+                    else:
+                        logger.error(f"[UPLOAD_FAILED] All {max_retries} attempts failed")
+                        raise  # Re-raise the last exception
 
             # Prepare and upload metadata
             if metadata is None:
@@ -675,22 +736,27 @@ class MinIOStorage:
             metadata_object_name = f"{document_id}/{document_id}_metadata.json"
             metadata_json = json.dumps(metadata, ensure_ascii=False, indent=2).encode('utf-8')
 
-            self.client.put_object(
+            fresh_client.put_object(
                     raw_bucket,
                     metadata_object_name,
                     io.BytesIO(metadata_json),
                     len(metadata_json),
                     content_type="application/json"
             )
-            logger.info(f"Uploaded metadata to raw-documents: {metadata_object_name}")
-                
+            logger.info(f"[METADATA_UPLOADED] Metadata successfully uploaded to MinIO: {metadata_object_name}")
+
+            logger.info(f"[UPLOAD_SUCCESS] upload_pdf_to_raw_documents returning True")
             return True
 
         except S3Error as e:
-            logger.error(f"Failed to upload to raw-documents: {e}")
+            logger.error(f"MinIO S3Error while uploading to raw-documents: {e}")
+            logger.error(f"Error details - Code: {e.code}, Message: {e.message}")
+            logger.error(f"Bucket: {raw_bucket}, Object: {pdf_object_name if 'pdf_object_name' in locals() else 'unknown'}")
             return False
         except Exception as e:
-            logger.error(f"Unexpected error uploading to raw-documents: {e}")
+            logger.error(f"Unexpected error uploading to raw-documents: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
 

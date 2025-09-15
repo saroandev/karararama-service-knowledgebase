@@ -98,6 +98,7 @@ async def ingest_document(file: UploadFile = File(...)):
 
         # Upload to raw-documents bucket with original filename
         try:
+            logger.info(f"[INGEST] Calling upload_pdf_to_raw_documents for {document_id}")
             success = storage.upload_pdf_to_raw_documents(
                 document_id=document_id,
                 file_data=pdf_data,
@@ -109,9 +110,14 @@ async def ingest_document(file: UploadFile = File(...)):
                 }
             )
             if success:
-                logger.info(f"PDF uploaded to raw-documents: {document_id}/{file.filename}")
+                logger.info(f"[INGEST] Upload successful for {document_id}/{file.filename}")
+            else:
+                logger.error(f"[INGEST] Upload returned False for {document_id}")
+                logger.error(f"[INGEST] Check storage.py logs for detailed error information")
         except Exception as e:
-            logger.error(f"Raw-documents upload failed: {e}")
+            logger.error(f"[INGEST] Exception in upload_pdf_to_raw_documents: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(f"[INGEST] Traceback: {traceback.format_exc()}")
 
         # 1. PDF Parse
         parser = PDFParser()
