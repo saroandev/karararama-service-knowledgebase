@@ -164,7 +164,10 @@ async def ingest_document(file: UploadFile = File(...)):
                 "minio_object_path": f"{document_id}/{chunk.chunk_id}.json",
                 "document_title": document_title,
                 "file_hash": file_hash,
-                "created_at": int(current_time.timestamp() * 1000)
+                "created_at": int(current_time.timestamp() * 1000),
+                "embedding_model": settings.EMBEDDING_MODEL,
+                "embedding_dimension": len(embeddings[i]) if i < len(embeddings) else 1536,
+                "embedding_size_bytes": len(embeddings[i]) * 4 if i < len(embeddings) else 1536 * 4  # float32 = 4 bytes
             }
             combined_metadata.append(meta)
 
@@ -348,7 +351,10 @@ async def batch_ingest_documents(
                     "page_number": chunk.page_number,
                     "document_title": document_title,
                     "file_hash": file_hash,
-                    "created_at": int(current_time.timestamp() * 1000)
+                    "created_at": int(current_time.timestamp() * 1000),
+                    "embedding_model": settings.EMBEDDING_MODEL,
+                    "embedding_dimension": len(embeddings[i]) if i < len(embeddings) else 1536,
+                    "embedding_size_bytes": len(embeddings[i]) * 4 if i < len(embeddings) else 1536 * 4  # float32 = 4 bytes
                 }
                 combined_metadata.append(meta)
 
