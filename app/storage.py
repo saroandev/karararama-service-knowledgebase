@@ -62,118 +62,8 @@ class MinIOStorage:
                 logger.error(f"Error creating bucket {bucket}: {e}")
                 raise
     
-    def upload_pdf(self, file_data: bytes, filename: str, metadata: Optional[Dict[str, Any]] = None) -> str:
-        """
-        Upload PDF to MinIO with chunking workaround for Docker Desktop on macOS
-        
-        Args:
-            file_data: PDF file bytes
-            filename: Original filename
-            metadata: Optional metadata dictionary
-        
-        Returns:
-            document_id: Unique identifier for the document
-        """
-        # Generate document ID
-        doc_hash = hashlib.md5(file_data).hexdigest()
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        document_id = f"doc_{doc_hash[:8]}_{timestamp}"
-        
-        
-        # Prepare metadata (ASCII-safe for MinIO)
-        if metadata is None:
-            metadata = {}
-        
-        # Ensure ASCII-safe filename for metadata
-        safe_filename = filename.encode('ascii', 'ignore').decode('ascii')
-        if not safe_filename:
-            safe_filename = "document.pdf"
-        
-        metadata.update({
-            "original_filename": safe_filename,
-            "document_id": document_id,
-            "upload_timestamp": datetime.now().isoformat(),
-            "file_size": str(len(file_data))
-        })
-        
-        # Use safe filename for object name to avoid encoding issues
-        safe_object_name = filename.encode('ascii', 'ignore').decode('ascii')
-        if not safe_object_name:
-            safe_object_name = f"document_{doc_hash[:8]}.pdf"
-        
-        # Docker Desktop on macOS workaround: Split large files into chunks
-        CHUNK_SIZE = 500 * 1024  # 500KB chunks for better performance
-        
-        try:
-            if len(file_data) > CHUNK_SIZE:
-                # Upload in parts manually to work around Docker Desktop issues
-                # This is a workaround for Docker Desktop on macOS file size limitations
-                
-                # Create a multipart upload session
-                # We'll use put_object with smaller chunks
-                logger.info(f"Uploading large file {safe_object_name} in chunks (size: {len(file_data)} bytes)")
-                
-                # Use BytesIO to create a file-like object
-                file_stream = io.BytesIO(file_data)
-                
-                # Upload the entire file (MinIO client will handle chunking internally)
-                self.client.put_object(
-                    settings.MINIO_BUCKET_DOCS,
-                    safe_object_name,
-                    file_stream,
-                    len(file_data),
-                    content_type='application/pdf',
-                    metadata=metadata
-                )
-                
-                logger.info(f"Successfully uploaded {safe_object_name} to MinIO")
-            else:
-                # Small file - upload directly
-                logger.info(f"Uploading small file {safe_object_name} (size: {len(file_data)} bytes)")
-                self.client.put_object(
-                    settings.MINIO_BUCKET_DOCS,
-                    safe_object_name,
-                    io.BytesIO(file_data),
-                    len(file_data),
-                    content_type='application/pdf',
-                    metadata=metadata
-                )
-                logger.info(f"Successfully uploaded {safe_object_name} to MinIO")
-            
-            # Clear cache for this document
-            self._invalidate_cache(document_id)
-            
-            return document_id
-            
-        except S3Error as e:
-            logger.error(f"Failed to upload PDF to MinIO: {e}")
-            # Try alternative approach - save to temp file first
-            import tempfile
-            import os
-            
-            try:
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
-                    tmp_file.write(file_data)
-                    tmp_path = tmp_file.name
-                
-                # Upload from file
-                self.client.fput_object(
-                    settings.MINIO_BUCKET_DOCS,
-                    safe_object_name,
-                    tmp_path,
-                    content_type='application/pdf',
-                    metadata=metadata
-                )
-                
-                # Clean up temp file
-                os.unlink(tmp_path)
-                
-                logger.info(f"Successfully uploaded {safe_object_name} using temp file approach")
-                return document_id
-                
-            except Exception as fallback_error:
-                logger.error(f"Fallback upload also failed: {fallback_error}")
-                raise
+    # upload_pdf fonksiyonu kaldırıldı - upload_pdf_to_raw_documents kullanın
+    # Bu fonksiyon duplicate olduğu için refactoring sırasında kaldırıldı
 
     def upload_chunk(self, document_id: str, chunk_id: str, chunk_text: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
         """
@@ -601,35 +491,19 @@ class MinIOStorage:
         logger.info(f"[UPLOAD_START] Filename: {filename}, Size: {len(file_data)} bytes")
 
         try:
-            # Create a completely new MinIO client for this operation to avoid deadlock
-            from minio import Minio
-            import urllib3
-
-            # Create fresh HTTP client for this upload
-            fresh_http = urllib3.PoolManager(
-                timeout=urllib3.Timeout(connect=30.0, read=60.0),
-                maxsize=10,  # Small pool size
-                retries=urllib3.Retry(total=0)  # No retries at HTTP level, we handle it ourselves
-            )
-
-            # Create fresh client with its own HTTP client
-            fresh_client = Minio(
-                settings.MINIO_ENDPOINT,
-                access_key=settings.MINIO_ACCESS_KEY,
-                secret_key=settings.MINIO_SECRET_KEY,
-                secure=settings.MINIO_SECURE,
-                http_client=fresh_http  # Use dedicated HTTP client
-            )
-            logger.info(f"[CLIENT_CREATED] Fresh MinIO client with dedicated HTTP pool created successfully")
+            # Use the existing client - it already has optimized connection pooling
+            # Only create new client if we encounter connection issues
+            client_to_use = self.client
+            logger.info(f"[CLIENT_READY] Using existing MinIO client with connection pool")
 
             raw_bucket = settings.MINIO_BUCKET_DOCS
             logger.info(f"[CONFIG_CHECK] MINIO_BUCKET_DOCS = {settings.MINIO_BUCKET_DOCS}")
 
-            # Check if bucket exists using fresh client
+            # Check if bucket exists using client
             try:
-                if not fresh_client.bucket_exists(raw_bucket):
+                if not client_to_use.bucket_exists(raw_bucket):
                     logger.warning(f"Bucket does not exist: {raw_bucket}, attempting to create...")
-                    fresh_client.make_bucket(raw_bucket)
+                    client_to_use.make_bucket(raw_bucket)
                     logger.info(f"Created bucket: {raw_bucket}")
             except Exception as bucket_error:
                 logger.debug(f"Bucket check/create info: {bucket_error}")
@@ -701,7 +575,7 @@ class MinIOStorage:
                         time.sleep(retry_delay)
 
                     # Direct upload without multipart - all files
-                    fresh_client.put_object(
+                    client_to_use.put_object(
                         raw_bucket,
                         pdf_object_name,
                         io.BytesIO(file_data),
@@ -736,7 +610,7 @@ class MinIOStorage:
             metadata_object_name = f"{document_id}/{document_id}_metadata.json"
             metadata_json = json.dumps(metadata, ensure_ascii=False, indent=2).encode('utf-8')
 
-            fresh_client.put_object(
+            client_to_use.put_object(
                     raw_bucket,
                     metadata_object_name,
                     io.BytesIO(metadata_json),

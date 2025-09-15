@@ -88,7 +88,21 @@ class IngestionPipeline:
         try:
             # Stage 1: Upload PDF to storage
             self._update_progress("upload", 5.0, "Uploading PDF to storage", 1, 6)
-            document_id = self.storage.upload_pdf(file_data, filename, metadata)
+            # Generate document ID first
+            import hashlib
+            doc_hash = hashlib.md5(file_data).hexdigest()
+            document_id = f"doc_{doc_hash[:16]}"
+
+            # Use upload_pdf_to_raw_documents instead of upload_pdf
+            success = self.storage.upload_pdf_to_raw_documents(
+                document_id=document_id,
+                file_data=file_data,
+                filename=filename,
+                metadata=metadata
+            )
+            if not success:
+                raise Exception("Failed to upload PDF to storage")
+
             self.current_progress.document_id = document_id
             
             # Stage 2: Parse PDF
