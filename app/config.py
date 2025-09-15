@@ -25,4 +25,13 @@ class Settings:
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
+    # Chunking Configuration
+    CHUNKING_MODEL = os.getenv("CHUNKING_MODEL", "BAAI/bge-m3")
+    DEFAULT_CHUNK_SIZE = int(os.getenv("DEFAULT_CHUNK_SIZE", "512"))
+    DEFAULT_CHUNK_OVERLAP = int(os.getenv("DEFAULT_CHUNK_OVERLAP", "50"))
+    DEFAULT_CHUNKING_METHOD = os.getenv("DEFAULT_CHUNKING_METHOD", "token")
+    MAX_CHUNK_SIZE = int(os.getenv("MAX_CHUNK_SIZE", "1000"))
+    MIN_CHUNK_SIZE = int(os.getenv("MIN_CHUNK_SIZE", "100"))
+    SEMANTIC_SIMILARITY_THRESHOLD = float(os.getenv("SEMANTIC_SIMILARITY_THRESHOLD", "0.7"))
+
 settings = Settings()
