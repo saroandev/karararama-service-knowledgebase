@@ -491,10 +491,26 @@ class MinIOStorage:
         logger.info(f"[UPLOAD_START] Filename: {filename}, Size: {len(file_data)} bytes")
 
         try:
-            # Use the existing client - it already has optimized connection pooling
-            # Only create new client if we encounter connection issues
-            client_to_use = self.client
-            logger.info(f"[CLIENT_READY] Using existing MinIO client with connection pool")
+            # Create a completely new MinIO client for this operation to avoid deadlock
+            from minio import Minio
+            import urllib3
+
+            # Create fresh HTTP client for this upload
+            fresh_http = urllib3.PoolManager(
+                timeout=urllib3.Timeout(connect=30.0, read=60.0),
+                maxsize=10,  # Small pool size
+                retries=urllib3.Retry(total=0)  # No retries at HTTP level, we handle it ourselves
+            )
+
+            # Create fresh client with its own HTTP client
+            client_to_use = Minio(
+                settings.MINIO_ENDPOINT,
+                access_key=settings.MINIO_ACCESS_KEY,
+                secret_key=settings.MINIO_SECRET_KEY,
+                secure=settings.MINIO_SECURE,
+                http_client=fresh_http  # Use dedicated HTTP client
+            )
+            logger.info(f"[CLIENT_CREATED] Fresh MinIO client with dedicated HTTP pool created")
 
             raw_bucket = settings.MINIO_BUCKET_DOCS
             logger.info(f"[CONFIG_CHECK] MINIO_BUCKET_DOCS = {settings.MINIO_BUCKET_DOCS}")
