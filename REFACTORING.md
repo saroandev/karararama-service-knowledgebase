@@ -83,15 +83,17 @@ App klasörünü modüler package yapısına dönüştürmek ve kodu daha tutarl
 - [x] Backward compatibility için wrapper ekle ✅
 - [ ] Test coverage ekle (ileride yapılacak)
 
-#### 2.5 Retrieval Package
-- [ ] `app/core/retrieval/` klasörünü oluştur
-- [ ] `app/core/retrieval/__init__.py`
-- [ ] `app/core/retrieval/base.py` (AbstractRetriever class)
-- [ ] `app/core/retrieval/vector_search.py`
-- [ ] `app/core/retrieval/reranker.py`
-- [ ] `app/retrieve.py` içeriğini migrate et
-- [ ] Backward compatibility için wrapper ekle
-- [ ] Test coverage ekle
+#### 2.5 Retrieval Package ✅
+- [x] `app/core/retrieval/` klasörünü oluştur ✅
+- [x] `app/core/retrieval/__init__.py` ✅
+- [x] `app/core/retrieval/base.py` (AbstractRetriever class) ✅
+- [x] `app/core/retrieval/vector_search.py` ✅
+- [x] `app/core/retrieval/reranker.py` ✅
+- [x] `app/core/retrieval/hybrid_retriever.py` ✅
+- [x] `app/core/retrieval/utils.py` ✅
+- [x] `app/retrieve.py` içeriğini migrate et ✅
+- [x] Backward compatibility için wrapper ekle ✅
+- [ ] Test coverage ekle (ileride yapılacak)
 
 ---
 
@@ -238,12 +240,13 @@ def parse_pdf(file_path):
 - Aşama 2.2 - Generation package ✅
 - Aşama 2.3 - Parsing package ✅
 - Aşama 2.4 - Indexing package ✅
+- Aşama 2.5 - Retrieval package ✅
 
-Config, Embeddings, Generation, Parsing ve Indexing package'ları başarıyla oluşturuldu. Sistem backward compatibility ile çalışmaya devam ediyor. Milvus vector database ile entegrasyon sağlanıyor.
+Config, Embeddings, Generation, Parsing, Indexing ve Retrieval package'ları başarıyla oluşturuldu. Sistem backward compatibility ile çalışmaya devam ediyor. Tüm retrieval stratejileri (vector search, reranking, MMR, hybrid) yeni modüler yapıya taşındı.
 
-**Sonraki Adım**: Aşama 2.5 - Retrieval Package
+**Sonraki Adım**: Aşama 3 - Pipelines Package
 
 ---
 
 *Son Güncelleme: 2025-09-17*
-*Durum: Aşama 2.4 Tamamlandı*
+*Durum: Aşama 2.5 Tamamlandı*
