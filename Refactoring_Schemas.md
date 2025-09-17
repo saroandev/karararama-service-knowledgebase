@@ -154,17 +154,17 @@ schemas/
 - [x] `schemas/chunking/hybrid.py` oluştur
 - [x] `schemas/chunking/__init__.py` ile exports ve helper fonksiyonlar eklendi
 
-### Adım 5: Storage Schemas'ını Oluştur
-- [ ] `schemas/storage/minio.py` oluştur
-- [ ] `schemas/storage/milvus.py` oluştur
-- [ ] `schemas/storage/cache.py` oluştur
-- [ ] Storage modüllerindeki import'ları güncelle
+### Adım 5: Storage Schemas'ını Oluştur ✅
+- [x] `schemas/storage/minio.py` oluştur (MinIO object storage schemas)
+- [x] `schemas/storage/milvus.py` oluştur (Milvus vector DB schemas)
+- [x] `schemas/storage/cache.py` oluştur (Cache system schemas)
+- [x] `schemas/storage/__init__.py` ile exports ve helper fonksiyonlar eklendi
 
-### Adım 6: Embeddings Schemas'ını Oluştur
-- [ ] `schemas/embeddings/base.py` oluştur
-- [ ] `schemas/embeddings/openai.py` oluştur
-- [ ] `schemas/embeddings/local.py` oluştur
-- [ ] Embeddings modüllerindeki import'ları güncelle
+### Adım 6: Embeddings Schemas'ını Oluştur ✅
+- [x] `schemas/embeddings/base.py` oluştur
+- [x] `schemas/embeddings/openai.py` oluştur
+- [x] `schemas/embeddings/local.py` oluştur
+- [x] `schemas/embeddings/__init__.py` ile exports ve helper fonksiyonlar eklendi
 
 ### Adım 7: Retrieval Schemas'ını Oluştur
 - [ ] `schemas/retrieval/search.py` oluştur
@@ -220,8 +220,8 @@ schemas/
 ## İlerleme Durumu
 
 **Başlangıç Tarihi**: 2025-09-17
-**Mevcut Adım**: Adım 5 - Storage Schemas'ını Oluştur
-**Son Güncelleme**: 2025-09-17 15:58
+**Mevcut Adım**: Adım 6 - Embeddings Schemas TAMAMLANDI ✅
+**Son Güncelleme**: 2025-09-17 17:30
 
 ### Tamamlanan Adımlar:
 - ✅ Adım 1: Yeni klasör yapısı oluşturuldu (api, chunking, embeddings, storage, retrieval, generation, config, pipelines, indexing)
@@ -245,6 +245,16 @@ schemas/
   - Document chunking schemas (DocumentChunkConfig, DocumentElement, DocumentStructure)
   - Hybrid chunking schemas (HybridChunkConfig, HybridChunkResult)
   - Helper fonksiyonlar (create_chunk_config, get_default_config)
+- ✅ Adım 5: Storage Schemas'ını oluşturduk
+  - MinIO schemas (BucketInfo, DocumentStorage, ChunkStorage, StorageRequest/Response)
+  - Milvus schemas (CollectionSchema, FieldSchema, VectorData, SearchRequest/Result)
+  - Cache schemas (CacheEntry, CacheConfig, CacheOperation, CacheStats)
+  - Helper fonksiyonlar (create_collection_schema, create_search_request, create_cache_config)
+- ✅ Adım 6: Embeddings Schemas'ını oluşturduk
+  - Base embeddings schemas (EmbeddingProvider, EmbeddingConfig, EmbeddingRequest/Result)
+  - OpenAI schemas (OpenAIEmbeddingConfig, OpenAIEmbeddingRequest/Response, OpenAIUsageStats)
+  - Local model schemas (LocalEmbeddingConfig, LocalModelInfo, LocalBenchmarkResult)
+  - Helper fonksiyonlar (create_embedding_config, get_model_dimension, calculate_similarity)
 
 ---
 
