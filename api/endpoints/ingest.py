@@ -23,7 +23,7 @@ from api.core.dependencies import retry_with_backoff
 from api.core.embeddings import embedding_service
 from app.config import settings
 from app.core.storage import storage
-from app.parse import PDFParser
+from app.core.parsing import PDFParser
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
