@@ -63,15 +63,15 @@ App klasörünü modüler package yapısına dönüştürmek ve kodu daha tutarl
 - [x] Backward compatibility için wrapper ekle ✅
 - [ ] Test coverage ekle (ileride yapılacak)
 
-#### 2.3 Parsing Package
-- [ ] `app/core/parsing/` klasörünü oluştur
-- [ ] `app/core/parsing/__init__.py`
-- [ ] `app/core/parsing/base.py` (AbstractParser class)
-- [ ] `app/core/parsing/pdf_parser.py`
-- [ ] `app/core/parsing/utils.py`
-- [ ] `app/parse.py` içeriğini migrate et
-- [ ] Backward compatibility için wrapper ekle
-- [ ] Test coverage ekle
+#### 2.3 Parsing Package ✅
+- [x] `app/core/parsing/` klasörünü oluştur ✅
+- [x] `app/core/parsing/__init__.py` ✅
+- [x] `app/core/parsing/base.py` (AbstractParser class) ✅
+- [x] `app/core/parsing/pdf_parser.py` ✅
+- [x] `app/core/parsing/utils.py` ✅
+- [x] `app/parse.py` içeriğini migrate et ✅
+- [x] Backward compatibility için wrapper ekle ✅
+- [ ] Test coverage ekle (ileride yapılacak)
 
 #### 2.4 Indexing Package
 - [ ] `app/core/indexing/` klasörünü oluştur
@@ -236,12 +236,13 @@ def parse_pdf(file_path):
 - Aşama 1 - Config package ✅
 - Aşama 2.1 - Embeddings package ✅
 - Aşama 2.2 - Generation package ✅
+- Aşama 2.3 - Parsing package ✅
 
-Config, Embeddings ve Generation package'ları başarıyla oluşturuldu. Sistem backward compatibility ile çalışmaya devam ediyor. OpenAI varsayılan provider olarak kullanılıyor, Ollama desteği de mevcut.
+Config, Embeddings, Generation ve Parsing package'ları başarıyla oluşturuldu. Sistem backward compatibility ile çalışmaya devam ediyor. PDF parsing PyMuPDF ile sağlanıyor.
 
-**Sonraki Adım**: Aşama 2.3 - Parsing Package
+**Sonraki Adım**: Aşama 2.4 - Indexing Package
 
 ---
 
 *Son Güncelleme: 2025-09-17*
-*Durum: Aşama 2.2 Tamamlandı*
+*Durum: Aşama 2.3 Tamamlandı*

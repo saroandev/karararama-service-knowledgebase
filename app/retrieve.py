@@ -4,7 +4,7 @@ import numpy as np
 from sentence_transformers import CrossEncoder
 
 from app.index import milvus_indexer
-from app.embed import embedding_generator
+from app.core.embeddings import default_embedding_generator as embedding_generator
 from app.storage import storage
 from app.config import settings
 
