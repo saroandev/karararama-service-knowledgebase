@@ -29,12 +29,12 @@ def display_sources(sources):
 
 
 def render_chat_messages():
-    """Render all chat messages"""
+    """Render all chat messages with modern chat UI"""
     for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
+        with st.chat_message(message["role"], avatar="🧑‍💻" if message["role"] == "user" else "🤖"):
             st.markdown(message["content"])
-            # Show sources if available
-            if "sources" in message and message["sources"]:
+            # Show sources if available (only for assistant messages)
+            if message["role"] == "assistant" and "sources" in message and message["sources"]:
                 display_sources(message["sources"])
 
 
@@ -45,11 +45,11 @@ def handle_chat_input():
         StateManager.add_message("user", prompt)
 
         # Display user message
-        with st.chat_message("user"):
+        with st.chat_message("user", avatar="🧑‍💻"):
             st.markdown(prompt)
 
         # Get assistant response
-        with st.chat_message("assistant"):
+        with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Düşünüyorum..."):
                 st.session_state.processing_query = True
 

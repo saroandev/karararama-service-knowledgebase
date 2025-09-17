@@ -28,14 +28,12 @@ class StateManager:
         if 'uploaded_documents' not in st.session_state:
             st.session_state.uploaded_documents = []
 
-        if 'sidebar_collapsed' not in st.session_state:
-            st.session_state.sidebar_collapsed = False
 
         if 'processing_query' not in st.session_state:
             st.session_state.processing_query = False
 
-        if 'show_documents_list' not in st.session_state:
-            st.session_state.show_documents_list = False
+        if 'show_documents_modal' not in st.session_state:
+            st.session_state.show_documents_modal = False
 
         if 'knowledge_base_documents' not in st.session_state:
             st.session_state.knowledge_base_documents = []
@@ -99,3 +97,4 @@ class StateManager:
             'chunks': chunks,
             'upload_time': datetime.now().isoformat()
         })
+

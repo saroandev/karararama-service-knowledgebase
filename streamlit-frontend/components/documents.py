@@ -1,5 +1,5 @@
 """
-Documents list component
+Documents list modal component
 """
 import streamlit as st
 from datetime import datetime
@@ -7,91 +7,110 @@ from utils.api_client import api_client
 
 
 def render_documents_modal():
-    """Render the documents list modal"""
-    if not st.session_state.show_documents_list:
+    """Render documents list as a modal-like overlay"""
+    if not st.session_state.show_documents_modal:
         return
 
-    # Create placeholder at top to prevent auto-scroll to bottom
-    docs_container = st.container()
+    # Create a modal-like container with custom styling
+    st.markdown("""
+        <style>
+        .modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+        }
+        .modal-content {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 50px auto;
+            max-width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            position: relative;
+            z-index: 1000;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
-    with docs_container:
-        st.markdown("---")
-        col1, col2 = st.columns([8, 2])
-
-        with col1:
-            st.markdown("### 📚 Knowledge Base Dokümanları")
+    # Modal container
+    with st.container():
+        col1, col2, col3 = st.columns([1, 8, 1])
 
         with col2:
-            button_cols = st.columns(3)
-            with button_cols[0]:
-                if st.button("🔄", help="Yenile", key="refresh_docs"):
+            # Modal header
+            header_cols = st.columns([8, 1, 1])
+            with header_cols[0]:
+                st.markdown("### 📚 Knowledge Base Dokümanları")
+            with header_cols[1]:
+                if st.button("🔄", help="Yenile", key="refresh_docs_modal"):
                     st.session_state.knowledge_base_documents = api_client.fetch_documents()
                     st.rerun()
-            with button_cols[1]:
-                if st.button("❌", help="Kapat", key="close_docs"):
-                    st.session_state.show_documents_list = False
+            with header_cols[2]:
+                if st.button("❌", help="Kapat", key="close_modal"):
+                    st.session_state.show_documents_modal = False
                     st.rerun()
 
-        # Search input
-        search_query = st.text_input(
-            "🔍 Doküman Ara",
-            placeholder="Doküman adını yazın (Enter ile ara)...",
-            key="doc_search_input",
-            label_visibility="collapsed"
-        )
+            st.divider()
 
-        if st.session_state.knowledge_base_documents:
-            # Sort documents: numbers first, then alphabetically
-            sorted_docs = sorted(
-                st.session_state.knowledge_base_documents,
-                key=lambda x: (
-                    not x.get('title', '').replace('.pdf', '')[0].isdigit() if x.get('title', '') else True,
-                    x.get('title', '').lower().replace('.pdf', '')
-                )
+            # Search input
+            search_query = st.text_input(
+                "🔍 Doküman Ara",
+                placeholder="Doküman adını yazın...",
+                key="doc_search_modal",
+                label_visibility="collapsed"
             )
 
-            # Filter documents based on search query
-            if search_query:
-                filtered_docs = [
-                    doc for doc in sorted_docs
-                    if search_query.lower() in doc.get('title', '').lower()
-                ]
-            else:
-                filtered_docs = sorted_docs
+            # Fetch documents if not already loaded
+            if not st.session_state.knowledge_base_documents:
+                with st.spinner("Dokümanlar yükleniyor..."):
+                    st.session_state.knowledge_base_documents = api_client.fetch_documents()
 
-            st.info(f"📊 Toplam {len(filtered_docs)} / {len(st.session_state.knowledge_base_documents)} doküman gösteriliyor")
+            if st.session_state.knowledge_base_documents:
+                # Sort documents: numbers first, then alphabetically
+                sorted_docs = sorted(
+                    st.session_state.knowledge_base_documents,
+                    key=lambda x: (
+                        not x.get('title', '').replace('.pdf', '')[0].isdigit() if x.get('title', '') else True,
+                        x.get('title', '').lower().replace('.pdf', '')
+                    )
+                )
 
-            # Create scrollable container with fixed height
-            with st.container():
-                # Add CSS for scrollable container
-                st.markdown("""
-                    <style>
-                    .docs-list-container {
-                        max-height: 400px;
-                        overflow-y: auto;
-                        padding: 10px;
-                    }
-                    </style>
-                """, unsafe_allow_html=True)
+                # Filter documents based on search query
+                if search_query:
+                    filtered_docs = [
+                        doc for doc in sorted_docs
+                        if search_query.lower() in doc.get('title', '').lower()
+                    ]
+                else:
+                    filtered_docs = sorted_docs
 
-                # Create a table-like view
-                for idx, doc in enumerate(filtered_docs):
-                    with st.container():
-                        col1, col2, col3, col4 = st.columns([4, 2, 2, 1])
+                st.info(f"📊 Toplam {len(filtered_docs)} / {len(st.session_state.knowledge_base_documents)} doküman")
 
-                        with col1:
+                # Create scrollable container
+                container = st.container()
+                with container:
+                    # Display documents
+                    for idx, doc in enumerate(filtered_docs):
+                        doc_cols = st.columns([4, 2, 2, 1])
+
+                        with doc_cols[0]:
                             st.write(f"📄 **{doc.get('title', 'Bilinmeyen')}**")
-                            # Show URL if available, otherwise show "URL bulunamadı"
+                            # Show URL if available
                             doc_url = doc.get('url')
                             if doc_url:
                                 st.caption(f"🔗 [İndir]({doc_url})")
                             else:
                                 st.caption("🔗 URL bulunamadı")
 
-                        with col2:
+                        with doc_cols[1]:
                             st.write(f"📦 {doc.get('chunks_count', 0)} parça")
 
-                        with col3:
+                        with doc_cols[2]:
                             created_at = doc.get('created_at', '')
                             if created_at:
                                 try:
@@ -101,8 +120,8 @@ def render_documents_modal():
                                 except:
                                     st.write(f"📅 {created_at[:10]}")
 
-                        with col4:
-                            if st.button("🗑️", key=f"del_{doc.get('document_id')}", help="Sil"):
+                        with doc_cols[3]:
+                            if st.button("🗑️", key=f"del_modal_{doc.get('document_id')}", help="Sil"):
                                 doc_id = doc.get('document_id')
                                 doc_title = doc.get('title', 'Bilinmeyen')
 
@@ -117,7 +136,7 @@ def render_documents_modal():
                                     else:
                                         st.error(f"❌ Silme başarısız: {result}")
 
-                        st.markdown("---")
-        else:
-            st.warning("📭 Knowledge base'de henüz doküman bulunmuyor.")
-            st.info("💡 PDF yüklemek için sol taraftaki dosya yükleme butonunu kullanabilirsiniz.")
+                        st.divider()
+            else:
+                st.warning("📭 Knowledge base'de henüz doküman bulunmuyor.")
+                st.info("💡 PDF yüklemek için sol taraftaki dosya yükleme butonunu kullanabilirsiniz.")

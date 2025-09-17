@@ -43,11 +43,11 @@ def main():
     # Render sidebar
     render_sidebar()
 
-    # Render documents list modal
-    render_documents_modal()
-
-    # Display chat messages
+    # Display chat messages (show first so modal appears on top)
     render_chat_messages()
+
+    # Render documents list modal (after chat so it appears on top)
+    render_documents_modal()
 
     # File upload component
     render_file_upload()
