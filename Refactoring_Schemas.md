@@ -166,11 +166,11 @@ schemas/
 - [x] `schemas/embeddings/local.py` oluştur
 - [x] `schemas/embeddings/__init__.py` ile exports ve helper fonksiyonlar eklendi
 
-### Adım 7: Retrieval Schemas'ını Oluştur
-- [ ] `schemas/retrieval/search.py` oluştur
-- [ ] `schemas/retrieval/reranker.py` oluştur
-- [ ] `schemas/retrieval/hybrid.py` oluştur
-- [ ] Retrieval modüllerindeki import'ları güncelle
+### Adım 7: Retrieval Schemas'ını Oluştur ✅
+- [x] `schemas/retrieval/search.py` oluştur
+- [x] `schemas/retrieval/reranker.py` oluştur
+- [x] `schemas/retrieval/hybrid.py` oluştur
+- [x] `schemas/retrieval/__init__.py` ile exports ve helper fonksiyonlar eklendi
 
 ### Adım 8: Generation Schemas'ını Oluştur
 - [ ] `schemas/generation/llm.py` oluştur
@@ -220,8 +220,8 @@ schemas/
 ## İlerleme Durumu
 
 **Başlangıç Tarihi**: 2025-09-17
-**Mevcut Adım**: Adım 6 - Embeddings Schemas TAMAMLANDI ✅
-**Son Güncelleme**: 2025-09-17 17:30
+**Mevcut Adım**: Adım 7 - Retrieval Schemas TAMAMLANDI ✅
+**Son Güncelleme**: 2025-09-17 18:00
 
 ### Tamamlanan Adımlar:
 - ✅ Adım 1: Yeni klasör yapısı oluşturuldu (api, chunking, embeddings, storage, retrieval, generation, config, pipelines, indexing)
@@ -255,6 +255,11 @@ schemas/
   - OpenAI schemas (OpenAIEmbeddingConfig, OpenAIEmbeddingRequest/Response, OpenAIUsageStats)
   - Local model schemas (LocalEmbeddingConfig, LocalModelInfo, LocalBenchmarkResult)
   - Helper fonksiyonlar (create_embedding_config, get_model_dimension, calculate_similarity)
+- ✅ Adım 7: Retrieval Schemas'ını oluşturduk
+  - Search schemas (SearchQuery, SearchResult, SearchResponse, SearchMetrics, SearchExplanation)
+  - Reranker schemas (RerankerConfig, RerankerRequest/Response, RerankerMetrics, RerankingStrategy)
+  - Hybrid search schemas (HybridSearchConfig, HybridSearchQuery/Result, MultiStageSearch, HybridSearchOptimization)
+  - Helper fonksiyonlar (create_search_query, calculate_rrf_score, merge_search_results, evaluate_search_results)
 
 ---
 
