@@ -1,187 +1,41 @@
 """
 Utility functions for pipeline operations
+
+This module re-exports utilities from app.utils for backward compatibility.
+New code should import directly from app.utils.
 """
 import logging
-import time
-import asyncio
-from typing import Any, Callable, TypeVar, Optional, Dict, List
-from functools import wraps
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+# Import from centralized utils
+from app.utils.decorators import (
+    retry as retry_sync,
+    async_retry as retry_async,
+    measure_time
+)
+from app.utils.validators import (
+    validate_file_size,
+    validate_file_type as _validate_file_type
+)
+from app.utils.helpers import (
+    batch_iterator,
+    format_timestamp,
+    calculate_file_hash,
+    estimate_tokens
+)
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
 
-
-def retry_async(
-    max_attempts: int = 3,
-    delay: float = 1.0,
-    backoff: float = 2.0,
-    exceptions: tuple = (Exception,)
-):
-    """
-    Decorator for retrying async functions
-
-    Args:
-        max_attempts: Maximum number of retry attempts
-        delay: Initial delay between retries (seconds)
-        backoff: Backoff multiplier for delay
-        exceptions: Tuple of exceptions to catch and retry
-
-    Returns:
-        Decorated function with retry logic
-    """
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            current_delay = delay
-            last_exception = None
-
-            for attempt in range(max_attempts):
-                try:
-                    return await func(*args, **kwargs)
-                except exceptions as e:
-                    last_exception = e
-                    if attempt < max_attempts - 1:
-                        logger.warning(
-                            f"Attempt {attempt + 1}/{max_attempts} failed for {func.__name__}: {e}. "
-                            f"Retrying in {current_delay:.1f}s..."
-                        )
-                        await asyncio.sleep(current_delay)
-                        current_delay *= backoff
-                    else:
-                        logger.error(f"All {max_attempts} attempts failed for {func.__name__}")
-
-            raise last_exception
-
-        return wrapper
-    return decorator
-
-
-def retry_sync(
-    max_attempts: int = 3,
-    delay: float = 1.0,
-    backoff: float = 2.0,
-    exceptions: tuple = (Exception,)
-):
-    """
-    Decorator for retrying synchronous functions
-
-    Args:
-        max_attempts: Maximum number of retry attempts
-        delay: Initial delay between retries (seconds)
-        backoff: Backoff multiplier for delay
-        exceptions: Tuple of exceptions to catch and retry
-
-    Returns:
-        Decorated function with retry logic
-    """
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            current_delay = delay
-            last_exception = None
-
-            for attempt in range(max_attempts):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as e:
-                    last_exception = e
-                    if attempt < max_attempts - 1:
-                        logger.warning(
-                            f"Attempt {attempt + 1}/{max_attempts} failed for {func.__name__}: {e}. "
-                            f"Retrying in {current_delay:.1f}s..."
-                        )
-                        time.sleep(current_delay)
-                        current_delay *= backoff
-                    else:
-                        logger.error(f"All {max_attempts} attempts failed for {func.__name__}")
-
-            raise last_exception
-
-        return wrapper
-    return decorator
-
-
-def measure_time(func: Callable) -> Callable:
-    """
-    Decorator to measure execution time
-
-    Args:
-        func: Function to measure
-
-    Returns:
-        Decorated function that logs execution time
-    """
-    @wraps(func)
-    async def async_wrapper(*args, **kwargs):
-        start_time = time.time()
-        try:
-            result = await func(*args, **kwargs)
-            elapsed = time.time() - start_time
-            logger.info(f"{func.__name__} completed in {elapsed:.2f}s")
-            return result
-        except Exception as e:
-            elapsed = time.time() - start_time
-            logger.error(f"{func.__name__} failed after {elapsed:.2f}s: {e}")
-            raise
-
-    @wraps(func)
-    def sync_wrapper(*args, **kwargs):
-        start_time = time.time()
-        try:
-            result = func(*args, **kwargs)
-            elapsed = time.time() - start_time
-            logger.info(f"{func.__name__} completed in {elapsed:.2f}s")
-            return result
-        except Exception as e:
-            elapsed = time.time() - start_time
-            logger.error(f"{func.__name__} failed after {elapsed:.2f}s: {e}")
-            raise
-
-    if asyncio.iscoroutinefunction(func):
-        return async_wrapper
-    else:
-        return sync_wrapper
-
-
-def validate_file_size(file_obj: Any, max_size_mb: float = 50.0) -> bool:
-    """
-    Validate file size
-
-    Args:
-        file_obj: File object with seek and tell methods
-        max_size_mb: Maximum file size in megabytes
-
-    Returns:
-        True if file size is valid
-
-    Raises:
-        ValueError: If file is too large
-    """
-    # Get file size
-    file_obj.seek(0, 2)  # Seek to end
-    file_size = file_obj.tell()
-    file_obj.seek(0)  # Reset to beginning
-
-    max_size_bytes = max_size_mb * 1024 * 1024
-
-    if file_size > max_size_bytes:
-        raise ValueError(
-            f"File size ({file_size / 1024 / 1024:.2f}MB) exceeds "
-            f"maximum allowed size ({max_size_mb}MB)"
-        )
-
-    return True
-
-
+# Backward compatibility wrapper for validate_file_type
 def validate_file_type(filename: str, allowed_extensions: List[str]) -> bool:
     """
-    Validate file type by extension
+    Validate file type by extension (backward compatibility wrapper)
 
     Args:
         filename: File name
-        allowed_extensions: List of allowed extensions (e.g., ['.pdf', '.txt'])
+        allowed_extensions: List of allowed extensions
 
     Returns:
         True if file type is valid
@@ -189,12 +43,13 @@ def validate_file_type(filename: str, allowed_extensions: List[str]) -> bool:
     Raises:
         ValueError: If file type is not allowed
     """
-    file_ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
-    file_ext = f".{file_ext}" if file_ext else ""
+    # Convert to format expected by new validator
+    from pathlib import Path
+    ext = Path(filename).suffix.lower()
 
-    if file_ext not in allowed_extensions:
+    if ext not in allowed_extensions:
         raise ValueError(
-            f"File type '{file_ext}' not allowed. "
+            f"File type '{ext}' not allowed. "
             f"Allowed types: {', '.join(allowed_extensions)}"
         )
 

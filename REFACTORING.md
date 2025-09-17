@@ -120,16 +120,23 @@ App klasörünü modüler package yapısına dönüştürmek ve kodu daha tutarl
 
 ---
 
-### Aşama 4: Utilities Package Oluşturma 🛠️
+### Aşama 4: Utilities Package Oluşturma 🛠️ ✅ TAMAMLANDI
 
-- [ ] `app/utils/` klasörünü oluştur
-- [ ] `app/utils/__init__.py`
-- [ ] `app/utils/logging.py` (centralized logging)
-- [ ] `app/utils/decorators.py` (retry, cache, etc.)
-- [ ] `app/utils/validators.py` (input validation)
-- [ ] `app/utils/helpers.py` (utility functions)
-- [ ] Mevcut utility fonksiyonlarını taşı
-- [ ] Test coverage ekle
+- [x] `app/utils/` klasörünü oluştur
+- [x] `app/utils/__init__.py`
+- [x] `app/utils/logging.py` (centralized logging)
+- [x] `app/utils/decorators.py` (retry, cache, etc.)
+- [x] `app/utils/validators.py` (input validation)
+- [x] `app/utils/helpers.py` (utility functions)
+- [x] Mevcut utility fonksiyonlarını taşı
+- [ ] Test coverage ekle (will be done separately)
+
+**Tamamlanan özellikler:**
+- Merkezi logging sistemi (structured logging, operation tracking)
+- Decorator'lar (retry, async_retry, cache, measure_time, rate_limit, validate_input)
+- Validator'lar (PDF, query, file size, config, embedding dimension validation)
+- Helper fonksiyonlar (ID generation, file operations, text processing, batch operations)
+- Pipeline utils backward compatibility sağlandı
 
 ---
 
