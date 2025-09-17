@@ -11,12 +11,13 @@ class IngestRequest(BaseModel):
     # File upload is handled via FastAPI's UploadFile
     metadata: Optional[Dict[str, Any]] = Field(default=None, description="Additional metadata for the document")
 
-    class Config:
-        schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "metadata": {
                     "category": "technical",
                     "tags": ["rag", "ai", "nlp"]
                 }
+        }
             }
         }

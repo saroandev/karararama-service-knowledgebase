@@ -14,8 +14,8 @@ class DocumentInfo(BaseModel):
     file_hash: str = Field(..., description="MD5 hash of the file")
     metadata: Optional[Dict[str, Any]] = Field(default=None, description="Additional metadata")
 
-    class Config:
-        schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "document_id": "doc_abc123",
                 "title": "Introduction to RAG",
@@ -26,5 +26,6 @@ class DocumentInfo(BaseModel):
                     "pages": 10,
                     "category": "technical"
                 }
+        }
             }
         }

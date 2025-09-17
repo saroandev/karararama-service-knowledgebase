@@ -29,8 +29,8 @@ class ChunkMetadata(BaseModel):
     embedding_dimension: int = Field(..., description="Embedding vector dimension")
     embedding_size_bytes: int = Field(..., description="Embedding size in bytes")
 
-    class Config:
-        schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "chunk_id": "doc_123_0001",
                 "page_number": 1,
@@ -43,4 +43,5 @@ class ChunkMetadata(BaseModel):
                 "embedding_dimension": 1536,
                 "embedding_size_bytes": 6144
             }
+        }
         }

@@ -21,8 +21,8 @@ class SuccessfulIngestResponse(BaseIngestResponse):
     success: bool = Field(default=True, description="Success status")
     chunks_created: int = Field(..., description="Number of chunks created")
 
-    class Config:
-        schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "document_id": "doc_abc123",
                 "document_title": "Sample Document",
@@ -33,6 +33,7 @@ class SuccessfulIngestResponse(BaseIngestResponse):
                 "chunks_created": 10
             }
         }
+        }
 
 
 # Document already exists response
@@ -41,8 +42,8 @@ class ExistingDocumentResponse(BaseIngestResponse):
     success: bool = Field(default=False, description="Success status")
     chunks_count: int = Field(default=0, description="Existing chunks count")
 
-    class Config:
-        schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "document_id": "doc_abc123",
                 "document_title": "Sample Document",
@@ -53,6 +54,7 @@ class ExistingDocumentResponse(BaseIngestResponse):
                 "chunks_count": 10
             }
         }
+        }
 
 
 # Failed ingestion response
@@ -61,8 +63,8 @@ class FailedIngestResponse(BaseIngestResponse):
     success: bool = Field(default=False, description="Success status")
     error_details: Optional[str] = Field(default=None, description="Detailed error information")
 
-    class Config:
-        schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "document_id": "",
                 "document_title": "",
@@ -72,6 +74,7 @@ class FailedIngestResponse(BaseIngestResponse):
                 "success": False,
                 "error_details": "PDF parsing error: Unable to read file"
             }
+        }
         }
 
 
@@ -97,8 +100,8 @@ class BatchIngestResponse(BaseModel):
     total_processing_time: float = Field(..., description="Total processing time in seconds")
     message: str = Field(..., description="Summary message")
 
-    class Config:
-        schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "total_files": 3,
                 "successful": 2,
@@ -118,3 +121,4 @@ class BatchIngestResponse(BaseModel):
                 "message": "Processed 3 files: 2 successful, 0 failed, 1 skipped"
             }
         }
+    }

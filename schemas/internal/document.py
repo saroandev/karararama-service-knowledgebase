@@ -34,8 +34,8 @@ class DocumentProcessingResult(BaseModel):
     warnings: List[str] = Field(default_factory=list, description="List of warnings")
     processing_time: float = Field(..., description="Total processing time in seconds")
 
-    class Config:
-        schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "document_id": "doc_abc123",
                 "status": "success",
@@ -45,4 +45,5 @@ class DocumentProcessingResult(BaseModel):
                 "warnings": ["Page 5 contains mostly images, text extraction limited"],
                 "processing_time": 3.45
             }
+        }
         }

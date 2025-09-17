@@ -22,8 +22,8 @@ class HealthResponse(BaseModel):
     services: ServiceStatus = Field(..., description="Individual service statuses")
     version: str = Field(..., description="API version")
 
-    class Config:
-        schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "status": "healthy",
                 "timestamp": "2024-01-15T10:30:00",
@@ -34,7 +34,8 @@ class HealthResponse(BaseModel):
                     "entities": 1000,
                     "embedding_model": "text-embedding-3-small",
                     "embedding_dimension": 1536
-                },
+                }
+        },
                 "version": "2.0.0"
             }
         }

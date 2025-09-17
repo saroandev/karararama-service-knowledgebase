@@ -25,8 +25,8 @@ class QueryResponse(BaseModel):
     processing_time: float = Field(..., description="Processing time in seconds")
     model_used: str = Field(..., description="LLM model used for generation")
 
-    class Config:
-        schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "answer": "RAG stands for Retrieval-Augmented Generation...",
                 "sources": [
@@ -42,3 +42,4 @@ class QueryResponse(BaseModel):
                 "model_used": "gpt-4o-mini"
             }
         }
+    }
