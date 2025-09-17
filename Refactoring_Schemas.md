@@ -187,11 +187,11 @@ schemas/
 -   [x] `schemas/generation/prompt.py` oluştur
 -   [x] `schemas/generation/__init__.py` ile exports ve helper fonksiyonlar eklendi
 
-### Adım 9: Pipeline Schemas'ını Oluştur
+### Adım 9: Pipeline Schemas'ını Oluştur ✅
 
--   [ ] `schemas/pipelines/ingest.py` oluştur
--   [ ] `schemas/pipelines/query.py` oluştur
--   [ ] Pipeline modüllerindeki import'ları güncelle
+-   [x] `schemas/pipelines/ingest.py` oluştur
+-   [x] `schemas/pipelines/query.py` oluştur
+-   [x] `schemas/pipelines/__init__.py` ile exports ve helper fonksiyonlar eklendi
 
 ### Adım 10: Indexing Schemas'ını Oluştur
 
@@ -237,8 +237,8 @@ schemas/
 ## İlerleme Durumu
 
 **Başlangıç Tarihi**: 2025-09-17
-**Mevcut Adım**: Adım 8 - Generation Schemas TAMAMLANDI ✅
-**Son Güncelleme**: 2025-09-17 18:30
+**Mevcut Adım**: Adım 9 - Pipeline Schemas TAMAMLANDI ✅
+**Son Güncelleme**: 2025-09-17 19:00
 
 ### Tamamlanan Adımlar:
 
@@ -292,6 +292,11 @@ schemas/
     -   Prompt schemas (PromptTemplate, FewShotPrompt, ChainOfThoughtPrompt, PromptLibrary, PromptEvaluation)
     -   Batch processing schemas (BatchGenerationRequest/Response, StreamChunk)
     -   Helper fonksiyonlar (create_llm_config, render_prompt, calculate_generation_cost, create_rag_prompt)
+-   ✅ Adım 9: Pipeline Schemas'ını oluşturduk
+    -   Ingest pipeline schemas (IngestStage, IngestPipelineConfig, IngestPipelineResult, BatchIngestRequest/Result)
+    -   Query pipeline schemas (QueryMode, QueryPipelineConfig, QueryPipelineResult, StreamingQueryResult)
+    -   Pipeline monitoring schemas (IngestMonitoring, QueryAnalytics, QueryFeedback)
+    -   Helper fonksiyonlar (create_ingest_pipeline_config, create_query_pipeline_config, track_pipeline_progress)
 
 ---
 
