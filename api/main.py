@@ -73,10 +73,40 @@ app.include_router(ingest.router, tags=["Ingest"])
 
 # Run the app with Uvicorn
 if __name__ == "__main__":
-    uvicorn.run(
-        "api.main:app",
-        host="0.0.0.0",
-        port=8080,
-        reload=True,
-        log_level="info"
-    )
+    import os
+
+    # Check if running in development mode (default)
+    dev_mode = os.getenv("ENV", "development") != "production"
+
+    if dev_mode:
+        # Development mode with auto-reload and exclusions
+        uvicorn.run(
+            "api.main:app",
+            host="0.0.0.0",
+            port=8080,
+            reload=True,
+            reload_excludes=[
+                "venv/*",
+                "env/*",
+                ".venv/*",
+                "*.pyc",
+                "__pycache__/*",
+                "test_output/*",
+                ".git/*",
+                "*.log",
+                ".pytest_cache/*",
+                "htmlcov/*",
+                ".coverage"
+            ],
+            log_level="info"
+        )
+    else:
+        # Production mode without reload
+        uvicorn.run(
+            "api.main:app",
+            host="0.0.0.0",
+            port=8080,
+            reload=False,
+            workers=4,
+            log_level="info"
+        )
