@@ -7,7 +7,7 @@ import traceback
 
 from app.storage import storage
 from app.parse import pdf_parser
-from app.chunk import get_default_chunker, HybridChunker
+from app.chunking import get_default_chunker, HybridChunker
 from app.embed import embedding_generator
 from app.index import milvus_indexer
 
