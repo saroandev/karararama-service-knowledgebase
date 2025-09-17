@@ -4,7 +4,7 @@ Storage cache management
 import time
 import logging
 from typing import Optional, Any, Dict
-from app.storage.base import BaseCacheManager
+from app.core.storage.base import BaseCacheManager
 
 logger = logging.getLogger(__name__)
 

@@ -5,10 +5,10 @@ import logging
 from typing import List, Dict, Any, Optional
 
 from app.config import settings
-from app.chunking.base import BaseChunker, Chunk
-from app.chunking.text_chunker import TextChunker
-from app.chunking.semantic_chunker import SemanticChunker
-from app.chunking.utils import merge_chunks
+from app.core.chunking.base import BaseChunker, Chunk
+from app.core.chunking.text_chunker import TextChunker
+from app.core.chunking.semantic_chunker import SemanticChunker
+from app.core.chunking.utils import merge_chunks
 
 logger = logging.getLogger(__name__)
 

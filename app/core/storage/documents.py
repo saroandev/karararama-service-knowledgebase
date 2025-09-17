@@ -9,10 +9,10 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from minio.error import S3Error
 from app.config import settings
-from app.storage.base import BaseStorage
-from app.storage.client import MinIOClientManager
-from app.storage.cache import StorageCache
-from app.storage.utils import (
+from app.core.storage.base import BaseStorage
+from app.core.storage.client import MinIOClientManager
+from app.core.storage.cache import StorageCache
+from app.core.storage.utils import (
     sanitize_filename,
     generate_document_id,
     prepare_metadata,

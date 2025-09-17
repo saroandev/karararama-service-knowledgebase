@@ -143,7 +143,7 @@ Dokümant:
     ) -> List[Dict[str, Any]]:
         """Extract source references from the answer"""
         # Add storage lookup for backward compatibility
-        from app.storage import storage
+        from app.core.storage import storage
         sources = self._impl.extract_sources(answer, chunks)
 
         # Enhance sources with document metadata and URLs

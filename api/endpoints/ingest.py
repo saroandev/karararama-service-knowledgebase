@@ -22,7 +22,7 @@ from api.core.milvus_manager import milvus_manager
 from api.core.dependencies import retry_with_backoff
 from api.core.embeddings import embedding_service
 from app.config import settings
-from app.storage import storage
+from app.core.storage import storage
 from app.parse import PDFParser
 
 logger = logging.getLogger(__name__)

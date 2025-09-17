@@ -15,8 +15,8 @@ except ImportError:
     TIKTOKEN_AVAILABLE = False
 
 from app.config import settings
-from app.chunking.base import BaseChunker, Chunk
-from app.chunking.utils import token_count, clean_text, calculate_page_boundaries, get_pages_for_position
+from app.core.chunking.base import BaseChunker, Chunk
+from app.core.chunking.utils import token_count, clean_text, calculate_page_boundaries, get_pages_for_position
 
 logger = logging.getLogger(__name__)
 

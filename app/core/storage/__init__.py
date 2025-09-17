@@ -3,10 +3,10 @@ Storage module - Modular storage implementation with backward compatibility
 """
 import logging
 from typing import Optional, List, Dict, Any
-from app.storage.client import MinIOClientManager
-from app.storage.cache import StorageCache
-from app.storage.documents import DocumentStorage
-from app.storage.chunks import ChunkStorage
+from app.core.storage.client import MinIOClientManager
+from app.core.storage.cache import StorageCache
+from app.core.storage.documents import DocumentStorage
+from app.core.storage.chunks import ChunkStorage
 
 logger = logging.getLogger(__name__)
 

@@ -8,7 +8,7 @@ import numpy as np
 from app.core.retrieval.base import AbstractRetriever
 from app.core.indexing import default_indexer as indexer
 from app.core.embeddings import default_embedding_generator as embedder
-from app.storage import storage
+from app.core.storage import storage
 from app.config import settings
 
 logger = logging.getLogger(__name__)

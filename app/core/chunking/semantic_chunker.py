@@ -7,8 +7,8 @@ import re
 from typing import List, Dict, Any, Optional
 
 from app.config import settings
-from app.chunking.base import BaseChunker, Chunk
-from app.chunking.utils import token_count, clean_text
+from app.core.chunking.base import BaseChunker, Chunk
+from app.core.chunking.utils import token_count, clean_text
 
 logger = logging.getLogger(__name__)
 

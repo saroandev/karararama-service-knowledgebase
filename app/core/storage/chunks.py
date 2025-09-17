@@ -7,10 +7,10 @@ import logging
 from typing import Optional, List, Dict, Any
 from minio.error import S3Error
 from app.config import settings
-from app.storage.base import BaseChunkStorage
-from app.storage.client import MinIOClientManager
-from app.storage.cache import StorageCache
-from app.storage.utils import get_cache_key
+from app.core.storage.base import BaseChunkStorage
+from app.core.storage.client import MinIOClientManager
+from app.core.storage.cache import StorageCache
+from app.core.storage.utils import get_cache_key
 
 logger = logging.getLogger(__name__)
 

@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from datetime import datetime
 import traceback
 
-from app.storage import storage
+from app.core.storage import storage
 from app.parse import pdf_parser
-from app.chunking import get_default_chunker, HybridChunker
+from app.core.chunking import get_default_chunker, HybridChunker
 from app.core.embeddings import default_embedding_generator as embedding_generator
 from app.index import milvus_indexer
 
@@ -124,7 +124,7 @@ class IngestionPipeline:
                     metadata
                 )
             else:
-                from app.chunking import TextChunker
+                from app.core.chunking import TextChunker
                 chunker = TextChunker(chunk_size, chunk_overlap, chunk_strategy)
                 chunks = chunker.chunk_pages(pages, document_id, preserve_pages=True)
             

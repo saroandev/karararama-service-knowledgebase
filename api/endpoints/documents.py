@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 from schemas.responses.document import DocumentInfo
 from api.core.milvus_manager import milvus_manager
-from app.storage import storage
+from app.core.storage import storage
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

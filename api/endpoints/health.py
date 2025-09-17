@@ -8,7 +8,7 @@ from schemas.responses.health import HealthResponse, ServiceStatus
 from api.core.milvus_manager import milvus_manager
 from api.core.dependencies import get_embedding_dimension
 from app.config import settings
-from app.storage import storage
+from app.core.storage import storage
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

@@ -8,11 +8,11 @@ import logging
 from typing import Optional
 
 from app.config import settings
-from app.chunking.base import Chunk, BaseChunker, ChunkingMethod
-from app.chunking.text_chunker import TextChunker
-from app.chunking.semantic_chunker import SemanticChunker
-from app.chunking.document_chunker import DocumentBasedChunker
-from app.chunking.hybrid_chunker import HybridChunker
+from app.core.chunking.base import Chunk, BaseChunker, ChunkingMethod
+from app.core.chunking.text_chunker import TextChunker
+from app.core.chunking.semantic_chunker import SemanticChunker
+from app.core.chunking.document_chunker import DocumentBasedChunker
+from app.core.chunking.hybrid_chunker import HybridChunker
 
 logger = logging.getLogger(__name__)
 
