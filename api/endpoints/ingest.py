@@ -116,7 +116,7 @@ async def ingest_document(file: UploadFile = File(...)):
 
         # 1. PDF Parse
         parser = PDFParser()
-        pages, metadata = parser.extract_text_from_pdf(pdf_data)
+        pages, metadata = parser.extract_text(pdf_data)
 
         document_title = metadata.title or file.filename.replace('.pdf', '')
         logger.info(f"Parsed {len(pages)} pages, title: {document_title}")
@@ -295,7 +295,7 @@ async def batch_ingest_documents(
             # Process the document
             # Parse PDF
             parser = PDFParser()
-            pages, metadata = parser.extract_text_from_pdf(pdf_data)
+            pages, metadata = parser.extract_text(pdf_data)
 
             document_title = metadata.title or file.filename.replace('.pdf', '')
 
