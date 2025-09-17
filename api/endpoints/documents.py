@@ -7,7 +7,7 @@ import logging
 from typing import List
 from fastapi import APIRouter, HTTPException
 
-from schemas.responses.document import DocumentInfo
+from schemas.api.responses.document import DocumentInfo
 from api.core.milvus_manager import milvus_manager
 from app.core.storage import storage
 

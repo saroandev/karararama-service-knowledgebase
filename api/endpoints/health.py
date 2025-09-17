@@ -4,7 +4,7 @@ Health check endpoint
 import datetime
 import logging
 from fastapi import APIRouter, HTTPException
-from schemas.responses.health import HealthResponse, ServiceStatus
+from schemas.api.responses.health import HealthResponse, ServiceStatus
 from api.core.milvus_manager import milvus_manager
 from api.core.dependencies import get_embedding_dimension
 from app.config import settings

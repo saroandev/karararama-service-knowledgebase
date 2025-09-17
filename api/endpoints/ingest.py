@@ -9,7 +9,7 @@ from typing import List, Union
 from fastapi import APIRouter, UploadFile, File, HTTPException
 
 # Import from new schemas location
-from schemas.responses.ingest import (
+from schemas.api.responses.ingest import (
     SuccessfulIngestResponse,
     ExistingDocumentResponse,
     FailedIngestResponse,

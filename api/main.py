@@ -79,27 +79,27 @@ if __name__ == "__main__":
     dev_mode = os.getenv("ENV", "development") != "production"
 
     if dev_mode:
-        # Development mode with auto-reload and exclusions
-        uvicorn.run(
-            "api.main:app",
-            host="0.0.0.0",
-            port=8080,
-            reload=True,
-            reload_excludes=[
-                "venv/*",
-                "env/*",
-                ".venv/*",
-                "*.pyc",
-                "__pycache__/*",
-                "test_output/*",
-                ".git/*",
-                "*.log",
-                ".pytest_cache/*",
-                "htmlcov/*",
-                ".coverage"
-            ],
-            log_level="info"
-        )
+        # Development mode - reload disabled to prevent watchfiles spam
+        # If you need auto-reload, set ENV=development_with_reload
+        if os.getenv("ENV") == "development_with_reload":
+            uvicorn.run(
+                "api.main:app",
+                host="0.0.0.0",
+                port=8080,
+                reload=True,
+                reload_dirs=["api", "app", "schemas"],  # Only watch specific directories
+                reload_includes=["*.py"],  # Only watch Python files
+                log_level="info"
+            )
+        else:
+            # Default development mode without reload
+            uvicorn.run(
+                "api.main:app",
+                host="0.0.0.0",
+                port=8080,
+                reload=False,
+                log_level="info"
+            )
     else:
         # Production mode without reload
         uvicorn.run(

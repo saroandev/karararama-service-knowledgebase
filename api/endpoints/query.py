@@ -8,8 +8,8 @@ from urllib.parse import quote
 from fastapi import APIRouter, HTTPException
 from openai import OpenAI
 
-from schemas.requests.query import QueryRequest
-from schemas.responses.query import QueryResponse, QuerySource
+from schemas.api.requests.query import QueryRequest
+from schemas.api.responses.query import QueryResponse, QuerySource
 from api.core.milvus_manager import milvus_manager
 from api.core.dependencies import retry_with_backoff
 from api.core.embeddings import embedding_service

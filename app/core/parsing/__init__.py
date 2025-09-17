@@ -8,7 +8,8 @@ This package provides document parsing implementations:
 import logging
 from typing import Optional
 
-from app.core.parsing.base import AbstractParser, PageContent, DocumentMetadata
+from app.core.parsing.base import AbstractParser
+from schemas.parsing import PageContent, DocumentMetadata
 from app.core.parsing.pdf_parser import PDFParser
 from app.core.parsing.utils import (
     detect_file_type,

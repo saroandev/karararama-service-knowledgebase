@@ -4,12 +4,12 @@ Central location for all data models and schemas.
 """
 
 # Request schemas
-from schemas.requests.query import QueryRequest
-from schemas.requests.ingest import IngestRequest
+from schemas.api.requests.query import QueryRequest
+from schemas.api.requests.ingest import IngestRequest
 
 # Response schemas
-from schemas.responses.query import QueryResponse
-from schemas.responses.ingest import (
+from schemas.api.responses.query import QueryResponse
+from schemas.api.responses.ingest import (
     BaseIngestResponse,
     SuccessfulIngestResponse,
     ExistingDocumentResponse,
@@ -17,12 +17,15 @@ from schemas.responses.ingest import (
     BatchIngestResponse,
     FileIngestStatus
 )
-from schemas.responses.document import DocumentInfo
-from schemas.responses.health import HealthResponse
+from schemas.api.responses.document import DocumentInfo
+from schemas.api.responses.health import HealthResponse
 
 # Internal schemas
 from schemas.internal.chunk import SimpleChunk, ChunkMetadata
-from schemas.internal.document import DocumentMetadata
+
+# Parsing schemas
+from schemas.parsing.document import DocumentMetadata, DocumentProcessingResult
+from schemas.parsing.page import PageContent
 
 __all__ = [
     # Request schemas
@@ -41,5 +44,8 @@ __all__ = [
     # Internal schemas
     "SimpleChunk",
     "ChunkMetadata",
+    # Parsing schemas
     "DocumentMetadata",
+    "DocumentProcessingResult",
+    "PageContent",
 ]

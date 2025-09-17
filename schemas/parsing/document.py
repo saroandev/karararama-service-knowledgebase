@@ -1,5 +1,5 @@
 """
-Document schemas for internal data processing
+Document-related schemas for parsing operations
 """
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List
@@ -8,20 +8,44 @@ from pydantic import BaseModel, Field
 
 @dataclass
 class DocumentMetadata:
-    """Document metadata for internal processing"""
-    document_id: str
+    """Comprehensive document metadata for parsing and processing"""
+    # Core identification
+    document_id: Optional[str] = None
+    original_filename: Optional[str] = None
+    file_hash: Optional[str] = None
+
+    # Document properties
     title: Optional[str] = None
     author: Optional[str] = None
     subject: Optional[str] = None
     keywords: Optional[str] = None
     creator: Optional[str] = None
     producer: Optional[str] = None
+
+    # Timestamps
     creation_date: Optional[str] = None
     modification_date: Optional[str] = None
-    total_pages: int = 0
-    file_hash: str = ""
-    original_filename: str = ""
+
+    # Document structure
+    page_count: int = 0
+    total_pages: int = 0  # Alias for compatibility
+    file_size: int = 0
+    document_hash: Optional[str] = None  # Alias for compatibility
+
+    # Additional metadata
     custom_metadata: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self):
+        """Sync aliases for backward compatibility"""
+        if self.total_pages and not self.page_count:
+            self.page_count = self.total_pages
+        elif self.page_count and not self.total_pages:
+            self.total_pages = self.page_count
+
+        if self.document_hash and not self.file_hash:
+            self.file_hash = self.document_hash
+        elif self.file_hash and not self.document_hash:
+            self.document_hash = self.file_hash
 
 
 class DocumentProcessingResult(BaseModel):
@@ -46,4 +70,4 @@ class DocumentProcessingResult(BaseModel):
                 "processing_time": 3.45
             }
         }
-        }
+    }

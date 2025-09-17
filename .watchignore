@@ -3,34 +3,33 @@ venv/
 env/
 .venv/
 
-# Ignore Python cache files
+# Ignore Python cache
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
+*.so
 
-# Ignore test output
-test_output/
+# Ignore test and coverage
 htmlcov/
 .coverage
 .pytest_cache/
+test_output/
+
+# Ignore logs
+*.log
+
+# Ignore git
+.git/
 
 # Ignore IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
 # Ignore OS files
 .DS_Store
 Thumbs.db
-
-# Ignore logs
-*.log
-logs/
-
-# Ignore temporary files
-*.tmp
-temp/
-tmp/

@@ -10,7 +10,8 @@ import hashlib
 import fitz as pymupdf
 from fitz import Document
 
-from app.core.parsing.base import AbstractParser, PageContent, DocumentMetadata
+from app.core.parsing.base import AbstractParser
+from schemas.parsing import PageContent, DocumentMetadata
 
 logger = logging.getLogger(__name__)
 

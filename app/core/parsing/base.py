@@ -3,31 +3,9 @@ Base classes for document parsing
 """
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass
 
-
-@dataclass
-class PageContent:
-    """Data class for page content"""
-    page_number: int
-    text: str
-    metadata: Dict[str, Any]
-
-
-@dataclass
-class DocumentMetadata:
-    """Data class for document metadata"""
-    title: Optional[str]
-    author: Optional[str]
-    subject: Optional[str]
-    keywords: Optional[str]
-    creator: Optional[str]
-    producer: Optional[str]
-    creation_date: Optional[str]
-    modification_date: Optional[str]
-    page_count: int
-    file_size: int
-    document_hash: str
+# Import schemas from centralized location
+from schemas.parsing import PageContent, DocumentMetadata
 
 
 class AbstractParser(ABC):
