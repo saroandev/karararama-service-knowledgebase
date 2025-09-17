@@ -137,6 +137,15 @@ st.markdown("""
         font-size: 0.75rem;
         background: transparent;
     }
+
+    /* Documents list styling */
+    .documents-list-container {
+        max-height: 500px;
+        overflow-y: auto;
+        padding: 1rem;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.02);
+    }
     
     /* Conversation item */
     .conversation-item {
@@ -183,6 +192,15 @@ def init_session_state():
 
     if 'processing_query' not in st.session_state:
         st.session_state.processing_query = False
+
+    if 'show_documents_list' not in st.session_state:
+        st.session_state.show_documents_list = False
+
+    if 'knowledge_base_documents' not in st.session_state:
+        st.session_state.knowledge_base_documents = []
+
+    if 'document_search_query' not in st.session_state:
+        st.session_state.document_search_query = ""
 
 init_session_state()
 
@@ -264,20 +282,48 @@ def query_api(question: str, use_reranker: bool = True, top_k: int = 5):
             "top_k": top_k,
             "use_reranker": use_reranker
         }
-        
+
         response = requests.post(
             f"{API_BASE_URL}/query",
             json=payload,
             timeout=60
         )
-        
+
         if response.status_code == 200:
             return response.json()
         else:
             return {"error": f"API Error: {response.status_code}"}
-            
+
     except Exception as e:
         return {"error": str(e)}
+
+def fetch_documents():
+    """Fetch all documents from knowledge base"""
+    try:
+        response = requests.get(
+            f"{API_BASE_URL}/documents",
+            timeout=10
+        )
+
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.error(f"Dokümanlar yüklenemedi: HTTP {response.status_code}")
+            return []
+    except Exception as e:
+        st.error(f"Dokümanlar yüklenemedi: {str(e)}")
+        return []
+
+def delete_document(document_id: str):
+    """Delete a document from knowledge base"""
+    try:
+        response = requests.delete(
+            f"{API_BASE_URL}/documents/{document_id}",
+            timeout=10
+        )
+        return response.status_code == 200, response.json() if response.status_code == 200 else response.text
+    except Exception as e:
+        return False, str(e)
 
 # Sidebar
 with st.sidebar:
@@ -320,6 +366,11 @@ with st.sidebar:
             for doc in st.session_state.uploaded_documents:
                 st.write(f"• {doc['filename']} ({doc['chunks']} chunk)")
 
+    # List Documents button
+    if st.button("📚 Dokümanları Listele", use_container_width=True, key="list_docs_btn"):
+        st.session_state.show_documents_list = True
+        st.session_state.knowledge_base_documents = fetch_documents()
+
     # User and Settings buttons at bottom
     col1, col2 = st.columns(2)
     with col1:
@@ -336,17 +387,118 @@ if st.session_state.show_settings:
     with st.expander("⚙️ Ayarlar", expanded=True):
         st.markdown("### API Ayarları")
         st.text_input("API URL", value=API_BASE_URL, disabled=True)
-        
+
         st.markdown("### Sorgu Ayarları")
         default_top_k = st.slider("Varsayılan sonuç sayısı (top_k)", 1, 20, 5)
         use_reranker = st.checkbox("Reranker kullan", value=True)
-        
+
         st.markdown("### Görünüm")
         dark_mode = st.checkbox("Karanlık Mod", value=False)
-        
+
         if st.button("Kaydet", type="primary"):
             st.session_state.show_settings = False
             st.rerun()
+
+# Documents List Modal
+if st.session_state.show_documents_list:
+    with st.container():
+        st.markdown("---")
+        col1, col2 = st.columns([8, 2])
+
+        with col1:
+            st.markdown("### 📚 Knowledge Base Dokümanları")
+
+        with col2:
+            button_cols = st.columns(3)
+            with button_cols[0]:
+                if st.button("🔄", help="Yenile", key="refresh_docs"):
+                    st.session_state.knowledge_base_documents = fetch_documents()
+                    st.rerun()
+            with button_cols[1]:
+                if st.button("❌", help="Kapat", key="close_docs"):
+                    st.session_state.show_documents_list = False
+                    st.rerun()
+
+        # Search input
+        search_col1, search_col2 = st.columns([10, 1])
+        with search_col1:
+            search_query = st.text_input(
+                "🔍 Doküman Ara",
+                value=st.session_state.document_search_query,
+                placeholder="Doküman adını yazın...",
+                key="doc_search_input",
+                label_visibility="collapsed"
+            )
+            st.session_state.document_search_query = search_query
+
+        if st.session_state.knowledge_base_documents:
+            # Sort documents: numbers first, then alphabetically
+            sorted_docs = sorted(
+                st.session_state.knowledge_base_documents,
+                key=lambda x: (
+                    not x.get('title', '').replace('.pdf', '')[0].isdigit() if x.get('title', '') else True,
+                    x.get('title', '').lower().replace('.pdf', '')
+                )
+            )
+
+            # Filter documents based on search query
+            if search_query:
+                filtered_docs = [
+                    doc for doc in sorted_docs
+                    if search_query.lower() in doc.get('title', '').lower()
+                ]
+            else:
+                filtered_docs = sorted_docs
+
+            st.info(f"📊 Toplam {len(filtered_docs)} / {len(st.session_state.knowledge_base_documents)} doküman gösteriliyor")
+
+            # Create a table-like view
+            for idx, doc in enumerate(filtered_docs):
+                with st.container():
+                    col1, col2, col3, col4 = st.columns([4, 2, 2, 1])
+
+                    with col1:
+                        st.write(f"📄 **{doc.get('title', 'Bilinmeyen')}**")
+                        # Show URL if available, otherwise show "URL bulunamadı"
+                        doc_url = doc.get('url')
+                        if doc_url:
+                            st.caption(f"🔗 [İndir]({doc_url})")
+                        else:
+                            st.caption("🔗 URL bulunamadı")
+
+                    with col2:
+                        st.write(f"📦 {doc.get('chunks_count', 0)} parça")
+
+                    with col3:
+                        created_at = doc.get('created_at', '')
+                        if created_at:
+                            try:
+                                date_obj = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                                formatted_date = date_obj.strftime("%d/%m/%Y %H:%M")
+                                st.write(f"📅 {formatted_date}")
+                            except:
+                                st.write(f"📅 {created_at[:10]}")
+
+                    with col4:
+                        if st.button("🗑️", key=f"del_{doc.get('document_id')}", help="Sil"):
+                            doc_id = doc.get('document_id')
+                            doc_title = doc.get('title', 'Bilinmeyen')
+
+                            with st.spinner(f"'{doc_title}' siliniyor..."):
+                                success, result = delete_document(doc_id)
+
+                                if success:
+                                    st.success(f"✅ '{doc_title}' başarıyla silindi!")
+                                    # Refresh the list
+                                    st.session_state.knowledge_base_documents = fetch_documents()
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ Silme başarısız: {result}")
+
+                st.markdown("---")
+        else:
+            st.warning("📭 Knowledge base'de henüz doküman bulunmuyor.")
+            st.info("💡 PDF yüklemek için sol taraftaki dosya yükleme butonunu kullanabilirsiniz.")
 
 # Main chat area
 main_container = st.container()

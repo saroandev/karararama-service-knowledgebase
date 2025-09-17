@@ -241,6 +241,53 @@ class DocumentStorage(BaseStorage):
             raise Exception(f"Document {document_id} not found")
         return data
 
+    def get_document_url(self, document_id: str, expiry_seconds: int = 3600) -> Optional[str]:
+        """
+        Get a presigned URL for downloading a document
+
+        Args:
+            document_id: Document identifier
+            expiry_seconds: URL expiry time in seconds (default 1 hour)
+
+        Returns:
+            Presigned URL string or None if document not found
+        """
+        try:
+            client = self.client_manager.get_client()
+
+            # List objects in document folder
+            objects = list(client.list_objects(
+                self.bucket,
+                prefix=f"{document_id}/",
+                recursive=False
+            ))
+
+            # Find PDF file (not metadata)
+            pdf_object = None
+            for obj in objects:
+                if obj.object_name.endswith('.pdf'):
+                    pdf_object = obj
+                    break
+
+            if not pdf_object:
+                logger.warning(f"No PDF found for document {document_id}")
+                return None
+
+            # Generate presigned URL
+            from datetime import timedelta
+            url = client.presigned_get_object(
+                self.bucket,
+                pdf_object.object_name,
+                expires=timedelta(seconds=expiry_seconds)
+            )
+
+            logger.debug(f"Generated presigned URL for document {document_id}")
+            return url
+
+        except Exception as e:
+            logger.error(f"Failed to generate URL for document {document_id}: {e}")
+            return None
+
     def delete_document(self, document_id: str) -> bool:
         """
         Delete a document and all its related files

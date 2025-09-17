@@ -57,12 +57,20 @@ async def list_documents():
                 output_fields=['id']
             ))
 
+            # Try to get MinIO URL for the document
+            document_url = None
+            try:
+                document_url = storage.documents.get_document_url(doc_id)
+            except Exception as url_error:
+                logger.debug(f"Could not generate URL for document {doc_id}: {url_error}")
+
             documents.append(DocumentInfo(
                 document_id=doc_id,
                 title=doc_title,
                 chunks_count=chunk_count,
                 created_at=created_at_str,
-                file_hash=file_hash
+                file_hash=file_hash,
+                url=document_url  # Add URL to response
             ))
 
         return documents

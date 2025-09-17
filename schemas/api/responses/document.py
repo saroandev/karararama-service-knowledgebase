@@ -12,6 +12,7 @@ class DocumentInfo(BaseModel):
     chunks_count: int = Field(..., description="Number of chunks")
     created_at: str = Field(..., description="Creation timestamp")
     file_hash: str = Field(..., description="MD5 hash of the file")
+    url: Optional[str] = Field(default=None, description="MinIO presigned URL for document download")
     metadata: Optional[Dict[str, Any]] = Field(default=None, description="Additional metadata")
 
     model_config = {
