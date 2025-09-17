@@ -69,7 +69,7 @@ def create_retriever(
 try:
     from app.config import settings
     default_retriever_type = getattr(settings, 'RETRIEVER_TYPE', 'hybrid')
-    default_use_reranker = getattr(settings, 'USE_RERANKER', True)
+    default_use_reranker = getattr(settings, 'USE_RERANKER', False)  # Disable reranker by default to avoid TensorFlow
 
     default_retriever = create_retriever(
         retriever_type=default_retriever_type,

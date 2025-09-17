@@ -11,10 +11,7 @@ logger = logging.getLogger(__name__)
 
 # Lazy import for CrossEncoder to avoid TensorFlow loading
 CrossEncoder = None
-try:
-    from sentence_transformers import CrossEncoder
-except ImportError:
-    logger.info("CrossEncoder not available - reranking disabled")
+CROSSENCODER_AVAILABLE = False
 
 
 class RerankerRetriever(VectorSearchRetriever):
@@ -41,9 +38,15 @@ class RerankerRetriever(VectorSearchRetriever):
         Returns:
             CrossEncoder model or None if loading fails
         """
-        if CrossEncoder is None:
-            logger.warning("CrossEncoder not available - skipping reranker loading")
-            return None
+        global CrossEncoder, CROSSENCODER_AVAILABLE
+
+        if not CROSSENCODER_AVAILABLE:
+            try:
+                from sentence_transformers import CrossEncoder
+                CROSSENCODER_AVAILABLE = True
+            except ImportError:
+                logger.warning("CrossEncoder not available - skipping reranker loading")
+                return None
 
         try:
             model = CrossEncoder(

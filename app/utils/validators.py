@@ -133,6 +133,39 @@ def validate_query(
     return True
 
 
+def validate_file_type(
+    file_path: Optional[str] = None,
+    file_name: Optional[str] = None,
+    allowed_extensions: Optional[List[str]] = None
+) -> bool:
+    """
+    Validate file type based on extension
+
+    Args:
+        file_path: Path to file
+        file_name: File name
+        allowed_extensions: List of allowed extensions (e.g., ['.pdf', '.txt'])
+
+    Returns:
+        True if valid file type
+
+    Raises:
+        ValueError: If file type is not allowed
+    """
+    if file_path:
+        ext = Path(file_path).suffix.lower()
+    elif file_name:
+        ext = Path(file_name).suffix.lower()
+    else:
+        raise ValueError("Either file_path or file_name must be provided")
+
+    if allowed_extensions:
+        if ext not in allowed_extensions:
+            raise ValueError(f"File type {ext} not allowed. Allowed types: {allowed_extensions}")
+
+    return True
+
+
 def validate_file_size(
     file_path: Optional[str] = None,
     file_obj: Optional[Any] = None,

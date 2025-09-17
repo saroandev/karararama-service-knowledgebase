@@ -66,11 +66,15 @@ except Exception as e:
         default_generator = None
 
 
+# Create alias for backward compatibility
+create_answer_generator = create_generator
+
 # Export all classes and functions
 __all__ = [
     'AbstractGenerator',
     'OpenAIGenerator',
     'OllamaGenerator',
     'create_generator',
+    'create_answer_generator',  # Alias for backward compatibility
     'default_generator'
 ]

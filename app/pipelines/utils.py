@@ -6,7 +6,7 @@ New code should import directly from app.utils.
 """
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 # Import from centralized utils
 from app.utils.decorators import (

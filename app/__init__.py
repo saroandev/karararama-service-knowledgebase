@@ -12,17 +12,18 @@ from app.core.embeddings import (
 )
 
 from app.core.generation import (
-    create_answer_generator,
+    create_generator,
+    create_answer_generator,  # Alias for backward compatibility
     default_generator
 )
 
 from app.core.parsing import (
-    create_pdf_parser,
+    create_parser,
     default_parser
 )
 
 from app.core.indexing import (
-    create_milvus_indexer,
+    create_indexer,
     default_indexer
 )
 
@@ -73,11 +74,12 @@ __all__ = [
     # Core Components
     'create_embedding_generator',
     'default_embedding_generator',
+    'create_generator',
     'create_answer_generator',
     'default_generator',
-    'create_pdf_parser',
+    'create_parser',
     'default_parser',
-    'create_milvus_indexer',
+    'create_indexer',
     'default_indexer',
     'create_retriever',
     'default_retriever',

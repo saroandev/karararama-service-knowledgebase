@@ -15,9 +15,12 @@ class Settings:
     MILVUS_PORT = int(os.getenv("MILVUS_PORT", "19530"))
     MILVUS_COLLECTION = os.getenv("MILVUS_COLLECTION", "rag_chunks")
 
-    EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
-    EMBEDDING_DIMENSION = int(os.getenv("EMBEDDING_DIMENSION", "384"))
+    # Embedding Configuration - Using OpenAI by default
+    EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "openai")
+    EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+    EMBEDDING_DIMENSION = int(os.getenv("EMBEDDING_DIMENSION", "1536"))
     EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))
+    USE_RERANKER = os.getenv("USE_RERANKER", "false").lower() == "true"
     RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
 
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
