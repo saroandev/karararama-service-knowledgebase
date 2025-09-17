@@ -8,7 +8,7 @@ import traceback
 from app.storage import storage
 from app.parse import pdf_parser
 from app.chunking import get_default_chunker, HybridChunker
-from app.embed import embedding_generator
+from app.core.embeddings import default_embedding_generator as embedding_generator
 from app.index import milvus_indexer
 
 logger = logging.getLogger(__name__)
@@ -124,7 +124,7 @@ class IngestionPipeline:
                     metadata
                 )
             else:
-                from app.chunk import TextChunker
+                from app.chunking import TextChunker
                 chunker = TextChunker(chunk_size, chunk_overlap, chunk_strategy)
                 chunks = chunker.chunk_pages(pages, document_id, preserve_pages=True)
             

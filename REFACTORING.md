@@ -53,15 +53,15 @@ App klasörünü modüler package yapısına dönüştürmek ve kodu daha tutarl
 - [x] Backward compatibility için wrapper ekle ✅
 - [ ] Test coverage ekle (ileride yapılacak)
 
-#### 2.2 Generation Package
-- [ ] `app/core/generation/` klasörünü oluştur
-- [ ] `app/core/generation/__init__.py`
-- [ ] `app/core/generation/base.py` (AbstractGenerator class)
-- [ ] `app/core/generation/openai_generator.py`
-- [ ] `app/core/generation/ollama_generator.py`
-- [ ] `app/generate.py` içeriğini migrate et
-- [ ] Backward compatibility için wrapper ekle
-- [ ] Test coverage ekle
+#### 2.2 Generation Package ✅
+- [x] `app/core/generation/` klasörünü oluştur ✅
+- [x] `app/core/generation/__init__.py` ✅
+- [x] `app/core/generation/base.py` (AbstractGenerator class) ✅
+- [x] `app/core/generation/openai_generator.py` ✅
+- [x] `app/core/generation/ollama_generator.py` ✅
+- [x] `app/generate.py` içeriğini migrate et ✅
+- [x] Backward compatibility için wrapper ekle ✅
+- [ ] Test coverage ekle (ileride yapılacak)
 
 #### 2.3 Parsing Package
 - [ ] `app/core/parsing/` klasörünü oluştur
@@ -235,12 +235,13 @@ def parse_pdf(file_path):
 **Tamamlanan**:
 - Aşama 1 - Config package ✅
 - Aşama 2.1 - Embeddings package ✅
+- Aşama 2.2 - Generation package ✅
 
-Config ve Embeddings package'ları başarıyla oluşturuldu. Sistem backward compatibility ile çalışmaya devam ediyor. OpenAI embeddings varsayılan olarak kullanılıyor, SentenceTransformers desteği de mevcut.
+Config, Embeddings ve Generation package'ları başarıyla oluşturuldu. Sistem backward compatibility ile çalışmaya devam ediyor. OpenAI varsayılan provider olarak kullanılıyor, Ollama desteği de mevcut.
 
-**Sonraki Adım**: Aşama 2.2 - Generation Package
+**Sonraki Adım**: Aşama 2.3 - Parsing Package
 
 ---
 
 *Son Güncelleme: 2025-09-17*
-*Durum: Aşama 2.1 Tamamlandı*
+*Durum: Aşama 2.2 Tamamlandı*
