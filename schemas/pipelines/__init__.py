@@ -2,6 +2,8 @@
 Pipeline schemas for ingestion and query processing
 """
 
+from typing import Union
+
 # Ingest pipeline schemas
 from schemas.pipelines.ingest import (
     IngestStage,
@@ -216,7 +218,7 @@ def create_query_request(
 
 
 def track_pipeline_progress(
-    pipeline_result: IngestPipelineResult | QueryPipelineResult
+    pipeline_result: Union[IngestPipelineResult, QueryPipelineResult]
 ) -> dict:
     """
     Track pipeline progress and return summary
@@ -272,7 +274,7 @@ def track_pipeline_progress(
 
 
 def estimate_pipeline_time(
-    pipeline_config: IngestPipelineConfig | QueryPipelineConfig,
+    pipeline_config: Union[IngestPipelineConfig, QueryPipelineConfig],
     input_size: int = None
 ) -> float:
     """

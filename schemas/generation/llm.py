@@ -2,7 +2,7 @@
 Language model generation schemas
 """
 from pydantic import BaseModel, Field, validator
-from typing import Optional, List, Dict, Any, Literal
+from typing import Optional, List, Dict, Any, Literal, Union
 from datetime import datetime
 from enum import Enum
 
@@ -199,7 +199,7 @@ class ChatCompletionRequest(BaseModel):
 
     # Chat-specific parameters
     functions: Optional[List[Dict[str, Any]]] = Field(default=None, description="Available functions")
-    function_call: Optional[str | Dict[str, str]] = Field(default=None, description="Function calling mode")
+    function_call: Optional[Union[str, Dict[str, str]]] = Field(default=None, description="Function calling mode")
     response_format: Optional[Dict[str, str]] = Field(default=None, description="Response format")
 
     # Options

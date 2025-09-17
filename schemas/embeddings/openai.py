@@ -2,7 +2,7 @@
 OpenAI embedding provider schemas
 """
 from pydantic import BaseModel, Field, validator
-from typing import Optional, List, Dict, Any, Literal
+from typing import Optional, List, Dict, Any, Literal, Union
 from datetime import datetime
 
 from schemas.embeddings.base import EmbeddingConfig, EmbeddingProvider
@@ -81,7 +81,7 @@ class OpenAIEmbeddingConfig(EmbeddingConfig):
 
 class OpenAIEmbeddingRequest(BaseModel):
     """Request for OpenAI embedding generation"""
-    input: str | List[str] = Field(..., description="Text or list of texts to embed")
+    input: Union[str, List[str]] = Field(..., description="Text or list of texts to embed")
     model: str = Field(
         default=OpenAIEmbeddingModel.TEXT_EMBEDDING_3_SMALL,
         description="Model to use"
