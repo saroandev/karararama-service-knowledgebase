@@ -137,21 +137,22 @@ schemas/
 - [x] `schemas/__init__.py` dosyasındaki export'ları güncelle
 - [x] API'nin çalıştığını test et
 
-### Adım 3: Config Schemas'ını Oluştur
-- [ ] `app/config/settings.py`'deki Settings sınıfını Pydantic BaseModel'e dönüştür
-- [ ] `schemas/config/app.py` oluştur (ApplicationConfig)
-- [ ] `schemas/config/milvus.py` oluştur (MilvusSettings)
-- [ ] `schemas/config/minio.py` oluştur (MinIOSettings)
-- [ ] `schemas/config/llm.py` oluştur (LLMSettings)
-- [ ] Config import'larını güncelle
+### Adım 3: Config Schemas'ını Oluştur ✅
+- [x] `app/config/settings.py`'deki Settings sınıfını Pydantic BaseModel'e dönüştür
+- [x] `schemas/config/app.py` oluştur (ApplicationConfig)
+- [x] `schemas/config/milvus.py` oluştur (MilvusSettings)
+- [x] `schemas/config/minio.py` oluştur (MinIOSettings)
+- [x] `schemas/config/llm.py` oluştur (LLMSettings)
+- [x] `schemas/config/__init__.py` ile helper fonksiyonlar eklendi
+- [x] Test script ile tüm config'ler doğrulandı
 
-### Adım 4: Chunking Schemas'ını Oluştur
-- [ ] `app/core/chunking/base.py`'deki dataclass'ları Pydantic model olarak `schemas/chunking/base.py`'ye taşı
-- [ ] `schemas/chunking/text.py` oluştur
-- [ ] `schemas/chunking/semantic.py` oluştur
-- [ ] `schemas/chunking/document.py` oluştur
-- [ ] `schemas/chunking/hybrid.py` oluştur
-- [ ] Chunking modüllerindeki import'ları güncelle
+### Adım 4: Chunking Schemas'ını Oluştur ✅
+- [x] `app/core/chunking/base.py`'deki dataclass'ları Pydantic model olarak `schemas/chunking/base.py`'ye taşı
+- [x] `schemas/chunking/text.py` oluştur
+- [x] `schemas/chunking/semantic.py` oluştur
+- [x] `schemas/chunking/document.py` oluştur
+- [x] `schemas/chunking/hybrid.py` oluştur
+- [x] `schemas/chunking/__init__.py` ile exports ve helper fonksiyonlar eklendi
 
 ### Adım 5: Storage Schemas'ını Oluştur
 - [ ] `schemas/storage/minio.py` oluştur
@@ -219,8 +220,8 @@ schemas/
 ## İlerleme Durumu
 
 **Başlangıç Tarihi**: 2025-09-17
-**Mevcut Adım**: Adım 3 - Config Schemas'ını Oluştur
-**Son Güncelleme**: 2025-09-17 15:47
+**Mevcut Adım**: Adım 5 - Storage Schemas'ını Oluştur
+**Son Güncelleme**: 2025-09-17 15:58
 
 ### Tamamlanan Adımlar:
 - ✅ Adım 1: Yeni klasör yapısı oluşturuldu (api, chunking, embeddings, storage, retrieval, generation, config, pipelines, indexing)
@@ -230,6 +231,20 @@ schemas/
   - Tüm API endpoint import'ları güncellendi
   - schemas/__init__.py export'ları güncellendi
   - API başarıyla başlatıldı ve test edildi
+- ✅ Adım 3: Config Schemas'ını oluşturduk
+  - ApplicationConfig (ana konfigürasyon)
+  - MilvusSettings (vector DB konfigürasyonu)
+  - MinIOSettings (object storage konfigürasyonu)
+  - LLMSettings (language model konfigürasyonu)
+  - Helper fonksiyonlar eklendi
+  - Tüm konfigürasyonlar başarıyla test edildi
+- ✅ Adım 4: Chunking Schemas'ını oluşturduk
+  - Base schemas (Chunk, ChunkMetadata, ChunkingConfig, ChunkingResult)
+  - Text chunking schemas (TextChunkConfig, TextChunkResult)
+  - Semantic chunking schemas (SemanticChunkConfig, SemanticChunkResult)
+  - Document chunking schemas (DocumentChunkConfig, DocumentElement, DocumentStructure)
+  - Hybrid chunking schemas (HybridChunkConfig, HybridChunkResult)
+  - Helper fonksiyonlar (create_chunk_config, get_default_config)
 
 ---
 
