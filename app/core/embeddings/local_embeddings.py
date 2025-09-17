@@ -10,14 +10,27 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Optional import - SentenceTransformers may not be installed
-try:
-    from sentence_transformers import SentenceTransformer
-    import torch
-    SENTENCE_TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    SENTENCE_TRANSFORMERS_AVAILABLE = False
-    logger.warning("SentenceTransformers not available. Install with: pip install sentence-transformers")
+# Do NOT import SentenceTransformers at module level
+# It will be imported only when LocalEmbedding class is instantiated
+SENTENCE_TRANSFORMERS_AVAILABLE = False
+SentenceTransformer = None
+torch = None
+
+def _check_sentence_transformers():
+    """Check if SentenceTransformers is available - called only when needed"""
+    global SENTENCE_TRANSFORMERS_AVAILABLE, SentenceTransformer, torch
+    if SentenceTransformer is None:
+        try:
+            from sentence_transformers import SentenceTransformer as ST
+            import torch as t
+            SentenceTransformer = ST
+            torch = t
+            SENTENCE_TRANSFORMERS_AVAILABLE = True
+            logger.info("SentenceTransformers loaded successfully")
+        except ImportError:
+            SENTENCE_TRANSFORMERS_AVAILABLE = False
+            logger.warning("SentenceTransformers not available. Install with: pip install sentence-transformers")
+    return SENTENCE_TRANSFORMERS_AVAILABLE
 
 
 class LocalEmbedding(AbstractEmbedding):
@@ -37,7 +50,8 @@ class LocalEmbedding(AbstractEmbedding):
             device: Device to run model on ("cuda", "cpu", or None for auto)
             batch_size: Batch size for encoding
         """
-        if not SENTENCE_TRANSFORMERS_AVAILABLE:
+        # Check and import SentenceTransformers only when actually creating an instance
+        if not _check_sentence_transformers():
             raise ImportError(
                 "SentenceTransformers is not installed. "
                 "Install with: pip install sentence-transformers"

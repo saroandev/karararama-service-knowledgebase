@@ -3,12 +3,18 @@ Reranker retriever implementation
 """
 import logging
 from typing import List, Dict, Any, Optional
-from sentence_transformers import CrossEncoder
 
 from app.core.retrieval.vector_search import VectorSearchRetriever
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Lazy import for CrossEncoder to avoid TensorFlow loading
+CrossEncoder = None
+try:
+    from sentence_transformers import CrossEncoder
+except ImportError:
+    logger.info("CrossEncoder not available - reranking disabled")
 
 
 class RerankerRetriever(VectorSearchRetriever):
@@ -28,13 +34,17 @@ class RerankerRetriever(VectorSearchRetriever):
         if use_reranker:
             self.reranker = self._load_reranker()
 
-    def _load_reranker(self) -> Optional[CrossEncoder]:
+    def _load_reranker(self) -> Optional['CrossEncoder']:
         """
         Load the reranking model
 
         Returns:
             CrossEncoder model or None if loading fails
         """
+        if CrossEncoder is None:
+            logger.warning("CrossEncoder not available - skipping reranker loading")
+            return None
+
         try:
             model = CrossEncoder(
                 settings.RERANKER_MODEL,

@@ -1,22 +1,38 @@
-import logging
-import asyncio
-from typing import Dict, Any, Optional, Callable, List
-from dataclasses import dataclass
-from datetime import datetime
-import traceback
+"""
+Backward compatibility module for document ingestion.
 
-from app.core.storage import storage
-from app.parse import pdf_parser
-from app.core.chunking import get_default_chunker, HybridChunker
-from app.core.embeddings import default_embedding_generator as embedding_generator
-from app.index import milvus_indexer
+This file is kept for backward compatibility.
+All imports from 'app.ingest' will be redirected to the new pipeline structure.
+New code should use 'from app.pipelines import IngestPipeline' directly.
+"""
+import logging
+import warnings
+import asyncio
+from typing import Dict, Any, Optional, Callable, BinaryIO
+from dataclasses import dataclass
+
+# Import from new location
+from app.pipelines import (
+    IngestPipeline as ModernIngestPipeline,
+    BatchIngestPipeline,
+    PipelineProgress,
+    PipelineResult
+)
 
 logger = logging.getLogger(__name__)
 
+# Emit deprecation warning
+warnings.warn(
+    "Importing from app.ingest is deprecated. Use app.pipelines instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
+
+# Legacy IngestionProgress for backward compatibility
 @dataclass
 class IngestionProgress:
-    """Progress tracking for ingestion"""
+    """Legacy progress tracking for ingestion"""
     stage: str
     progress: float
     message: str
@@ -25,25 +41,65 @@ class IngestionProgress:
     document_id: Optional[str] = None
     error: Optional[str] = None
 
+    @classmethod
+    def from_pipeline_progress(cls, progress: PipelineProgress):
+        """Convert from new PipelineProgress format"""
+        return cls(
+            stage=progress.stage,
+            progress=progress.progress,
+            message=progress.message,
+            current_step=progress.current_step,
+            total_steps=progress.total_steps,
+            document_id=progress.metadata.get('document_id') if progress.metadata else None,
+            error=progress.error
+        )
+
 
 class IngestionPipeline:
+    """
+    Legacy IngestionPipeline class for backward compatibility.
+    This wraps the new IngestPipeline implementation.
+    """
+
     def __init__(self):
-        self.storage = storage
-        self.parser = pdf_parser
-        self.chunker = get_default_chunker()
-        self.embedder = embedding_generator
-        self.indexer = milvus_indexer
-        
+        """Initialize ingestion pipeline"""
+        warnings.warn(
+            "IngestionPipeline is deprecated. Use IngestPipeline from app.pipelines",
+            DeprecationWarning,
+            stacklevel=2
+        )
+
+        # Use new pipeline implementation
+        self._pipeline = ModernIngestPipeline()
+
+        # Legacy attributes for compatibility
+        self.storage = self._pipeline.storage
+        self.parser = self._pipeline.parser
+        self.chunker = self._pipeline.chunker
+        self.embedder = self._pipeline.embedder
+        self.indexer = self._pipeline.indexer
+
         # Progress tracking
         self.progress_callback: Optional[Callable[[IngestionProgress], None]] = None
         self.current_progress = IngestionProgress("idle", 0.0, "Ready", 0, 0)
-    
+
     def set_progress_callback(self, callback: Callable[[IngestionProgress], None]):
         """Set callback for progress updates"""
         self.progress_callback = callback
-    
-    def _update_progress(self, stage: str, progress: float, message: str, current_step: int = 0, total_steps: int = 0, error: Optional[str] = None):
-        """Update progress and call callback if set"""
+
+        # Wrapper to convert new progress format to legacy
+        def wrapper(progress: PipelineProgress):
+            legacy_progress = IngestionProgress.from_pipeline_progress(progress)
+            self.current_progress = legacy_progress
+            if self.progress_callback:
+                self.progress_callback(legacy_progress)
+
+        self._pipeline.set_progress_callback(wrapper)
+
+    def _update_progress(self, stage: str, progress: float, message: str,
+                        current_step: int = 0, total_steps: int = 0,
+                        error: Optional[str] = None):
+        """Update progress (legacy method)"""
         self.current_progress = IngestionProgress(
             stage=stage,
             progress=progress,
@@ -53,347 +109,138 @@ class IngestionPipeline:
             document_id=self.current_progress.document_id,
             error=error
         )
-        
+
         if self.progress_callback:
             self.progress_callback(self.current_progress)
-        
+
         logger.info(f"[{stage}] {progress:.1f}% - {message}")
-    
-    def ingest_pdf(
+
+    async def ingest_document(
         self,
-        file_data: bytes,
+        file_obj: BinaryIO,
         filename: str,
         metadata: Optional[Dict[str, Any]] = None,
-        chunk_strategy: str = "token",
-        chunk_size: int = 512,
-        chunk_overlap: int = 50
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None,
+        chunk_strategy: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Main ingestion pipeline for PDF files
-        
+        Ingest a single document (legacy method)
+
         Args:
-            file_data: PDF file bytes
+            file_obj: File object to ingest
             filename: Original filename
-            metadata: Optional metadata
-            chunk_strategy: Chunking strategy ("token", "semantic", "hybrid")
-            chunk_size: Target chunk size
-            chunk_overlap: Chunk overlap
-        
+            metadata: Additional metadata
+            chunk_size: Override chunk size
+            chunk_overlap: Override chunk overlap
+            chunk_strategy: Override chunking strategy
+
         Returns:
-            Ingestion results with metrics
+            Result dictionary with document_id and statistics
         """
-        start_time = datetime.now()
-        document_id = None
-        
-        try:
-            # Stage 1: Upload PDF to storage
-            self._update_progress("upload", 5.0, "Uploading PDF to storage", 1, 6)
-            # Generate document ID first
-            import hashlib
-            doc_hash = hashlib.md5(file_data).hexdigest()
-            document_id = f"doc_{doc_hash[:16]}"
+        # Run pipeline
+        result = await self._pipeline.run(
+            file_obj=file_obj,
+            filename=filename,
+            metadata=metadata or {},
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            chunk_strategy=chunk_strategy
+        )
 
-            # Use upload_pdf_to_raw_documents instead of upload_pdf
-            success = self.storage.upload_pdf_to_raw_documents(
-                document_id=document_id,
-                file_data=file_data,
-                filename=filename,
-                metadata=metadata
-            )
-            if not success:
-                raise Exception("Failed to upload PDF to storage")
+        # Convert result to legacy format
+        if result.success:
+            return result.data
+        else:
+            raise Exception(result.error)
 
-            self.current_progress.document_id = document_id
-            
-            # Stage 2: Parse PDF
-            self._update_progress("parsing", 15.0, "Extracting text from PDF", 2, 6)
-            pages, doc_metadata = self.parser.extract_text_from_pdf(file_data)
-            
-            if not pages:
-                raise ValueError("No text content found in PDF")
-            
-            # Stage 3: Chunk text
-            self._update_progress("chunking", 30.0, f"Creating text chunks ({chunk_strategy})", 3, 6)
-            
-            # Select chunker based on strategy
-            if chunk_strategy == "hybrid":
-                chunker = HybridChunker(chunk_size, chunk_overlap)
-                chunks = chunker.chunk_text(
-                    "\\n\\n".join(page.text for page in pages),
-                    document_id,
-                    metadata
-                )
-            else:
-                from app.core.chunking import TextChunker
-                chunker = TextChunker(chunk_size, chunk_overlap, chunk_strategy)
-                chunks = chunker.chunk_pages(pages, document_id, preserve_pages=True)
-            
-            if not chunks:
-                raise ValueError("No chunks created from text")
-            
-            # Stage 4: Generate embeddings
-            self._update_progress("embedding", 50.0, f"Generating embeddings for {len(chunks)} chunks", 4, 6)
-            
-            chunk_texts = [chunk.text for chunk in chunks]
-            embeddings = self.embedder.generate_embeddings_batch(chunk_texts, show_progress=False)
-            
-            # Stage 5: Save chunks to MinIO storage FIRST
-            self._update_progress("storing", 70.0, "Saving chunks to MinIO storage", 5, 6)
-            
-            # Prepare chunk data for storage with full text
-            chunk_data_list = []
-            for chunk in chunks:
-                chunk_dict = {
-                    "chunk_id": chunk.chunk_id,
-                    "document_id": chunk.document_id,
-                    "text": chunk.text,
-                    "metadata": chunk.metadata,
-                    "token_count": chunk.token_count,
-                    "char_count": chunk.char_count,
-                    "chunk_index": chunk.chunk_index
-                }
-                chunk_data_list.append(chunk_dict)
-            
-            # Save to MinIO and get paths
-            minio_paths = self.storage.save_chunks_batch(document_id, chunk_data_list)
-            
-            # Stage 6: Index in vector database (without text, only reference)
-            self._update_progress("indexing", 85.0, "Indexing chunks in Milvus with MinIO references", 6, 6)
-            
-            # Prepare data for Milvus with MinIO references
-            milvus_chunks = []
-            for i, chunk in enumerate(chunks):
-                milvus_chunk = {
-                    "chunk_id": chunk.chunk_id,
-                    "document_id": chunk.document_id,
-                    "chunk_index": chunk.chunk_index,
-                    "minio_object_path": minio_paths[i] if i < len(minio_paths) else "",
-                    "metadata": chunk.metadata
-                }
-                milvus_chunks.append(milvus_chunk)
-            
-            indexed_count = self.indexer.insert_chunks(milvus_chunks, embeddings)
-            
-            # Complete
-            end_time = datetime.now()
-            processing_time = (end_time - start_time).total_seconds()
-            
-            self._update_progress("complete", 100.0, f"Processing complete: {len(chunks)} chunks indexed", 6, 6)
-            
-            # Compile results
-            results = {
-                "status": "success",
-                "document_id": document_id,
-                "processing_time": processing_time,
-                "stats": {
-                    "pages_processed": len(pages),
-                    "chunks_created": len(chunks),
-                    "chunks_saved": len(minio_paths),
-                    "chunks_indexed": indexed_count,
-                    "total_tokens": sum(chunk.token_count for chunk in chunks),
-                    "avg_chunk_size": sum(chunk.token_count for chunk in chunks) / len(chunks) if chunks else 0
-                },
-                "document_metadata": {
-                    "title": doc_metadata.title,
-                    "author": doc_metadata.author,
-                    "page_count": doc_metadata.page_count,
-                    "file_size": doc_metadata.file_size,
-                    "creation_date": doc_metadata.creation_date
-                },
-                "chunk_strategy": chunk_strategy,
-                "chunk_size": chunk_size,
-                "chunk_overlap": chunk_overlap
-            }
-            
-            logger.info(f"Successfully ingested document {document_id} in {processing_time:.2f}s")
-            return results
-            
-        except Exception as e:
-            error_msg = f"Ingestion failed: {str(e)}"
-            logger.error(f"{error_msg}\\n{traceback.format_exc()}")
-            
-            # Cleanup on error
-            if document_id:
-                try:
-                    self._cleanup_failed_ingestion(document_id)
-                except Exception as cleanup_error:
-                    logger.error(f"Cleanup failed: {cleanup_error}")
-            
-            self._update_progress("error", 0.0, error_msg, 0, 0, error=error_msg)
-            
-            return {
-                "status": "error",
-                "document_id": document_id,
-                "error": error_msg,
-                "processing_time": (datetime.now() - start_time).total_seconds()
-            }
-    
-    def _cleanup_failed_ingestion(self, document_id: str):
-        """Cleanup resources for failed ingestion"""
-        logger.info(f"Cleaning up failed ingestion for document {document_id}")
-        
-        # Remove from storage
-        self.storage.delete_document(document_id)
-        
-        # Remove from vector database
-        self.indexer.delete_by_document(document_id)
-    
-    async def ingest_pdf_async(
+    async def ingest_documents_batch(
         self,
-        file_data: bytes,
+        files: list,
+        metadata: Optional[Dict[str, Any]] = None,
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Ingest multiple documents (legacy method)
+
+        Args:
+            files: List of (file_obj, filename) tuples
+            metadata: Common metadata for all documents
+            chunk_size: Override chunk size
+            chunk_overlap: Override chunk overlap
+
+        Returns:
+            Result dictionary with statistics
+        """
+        # Convert to new format
+        file_list = []
+        for item in files:
+            if isinstance(item, tuple):
+                file_obj, filename = item
+            else:
+                file_obj = item.get('file_obj')
+                filename = item.get('filename')
+
+            file_list.append({
+                'file_obj': file_obj,
+                'filename': filename,
+                'metadata': metadata or {},
+                'chunk_size': chunk_size,
+                'chunk_overlap': chunk_overlap
+            })
+
+        # Use batch pipeline
+        batch_pipeline = BatchIngestPipeline()
+        result = await batch_pipeline.run(files=file_list)
+
+        # Convert result to legacy format
+        if result.success:
+            return result.data
+        else:
+            raise Exception(result.error)
+
+    def ingest_document_sync(
+        self,
+        file_obj: BinaryIO,
         filename: str,
         metadata: Optional[Dict[str, Any]] = None,
-        **kwargs
-    ) -> Dict[str, Any]:
-        """Async version of PDF ingestion"""
-        # Run in thread pool since most operations are CPU-bound
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            None,
-            self.ingest_pdf,
-            file_data,
-            filename,
-            metadata,
-            kwargs.get("chunk_strategy", "token"),
-            kwargs.get("chunk_size", 512),
-            kwargs.get("chunk_overlap", 50)
-        )
-    
-    def batch_ingest(
-        self,
-        files: List[Dict[str, Any]],
-        **common_params
-    ) -> List[Dict[str, Any]]:
-        """
-        Batch ingest multiple files
-        
-        Args:
-            files: List of file dictionaries with 'data', 'filename', 'metadata'
-            common_params: Common parameters for all files
-        
-        Returns:
-            List of ingestion results
-        """
-        results = []
-        total_files = len(files)
-        
-        for i, file_info in enumerate(files):
-            try:
-                self._update_progress(
-                    "batch_processing",
-                    (i / total_files) * 100,
-                    f"Processing file {i+1} of {total_files}: {file_info['filename']}",
-                    i + 1,
-                    total_files
-                )
-                
-                result = self.ingest_pdf(
-                    file_info["data"],
-                    file_info["filename"],
-                    file_info.get("metadata"),
-                    **common_params
-                )
-                
-                results.append(result)
-                
-            except Exception as e:
-                error_result = {
-                    "status": "error",
-                    "filename": file_info["filename"],
-                    "error": str(e)
-                }
-                results.append(error_result)
-                logger.error(f"Error processing {file_info['filename']}: {e}")
-        
-        return results
-    
-    def reindex_document(
-        self,
-        document_id: str,
-        new_chunk_strategy: Optional[str] = None,
-        new_chunk_size: Optional[int] = None,
-        new_chunk_overlap: Optional[int] = None
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None,
+        chunk_strategy: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Reindex an existing document with different parameters
-        
+        Synchronous version of ingest_document (legacy method)
+
         Args:
-            document_id: Document to reindex
-            new_chunk_strategy: New chunking strategy
-            new_chunk_size: New chunk size
-            new_chunk_overlap: New chunk overlap
-        
+            file_obj: File object to ingest
+            filename: Original filename
+            metadata: Additional metadata
+            chunk_size: Override chunk size
+            chunk_overlap: Override chunk overlap
+            chunk_strategy: Override chunking strategy
+
         Returns:
-            Reindexing results
+            Result dictionary with document_id and statistics
         """
-        try:
-            # Get original PDF from storage
-            documents = self.storage.list_documents()
-            target_doc = None
-            
-            for doc in documents:
-                if doc["document_id"] == document_id:
-                    target_doc = doc
-                    break
-            
-            if not target_doc:
-                raise ValueError(f"Document {document_id} not found")
-            
-            # Get original filename from metadata
-            filename = target_doc["metadata"].get("original_filename", "unknown.pdf")
-            
-            # Download PDF data
-            pdf_data = self.storage.download_pdf(document_id, filename)
-            
-            # Remove old data
-            self._cleanup_failed_ingestion(document_id)
-            
-            # Re-ingest with new parameters
-            return self.ingest_pdf(
-                pdf_data,
-                filename,
-                target_doc["metadata"],
-                new_chunk_strategy or "token",
-                new_chunk_size or 512,
-                new_chunk_overlap or 50
-            )
-            
-        except Exception as e:
-            error_msg = f"Reindexing failed: {str(e)}"
-            logger.error(error_msg)
-            return {
-                "status": "error",
-                "document_id": document_id,
-                "error": error_msg
-            }
-    
-    def get_ingestion_status(self) -> IngestionProgress:
-        """Get current ingestion status"""
-        return self.current_progress
-    
-    def estimate_processing_time(
-        self,
-        file_size: int,
-        page_count: Optional[int] = None
-    ) -> float:
-        """
-        Estimate processing time based on file characteristics
-        
-        Args:
-            file_size: File size in bytes
-            page_count: Number of pages (if known)
-        
-        Returns:
-            Estimated time in seconds
-        """
-        # Simple heuristic based on file size
-        # Adjust based on your system performance
-        base_time = 10  # Base processing time
-        size_factor = file_size / (1024 * 1024)  # MB
-        page_factor = (page_count or (file_size / 50000)) * 0.5  # Rough estimate
-        
-        return base_time + size_factor * 2 + page_factor
+        return asyncio.run(self.ingest_document(
+            file_obj, filename, metadata,
+            chunk_size, chunk_overlap, chunk_strategy
+        ))
 
 
-# Singleton instance
+# Create singleton instance for backward compatibility
 ingestion_pipeline = IngestionPipeline()
+
+
+# Export everything for backward compatibility
+__all__ = [
+    'IngestionPipeline',
+    'IngestionProgress',
+    'ingestion_pipeline',
+    # Also export new names
+    'ModernIngestPipeline',
+    'BatchIngestPipeline',
+    'PipelineProgress',
+    'PipelineResult'
+]

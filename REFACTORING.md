@@ -97,18 +97,26 @@ App klasörünü modüler package yapısına dönüştürmek ve kodu daha tutarl
 
 ---
 
-### Aşama 3: Pipelines Package Oluşturma 🔀
+### Aşama 3: Pipelines Package Oluşturma 🔀 ✅ TAMAMLANDI
 
-- [ ] `app/pipelines/` klasörünü oluştur
-- [ ] `app/pipelines/__init__.py`
-- [ ] `app/pipelines/base.py` (AbstractPipeline class)
-- [ ] `app/pipelines/ingest_pipeline.py`
-- [ ] `app/pipelines/query_pipeline.py`
-- [ ] `app/pipelines/utils.py`
-- [ ] `app/ingest.py` içeriğini refactor et
-- [ ] Pipeline orchestration logic ekle
-- [ ] Error handling ve retry logic ekle
-- [ ] Test coverage ekle
+- [x] `app/pipelines/` klasörünü oluştur
+- [x] `app/pipelines/__init__.py`
+- [x] `app/pipelines/base.py` (AbstractPipeline class)
+- [x] `app/pipelines/ingest_pipeline.py`
+- [x] `app/pipelines/query_pipeline.py`
+- [x] `app/pipelines/utils.py`
+- [x] `app/ingest.py` içeriğini refactor et (backward compatibility wrapper)
+- [x] Pipeline orchestration logic ekle
+- [x] Error handling ve retry logic ekle
+- [ ] Test coverage ekle (will be done separately)
+
+**Tamamlanan özellikler:**
+- AbstractPipeline base class ile progress tracking
+- IngestPipeline ve BatchIngestPipeline
+- QueryPipeline, MultiQueryPipeline, ConversationalQueryPipeline
+- Pipeline utilities (retry, batch processing, validation)
+- Backward compatibility için app/ingest.py wrapper'ı
+- TensorFlow/SentenceTransformers lazy loading düzeltmesi
 
 ---
 

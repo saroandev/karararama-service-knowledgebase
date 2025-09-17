@@ -10,13 +10,14 @@ from typing import Optional
 
 from app.core.embeddings.base import AbstractEmbedding
 from app.core.embeddings.openai_embeddings import OpenAIEmbedding
-from app.core.embeddings.local_embeddings import (
-    LocalEmbedding,
-    MultilingualEmbedding,
-    CachedLocalEmbedding,
-    SENTENCE_TRANSFORMERS_AVAILABLE
-)
 from app.config import settings
+
+# Lazy import for local embeddings to avoid TensorFlow loading
+# These will only be imported when explicitly used
+LocalEmbedding = None
+MultilingualEmbedding = None
+CachedLocalEmbedding = None
+SENTENCE_TRANSFORMERS_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -46,15 +47,21 @@ def create_embedding_generator(
             **kwargs
         )
     elif provider.lower() in ['local', 'sentence-transformers', 'huggingface']:
-        if not SENTENCE_TRANSFORMERS_AVAILABLE:
-            logger.warning(
-                "SentenceTransformers not available, falling back to OpenAI. "
-                "Install with: pip install sentence-transformers"
-            )
-            return OpenAIEmbedding(
-                model_name=model_name,
-                **kwargs
-            )
+        # Lazy import LocalEmbedding only when needed
+        global LocalEmbedding
+        if LocalEmbedding is None:
+            try:
+                from app.core.embeddings.local_embeddings import LocalEmbedding
+                logger.info("LocalEmbedding imported successfully")
+            except ImportError:
+                logger.warning(
+                    "SentenceTransformers not available, falling back to OpenAI. "
+                    "Install with: pip install sentence-transformers"
+                )
+                return OpenAIEmbedding(
+                    model_name=model_name,
+                    **kwargs
+                )
         logger.info("Creating local embedding generator")
         return LocalEmbedding(
             model_name=model_name,
