@@ -8,8 +8,8 @@ from urllib.parse import quote
 from fastapi import APIRouter, HTTPException
 from openai import OpenAI
 
-from api.models.requests import QueryRequest
-from api.models.responses import QueryResponse
+from schemas.requests.query import QueryRequest
+from schemas.responses.query import QueryResponse, QuerySource
 from api.core.milvus_manager import milvus_manager
 from api.core.dependencies import retry_with_backoff
 from api.core.embeddings import embedding_service
@@ -22,7 +22,7 @@ router = APIRouter()
 
 @router.post("/query", response_model=QueryResponse)
 @retry_with_backoff(max_retries=3)
-async def query_documents(request: QueryRequest):
+async def query_documents(request: QueryRequest) -> QueryResponse:
     """
     Production query endpoint with persistent storage
     """
@@ -103,17 +103,17 @@ async def query_documents(request: QueryRequest):
             encoded_filename = quote(original_filename)
             document_url = f"http://localhost:9001/browser/raw-documents/{doc_id}/{encoded_filename}"
 
-            sources.append({
-                "rank": i + 1,
-                "score": round(score, 3),
-                "document_id": doc_id,
-                "document_name": original_filename,
-                "document_title": doc_title,
-                "document_url": document_url,
-                "page_number": page_num,
-                "text_preview": text[:200] + "..." if len(text) > 200 else text,
-                "created_at": created_at
-            })
+            sources.append(QuerySource(
+                rank=i + 1,
+                score=round(score, 3),
+                document_id=doc_id,
+                document_name=original_filename,
+                document_title=doc_title,
+                document_url=document_url,
+                page_number=page_num,
+                text_preview=text[:200] + "..." if len(text) > 200 else text,
+                created_at=created_at
+            ))
 
             context_parts.append(f"[Kaynak {i+1} - Sayfa {page_num}]: {text}")
 

@@ -6,16 +6,18 @@ import hashlib
 import json
 import logging
 from typing import List, Union
-from dataclasses import dataclass
 from fastapi import APIRouter, UploadFile, File, HTTPException
 
-from api.models.responses import (
+# Import from new schemas location
+from schemas.responses.ingest import (
     SuccessfulIngestResponse,
     ExistingDocumentResponse,
     FailedIngestResponse,
     BatchIngestResponse,
     FileIngestStatus
 )
+from schemas.internal.chunk import SimpleChunk
+
 from api.core.milvus_manager import milvus_manager
 from api.core.dependencies import retry_with_backoff
 from api.core.embeddings import embedding_service
@@ -25,13 +27,6 @@ from app.parse import PDFParser
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-@dataclass
-class SimpleChunk:
-    chunk_id: str
-    text: str
-    page_number: int
 
 
 @router.post("/ingest", response_model=Union[SuccessfulIngestResponse, ExistingDocumentResponse, FailedIngestResponse])
