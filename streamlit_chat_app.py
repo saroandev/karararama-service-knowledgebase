@@ -2,7 +2,6 @@ import streamlit as st
 import requests
 import os
 import json
-import asyncio
 import uuid
 from datetime import datetime
 from typing import List, Dict, Optional
@@ -30,31 +29,39 @@ st.markdown("""
     .main > div {
         padding-top: 2rem;
     }
-    
+
     /* Chat messages */
     .stChatMessage {
         background-color: transparent;
     }
-    
+
     /* Sidebar styling */
     section[data-testid="stSidebar"] {
         background: linear-gradient(180deg, #2c3e50 0%, #34495e 100%);
     }
-    
+
     section[data-testid="stSidebar"] .stButton > button {
         background: rgba(255, 255, 255, 0.1);
         color: white;
         border: 1px solid rgba(255, 255, 255, 0.2);
         transition: all 0.3s ease;
-        margin: 4px 0;
+        margin: 2px 0;
     }
-    
+
     section[data-testid="stSidebar"] .stButton > button:hover {
         background: rgba(255, 255, 255, 0.2);
         border-color: rgba(255, 255, 255, 0.4);
         transform: translateX(2px);
     }
-    
+
+    /* Top sidebar buttons (smaller) */
+    .sidebar-top-buttons .stButton > button {
+        height: 2rem !important;
+        font-size: 0.875rem !important;
+        padding: 0.25rem 0.5rem !important;
+        margin: 2px 0 !important;
+    }
+
     /* Modern button styling */
     .stButton > button {
         width: 100%;
@@ -102,13 +109,33 @@ st.markdown("""
         box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1) !important;
     }
     
+    /* Scrollable conversation history */
+    .conversation-history {
+        max-height: calc(100vh - 300px);
+        overflow-y: auto;
+        padding-bottom: 120px;
+    }
+
     /* Bottom sidebar section */
     .sidebar-bottom {
         position: fixed;
         bottom: 0;
-        width: inherit;
-        background: linear-gradient(180deg, transparent 0%, #2c3e50 20%);
+        left: 0;
+        width: 21rem;
+        background: #2c3e50;
         padding: 1rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        z-index: 1000;
+    }
+
+    /* System status indicator */
+    .system-status {
+        position: fixed;
+        bottom: 75px;
+        left: 365px;
+        z-index: 1001;
+        font-size: 0.75rem;
+        background: transparent;
     }
     
     /* Conversation item */
@@ -135,25 +162,25 @@ st.markdown("""
 def init_session_state():
     if 'conversations' not in st.session_state:
         st.session_state.conversations = []
-    
+
     if 'current_conversation_id' not in st.session_state:
         st.session_state.current_conversation_id = None
-    
+
     if 'messages' not in st.session_state:
         st.session_state.messages = []
-    
-    if 'uploading_files' not in st.session_state:
-        st.session_state.uploading_files = set()
-    
+
+    if 'processed_files' not in st.session_state:
+        st.session_state.processed_files = set()
+
     if 'uploaded_documents' not in st.session_state:
         st.session_state.uploaded_documents = []
-    
+
     if 'show_settings' not in st.session_state:
         st.session_state.show_settings = False
-    
+
     if 'sidebar_collapsed' not in st.session_state:
         st.session_state.sidebar_collapsed = False
-    
+
     if 'processing_query' not in st.session_state:
         st.session_state.processing_query = False
 
@@ -192,39 +219,42 @@ def save_current_conversation():
                         conv['title'] = first_user_msg[:30] + "..." if len(first_user_msg) > 30 else first_user_msg
                 break
 
-async def upload_file_async(file, file_index):
-    """Asynchronously upload a file"""
+def upload_file_sync(file):
+    """Synchronously upload a file"""
     try:
-        # Add to uploading set
-        st.session_state.uploading_files.add(file.name)
-        
-        # Determine file type and prepare request
-        files = {"file": (file.name, file, file.type or "application/octet-stream")}
-        
+        # Prepare request
+        files = {"file": (file.name, file.getvalue(), file.type or "application/pdf")}
+
         # Send to API
         response = requests.post(
             f"{API_BASE_URL}/ingest",
             files=files,
             timeout=300
         )
-        
+
         if response.status_code == 200:
             result = response.json()
-            st.session_state.uploaded_documents.append({
-                'filename': file.name,
-                'document_id': result.get('document_id'),
-                'chunks': result.get('chunks_created', 0),
-                'upload_time': datetime.now().isoformat()
-            })
-            return True, file.name, result
+
+            # Handle different response types based on status
+            if "chunks_created" in result:
+                # Successful new document
+                st.session_state.uploaded_documents.append({
+                    'filename': file.name,
+                    'document_id': result.get('document_id'),
+                    'chunks': result.get('chunks_created', 0),
+                    'upload_time': datetime.now().isoformat()
+                })
+                return True, file.name, result
+            elif "chunks_count" in result:
+                # Document already exists
+                return True, file.name, {"message": "Doküman zaten mevcut", "existing": True}
+            else:
+                return False, file.name, result.get('message', 'Bilinmeyen hata')
         else:
-            return False, file.name, response.text
-            
+            return False, file.name, f"HTTP {response.status_code}: {response.text}"
+
     except Exception as e:
         return False, file.name, str(e)
-    finally:
-        # Remove from uploading set
-        st.session_state.uploading_files.discard(file.name)
 
 def query_api(question: str, use_reranker: bool = True, top_k: int = 5):
     """Send query to API"""
@@ -251,23 +281,26 @@ def query_api(question: str, use_reranker: bool = True, top_k: int = 5):
 
 # Sidebar
 with st.sidebar:
-    # Top buttons
+    # Top buttons container with smaller buttons
+    st.markdown('<div class="sidebar-top-buttons">', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Yeni Konuşma", use_container_width=True):
+        if st.button("➕ Yeni", use_container_width=True, key="new_conv"):
             create_new_conversation()
             st.rerun()
-    
+
     with col2:
-        if st.button("✖" if not st.session_state.sidebar_collapsed else "☰", use_container_width=True):
+        if st.button("✖" if not st.session_state.sidebar_collapsed else "☰", use_container_width=True, key="toggle_sidebar"):
             st.session_state.sidebar_collapsed = not st.session_state.sidebar_collapsed
             st.rerun()
-    
+    st.markdown('</div>', unsafe_allow_html=True)
+
     st.markdown("---")
-    
-    # Conversation history
+
+    # Scrollable conversation history
+    st.markdown('<div class="conversation-history">', unsafe_allow_html=True)
     st.markdown("### Konuşma Geçmişi")
-    
+
     if st.session_state.conversations:
         for conv in reversed(st.session_state.conversations):
             conv_date = datetime.fromisoformat(conv['created_at']).strftime("%d/%m %H:%M")
@@ -276,28 +309,27 @@ with st.sidebar:
                 st.rerun()
     else:
         st.info("Henüz konuşma yok")
-    
-    # Spacer to push buttons to bottom
-    st.markdown("<div style='flex: 1;'></div>", unsafe_allow_html=True)
-    
-    # Bottom section with user and settings
-    st.markdown("---")
-    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # Fixed bottom section
+    st.markdown('<div class="sidebar-bottom">', unsafe_allow_html=True)
+
     # Uploaded documents info
     if st.session_state.uploaded_documents:
         with st.expander(f"📄 Yüklü Dokümanlar ({len(st.session_state.uploaded_documents)})"):
             for doc in st.session_state.uploaded_documents:
                 st.write(f"• {doc['filename']} ({doc['chunks']} chunk)")
-    
+
     # User and Settings buttons at bottom
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("👤", use_container_width=True, help="Kullanıcı"):
+        if st.button("👤", use_container_width=True, help="Kullanıcı", key="user_btn"):
             st.session_state.show_user_profile = True
-    
+
     with col2:
-        if st.button("⚙️", use_container_width=True, help="Ayarlar"):
+        if st.button("⚙️", use_container_width=True, help="Ayarlar", key="settings_btn"):
             st.session_state.show_settings = not st.session_state.show_settings
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # Settings Modal
 if st.session_state.show_settings:
@@ -359,30 +391,25 @@ uploaded_files = st.file_uploader(
 
 # Auto-process uploaded files
 if uploaded_files:
-    for file in uploaded_files:
-        if file.name not in st.session_state.uploading_files:
-            # Start async upload
+    new_files = [f for f in uploaded_files if f.name not in st.session_state.processed_files]
+
+    if new_files:
+        for file in new_files:
+            # Mark file as processed to prevent re-upload
+            st.session_state.processed_files.add(file.name)
+
+            # Upload with spinner
             with st.spinner(f"📤 {file.name} yükleniyor..."):
-                success, filename, result = asyncio.run(upload_file_async(file, len(uploaded_files)))
-                
+                success, filename, result = upload_file_sync(file)
+
                 if success:
-                    st.success(f"✅ {filename} başarıyla yüklendi!")
-                    # Add system message about upload
-                    upload_msg = f"📄 **{filename}** dosyası yüklendi.\n"
-                    upload_msg += f"• Document ID: {result.get('document_id')}\n"
-                    upload_msg += f"• {result.get('chunks_created')} chunk oluşturuldu\n"
-                    upload_msg += f"• İşlem süresi: {result.get('processing_time', 0):.2f} saniye"
-                    
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": upload_msg
-                    })
-                    save_current_conversation()
+                    if isinstance(result, dict) and result.get("existing"):
+                        st.info(f"ℹ️ {filename} zaten mevcut")
+                    else:
+                        chunks = result.get('chunks_created', 0) if isinstance(result, dict) else 0
+                        st.success(f"✅ {filename} başarıyla yüklendi ({chunks} parça)")
                 else:
                     st.error(f"❌ {filename} yüklenemedi: {result}")
-    
-    # Clear the file uploader
-    st.rerun()
 
 # Chat input at the bottom
 if prompt := st.chat_input("Sorunuzu yazın...", disabled=st.session_state.processing_query):
@@ -443,15 +470,14 @@ if prompt := st.chat_input("Sorunuzu yazın...", disabled=st.session_state.proce
     save_current_conversation()
     st.rerun()
 
-# System health indicator (bottom right corner)
-with st.container():
-    col1, col2, col3 = st.columns([8, 1, 1])
-    with col3:
-        try:
-            health_response = requests.get(f"{API_BASE_URL}/health", timeout=2)
-            if health_response.status_code == 200:
-                st.success("🟢 Sistem Aktif")
-            else:
-                st.error("🔴 Sistem Kapalı")
-        except:
-            st.error("🔴 Bağlantı Yok")
+# System health indicator (near chat input)
+st.markdown('<div class="system-status">', unsafe_allow_html=True)
+try:
+    health_response = requests.get(f"{API_BASE_URL}/health", timeout=2)
+    if health_response.status_code == 200:
+        st.markdown("🟢")
+    else:
+        st.markdown("🔴")
+except:
+    st.markdown("🔴")
+st.markdown('</div>', unsafe_allow_html=True)
