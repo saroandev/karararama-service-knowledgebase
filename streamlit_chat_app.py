@@ -199,8 +199,6 @@ def init_session_state():
     if 'knowledge_base_documents' not in st.session_state:
         st.session_state.knowledge_base_documents = []
 
-    if 'document_search_query' not in st.session_state:
-        st.session_state.document_search_query = ""
 
 init_session_state()
 
@@ -368,8 +366,9 @@ with st.sidebar:
 
     # List Documents button
     if st.button("📚 Dokümanları Listele", use_container_width=True, key="list_docs_btn"):
-        st.session_state.show_documents_list = True
-        st.session_state.knowledge_base_documents = fetch_documents()
+        st.session_state.show_documents_list = not st.session_state.show_documents_list
+        if st.session_state.show_documents_list:
+            st.session_state.knowledge_base_documents = fetch_documents()
 
     # User and Settings buttons at bottom
     col1, col2 = st.columns(2)
@@ -381,6 +380,10 @@ with st.sidebar:
         if st.button("⚙️", use_container_width=True, help="Ayarlar", key="settings_btn"):
             st.session_state.show_settings = not st.session_state.show_settings
     st.markdown('</div>', unsafe_allow_html=True)
+
+# Start a new conversation if none exists
+if not st.session_state.current_conversation_id:
+    create_new_conversation()
 
 # Settings Modal
 if st.session_state.show_settings:
@@ -399,9 +402,12 @@ if st.session_state.show_settings:
             st.session_state.show_settings = False
             st.rerun()
 
-# Documents List Modal
+# Documents List Modal - Show at the top of the page
 if st.session_state.show_documents_list:
-    with st.container():
+    # Create placeholder at top to prevent auto-scroll to bottom
+    docs_container = st.container()
+
+    with docs_container:
         st.markdown("---")
         col1, col2 = st.columns([8, 2])
 
@@ -420,16 +426,12 @@ if st.session_state.show_documents_list:
                     st.rerun()
 
         # Search input
-        search_col1, search_col2 = st.columns([10, 1])
-        with search_col1:
-            search_query = st.text_input(
-                "🔍 Doküman Ara",
-                value=st.session_state.document_search_query,
-                placeholder="Doküman adını yazın...",
-                key="doc_search_input",
-                label_visibility="collapsed"
-            )
-            st.session_state.document_search_query = search_query
+        search_query = st.text_input(
+            "🔍 Doküman Ara",
+            placeholder="Doküman adını yazın (Enter ile ara)...",
+            key="doc_search_input",
+            label_visibility="collapsed"
+        )
 
         if st.session_state.knowledge_base_documents:
             # Sort documents: numbers first, then alphabetically
@@ -452,62 +454,68 @@ if st.session_state.show_documents_list:
 
             st.info(f"📊 Toplam {len(filtered_docs)} / {len(st.session_state.knowledge_base_documents)} doküman gösteriliyor")
 
-            # Create a table-like view
-            for idx, doc in enumerate(filtered_docs):
-                with st.container():
-                    col1, col2, col3, col4 = st.columns([4, 2, 2, 1])
+            # Create scrollable container with fixed height
+            with st.container():
+                # Add CSS for scrollable container
+                st.markdown("""
+                    <style>
+                    .docs-list-container {
+                        max-height: 400px;
+                        overflow-y: auto;
+                        padding: 10px;
+                    }
+                    </style>
+                """, unsafe_allow_html=True)
 
-                    with col1:
-                        st.write(f"📄 **{doc.get('title', 'Bilinmeyen')}**")
-                        # Show URL if available, otherwise show "URL bulunamadı"
-                        doc_url = doc.get('url')
-                        if doc_url:
-                            st.caption(f"🔗 [İndir]({doc_url})")
-                        else:
-                            st.caption("🔗 URL bulunamadı")
+                # Create a table-like view
+                for idx, doc in enumerate(filtered_docs):
+                    with st.container():
+                        col1, col2, col3, col4 = st.columns([4, 2, 2, 1])
 
-                    with col2:
-                        st.write(f"📦 {doc.get('chunks_count', 0)} parça")
+                        with col1:
+                            st.write(f"📄 **{doc.get('title', 'Bilinmeyen')}**")
+                            # Show URL if available, otherwise show "URL bulunamadı"
+                            doc_url = doc.get('url')
+                            if doc_url:
+                                st.caption(f"🔗 [İndir]({doc_url})")
+                            else:
+                                st.caption("🔗 URL bulunamadı")
 
-                    with col3:
-                        created_at = doc.get('created_at', '')
-                        if created_at:
-                            try:
-                                date_obj = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                                formatted_date = date_obj.strftime("%d/%m/%Y %H:%M")
-                                st.write(f"📅 {formatted_date}")
-                            except:
-                                st.write(f"📅 {created_at[:10]}")
+                        with col2:
+                            st.write(f"📦 {doc.get('chunks_count', 0)} parça")
 
-                    with col4:
-                        if st.button("🗑️", key=f"del_{doc.get('document_id')}", help="Sil"):
-                            doc_id = doc.get('document_id')
-                            doc_title = doc.get('title', 'Bilinmeyen')
+                        with col3:
+                            created_at = doc.get('created_at', '')
+                            if created_at:
+                                try:
+                                    date_obj = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                                    formatted_date = date_obj.strftime("%d/%m/%Y %H:%M")
+                                    st.write(f"📅 {formatted_date}")
+                                except:
+                                    st.write(f"📅 {created_at[:10]}")
 
-                            with st.spinner(f"'{doc_title}' siliniyor..."):
-                                success, result = delete_document(doc_id)
+                        with col4:
+                            if st.button("🗑️", key=f"del_{doc.get('document_id')}", help="Sil"):
+                                doc_id = doc.get('document_id')
+                                doc_title = doc.get('title', 'Bilinmeyen')
 
-                                if success:
-                                    st.success(f"✅ '{doc_title}' başarıyla silindi!")
-                                    # Refresh the list
-                                    st.session_state.knowledge_base_documents = fetch_documents()
-                                    st.rerun()
-                                else:
-                                    st.error(f"❌ Silme başarısız: {result}")
+                                with st.spinner(f"'{doc_title}' siliniyor..."):
+                                    success, result = delete_document(doc_id)
 
-                st.markdown("---")
+                                    if success:
+                                        st.success(f"✅ '{doc_title}' başarıyla silindi!")
+                                        # Refresh the list
+                                        st.session_state.knowledge_base_documents = fetch_documents()
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ Silme başarısız: {result}")
+
+                        st.markdown("---")
         else:
             st.warning("📭 Knowledge base'de henüz doküman bulunmuyor.")
             st.info("💡 PDF yüklemek için sol taraftaki dosya yükleme butonunu kullanabilirsiniz.")
 
-# Main chat area
-main_container = st.container()
-
-# Start a new conversation if none exists
-if not st.session_state.current_conversation_id:
-    create_new_conversation()
-
-# Display chat messages
+# Display chat messages after documents list
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
