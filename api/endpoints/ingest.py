@@ -3,7 +3,6 @@ Document ingestion endpoints
 """
 import datetime
 import hashlib
-import json
 import logging
 from typing import List, Union
 from fastapi import APIRouter, UploadFile, File, HTTPException
@@ -17,6 +16,7 @@ from schemas.api.responses.ingest import (
     FileIngestStatus
 )
 from schemas.internal.chunk import SimpleChunk
+from schemas.validation import ValidationStatus
 
 from api.core.milvus_manager import milvus_manager
 from api.core.dependencies import retry_with_backoff
@@ -24,6 +24,11 @@ from api.core.embeddings import embedding_service
 from app.config import settings
 from app.core.storage import storage
 from app.core.parsing import PDFParser
+from app.core.validation.factory import get_document_validator
+from api.utils.error_handler import (
+    get_user_friendly_error_message,
+    log_error_with_context
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -33,76 +38,92 @@ router = APIRouter()
 @retry_with_backoff(max_retries=3)
 async def ingest_document(file: UploadFile = File(...)):
     """
-    Production PDF ingest endpoint with persistent storage
+    Production PDF ingest endpoint with document validation and persistent storage
     """
     start_time = datetime.datetime.now()
 
     try:
-        # Validate file type
-        if not file.filename.lower().endswith('.pdf'):
-            raise HTTPException(status_code=400, detail="Only PDF files are supported")
-
         logger.info(f"Starting ingest for: {file.filename}")
 
-        # Read PDF data
-        pdf_data = await file.read()
-        file_hash = hashlib.md5(pdf_data).hexdigest()
+        # [NEW] Document Validation Layer using Factory Pattern
+        async with get_document_validator() as validator:
+            validation_result = await validator.validate(file, milvus_manager)
 
-        # Generate document ID
-        document_id = f"doc_{file_hash[:16]}"
+        # Log validation summary
+        logger.info(f"Validation completed for {file.filename}: {validation_result.status}")
+        if validation_result.warnings:
+            logger.warning(f"Validation warnings: {validation_result.warnings}")
 
-        logger.info(f"Document ID: {document_id}, Hash: {file_hash}")
+        # Handle duplicate document
+        if validation_result.status == ValidationStatus.EXISTS:
+            # Extract title from existing metadata
+            document_title = file.filename.replace('.pdf', '')
+            if validation_result.existing_metadata:
+                document_title = validation_result.existing_metadata.get('document_title', document_title)
 
-        # Early check for document existence to avoid unnecessary processing
-        try:
-            collection = milvus_manager.get_collection()
-            search_existing = collection.query(
-                expr=f'document_id == "{document_id}"',
-                output_fields=['id', 'metadata'],
-                limit=1
+            logger.info(f"Document {validation_result.document_id} already exists. Skipping ingestion.")
+
+            return ExistingDocumentResponse(
+                document_id=validation_result.document_id,
+                document_title=document_title,
+                processing_time=validation_result.processing_time,
+                file_hash=validation_result.file_hash,
+                message="Document already exists in database",
+                chunks_count=validation_result.existing_chunks_count or 0
             )
 
-            if search_existing:
-                # Document already exists, return early
-                processing_time = (datetime.datetime.now() - start_time).total_seconds()
+        # Handle invalid document
+        if validation_result.status == ValidationStatus.INVALID:
+            error_message = "; ".join(validation_result.errors) if validation_result.errors else "Validation failed"
+            logger.error(f"Document validation failed: {error_message}")
 
-                # Try to get the document title from existing metadata
-                document_title = file.filename.replace('.pdf', '')
-                if search_existing and 'metadata' in search_existing[0]:
-                    try:
-                        existing_metadata = search_existing[0]['metadata']
-                        if isinstance(existing_metadata, str):
-                            existing_metadata = json.loads(existing_metadata)
-                        if isinstance(existing_metadata, dict):
-                            document_title = existing_metadata.get('document_title', document_title)
-                    except:
-                        pass
+            return FailedIngestResponse(
+                document_id=validation_result.document_id,
+                document_title=file.filename.replace('.pdf', ''),
+                processing_time=validation_result.processing_time,
+                file_hash=validation_result.file_hash,
+                message=f"Document validation failed: {error_message}",
+                error_details=error_message
+            )
 
-                logger.info(f"Document {document_id} already exists. Skipping ingestion.")
+        # Validation passed (VALID or WARNING status)
+        # Use validated data for processing
+        document_id = validation_result.document_id
+        file_hash = validation_result.file_hash
+        pdf_data = validation_result.pdf_data
 
-                return ExistingDocumentResponse(
-                    document_id=document_id,
-                    document_title=document_title,
-                    processing_time=processing_time,
-                    file_hash=file_hash,
-                    message="Document already exists in database",
-                    chunks_count=len(search_existing)
-                )
-        except Exception as e:
-            logger.warning(f"Could not check document existence: {e}. Proceeding with ingestion.")
-
-        # Upload to raw-documents bucket with original filename
+        # Upload to raw-documents bucket with validation metadata
         try:
             logger.info(f"[INGEST] Calling upload_pdf_to_raw_documents for {document_id}")
+
+            # Prepare enhanced metadata with validation results
+            upload_metadata = {
+                "document_id": document_id,
+                "file_hash": file_hash,
+                "original_filename": file.filename,
+                "document_type": validation_result.document_type,
+                "validation_status": validation_result.status,
+                "validation_timestamp": validation_result.validation_timestamp.isoformat()
+            }
+
+            # Add extracted metadata if available
+            if validation_result.metadata:
+                upload_metadata["extracted_metadata"] = {
+                    "title": validation_result.metadata.title,
+                    "author": validation_result.metadata.author,
+                    "page_count": validation_result.metadata.page_count,
+                    "language": validation_result.metadata.language
+                }
+
+            # Add content info if available
+            if validation_result.content_info:
+                upload_metadata["content_analysis"] = validation_result.content_info
+
             success = storage.upload_pdf_to_raw_documents(
                 document_id=document_id,
                 file_data=pdf_data,
                 filename=file.filename,
-                metadata={
-                    "document_id": document_id,
-                    "file_hash": file_hash,
-                    "original_filename": file.filename
-                }
+                metadata=upload_metadata
             )
             if success:
                 logger.info(f"[INGEST] Upload successful for {document_id}/{file.filename}")
@@ -114,11 +135,15 @@ async def ingest_document(file: UploadFile = File(...)):
             import traceback
             logger.error(f"[INGEST] Traceback: {traceback.format_exc()}")
 
-        # 1. PDF Parse
+        # 1. PDF Parse (with validation hints)
         parser = PDFParser()
         pages, metadata = parser.extract_text(pdf_data)
 
-        document_title = metadata.title or file.filename.replace('.pdf', '')
+        # Use validated metadata if parser metadata is missing
+        if validation_result.metadata:
+            document_title = metadata.title or validation_result.metadata.title or file.filename.replace('.pdf', '')
+        else:
+            document_title = metadata.title or file.filename.replace('.pdf', '')
         logger.info(f"Parsed {len(pages)} pages, title: {document_title}")
 
         # 2. Text chunking
@@ -162,7 +187,9 @@ async def ingest_document(file: UploadFile = File(...)):
                 "created_at": int(current_time.timestamp() * 1000),
                 "embedding_model": settings.EMBEDDING_MODEL,
                 "embedding_dimension": len(embeddings[i]) if i < len(embeddings) else 1536,
-                "embedding_size_bytes": len(embeddings[i]) * 4 if i < len(embeddings) else 1536 * 4  # float32 = 4 bytes
+                "embedding_size_bytes": len(embeddings[i]) * 4 if i < len(embeddings) else 1536 * 4,  # float32 = 4 bytes
+                "document_type": validation_result.document_type,
+                "validation_status": validation_result.status
             }
             combined_metadata.append(meta)
 
@@ -195,12 +222,17 @@ async def ingest_document(file: UploadFile = File(...)):
             combined_metadata    # metadata field (as dict, not JSON string)
         ]
 
-        insert_result = collection.insert(data)
+        collection.insert(data)
         collection.load()  # Reload for immediate search
 
         processing_time = (datetime.datetime.now() - start_time).total_seconds()
 
         logger.info(f"Successfully ingested {len(chunks)} chunks in {processing_time:.2f}s")
+
+        # Include validation warnings in response message if any
+        message = f"Document successfully ingested with {len(chunks)} chunks"
+        if validation_result.warnings:
+            message += f" (Warnings: {', '.join(validation_result.warnings)})"
 
         return SuccessfulIngestResponse(
             document_id=document_id,
@@ -208,27 +240,42 @@ async def ingest_document(file: UploadFile = File(...)):
             chunks_created=len(chunks),
             processing_time=processing_time,
             file_hash=file_hash,
-            message=f"Document successfully ingested with {len(chunks)} chunks"
+            message=message
         )
 
     except Exception as e:
-        logger.error(f"Ingest error: {str(e)}")
+        # Detailed error logging with context
+        error_context = {
+            "filename": file.filename if 'file' in locals() else "Unknown",
+            "file_size": len(pdf_data) if 'pdf_data' in locals() else 0,
+            "stage": "validation" if 'validation_result' not in locals() else "processing"
+        }
+
+        log_error_with_context(
+            logger,
+            e,
+            "Document ingestion",
+            error_context,
+            level="ERROR"
+        )
+
+        # Get user-friendly error message
+        user_message = get_user_friendly_error_message(e)
         processing_time = (datetime.datetime.now() - start_time).total_seconds()
 
         return FailedIngestResponse(
             document_id=document_id if 'document_id' in locals() else "",
-            document_title=document_title if 'document_title' in locals() else "",
+            document_title=file.filename.replace('.pdf', '') if 'file' in locals() else "",
             processing_time=processing_time,
             file_hash=file_hash if 'file_hash' in locals() else "",
-            message=f"Ingest failed: {str(e)}",
-            error_details=str(e)
+            message=user_message,
+            error_details=f"{type(e).__name__}: {str(e)}"
         )
 
 
 @router.post("/batch-ingest", response_model=BatchIngestResponse)
 async def batch_ingest_documents(
     files: List[UploadFile] = File(...),
-    parallel: bool = True,
     max_files: int = 10
 ):
     """
@@ -385,14 +432,29 @@ async def batch_ingest_documents(
             failed += 1
             processing_time = (datetime.datetime.now() - file_start_time).total_seconds()
 
+            # Log detailed error
+            error_context = {
+                "filename": file.filename,
+                "batch_index": len(results) + 1,
+                "total_files": len(files)
+            }
+            log_error_with_context(
+                logger,
+                e,
+                f"Batch document ingestion for {file.filename}",
+                error_context,
+                level="ERROR"
+            )
+
+            # Get user-friendly error message
+            user_error = get_user_friendly_error_message(e)
+
             results.append(FileIngestStatus(
                 filename=file.filename,
                 status="failed",
                 processing_time=processing_time,
-                error=str(e)
+                error=user_error
             ))
-
-            logger.error(f"Failed to ingest {file.filename}: {str(e)}")
 
     total_processing_time = (datetime.datetime.now() - start_time).total_seconds()
 
