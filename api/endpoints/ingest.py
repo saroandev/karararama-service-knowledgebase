@@ -141,7 +141,7 @@ async def ingest_document(file: UploadFile = File(...)):
 
         # Use validated metadata if parser metadata is missing
         if validation_result.metadata:
-            document_title = metadata.title or validation_result.metadata.title or file.filename.replace('.pdf', '')
+            document_title = validation_result.metadata.title or metadata.title or  file.filename.replace('.pdf', '')
         else:
             document_title = metadata.title or file.filename.replace('.pdf', '')
         logger.info(f"Parsed {len(pages)} pages, title: {document_title}")
