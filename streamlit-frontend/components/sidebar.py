@@ -2,7 +2,6 @@
 Sidebar component for the application
 """
 import streamlit as st
-from datetime import datetime
 from utils.state_manager import StateManager
 from utils.api_client import api_client
 
@@ -11,7 +10,7 @@ def render_sidebar():
     """Render the sidebar with all its components"""
     with st.sidebar:
         # New conversation button
-        if st.button("➕ Yeni Konuşma", use_container_width=True, key="new_conv"):
+        if st.button("✎", use_container_width=True, key="new_conv"):
             StateManager.create_new_conversation()
             st.rerun()
 
@@ -20,8 +19,7 @@ def render_sidebar():
         # Conversation history (without title)
         if st.session_state.conversations:
             for conv in reversed(st.session_state.conversations):
-                conv_date = datetime.fromisoformat(conv['created_at']).strftime("%d/%m %H:%M")
-                if st.button(f"💬 {conv['title']}\n_{conv_date}_",
+                if st.button(f"{conv['title']}",
                            key=conv['id'], use_container_width=True):
                     StateManager.load_conversation(conv['id'])
                     st.rerun()
@@ -38,7 +36,7 @@ def render_sidebar():
                     st.write(f"• {doc['filename']} ({doc['chunks']} chunk)")
 
         # List Documents button
-        if st.button("📚 Dokümanları Listele", use_container_width=True, key="list_docs_btn"):
+        if st.button("Dokümanları Listele", use_container_width=True, key="list_docs_btn"):
             # Fetch fresh documents when opening modal
             st.session_state.knowledge_base_documents = api_client.fetch_documents()
             st.session_state.show_documents_modal = True

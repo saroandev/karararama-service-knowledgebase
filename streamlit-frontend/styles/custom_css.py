@@ -77,12 +77,30 @@ def get_custom_css() -> str:
             border: 1px solid rgba(255, 255, 255, 0.2);
             transition: all 0.3s ease;
             margin: 2px 0;
+            font-weight: 500;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            letter-spacing: 0.5px;
         }
 
         section[data-testid="stSidebar"] .stButton > button:hover {
             background: rgba(255, 255, 255, 0.2);
             border-color: rgba(255, 255, 255, 0.4);
             transform: translateX(2px);
+        }
+
+        /* Special styling for new conversation button */
+        section[data-testid="stSidebar"] .stButton:first-of-type > button {
+            height: 30px;
+            padding: 0;
+            margin-bottom: 8px;
+            margin-top: 0px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        section[data-testid="stSidebar"] .stButton:first-of-type > button:hover {
+            background: rgba(255, 255, 255, 0.15);
+            transform: scale(1.02);
         }
 
 
