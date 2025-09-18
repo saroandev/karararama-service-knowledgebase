@@ -39,4 +39,6 @@ def render_sidebar():
 
         # List Documents button
         if st.button("📚 Dokümanları Listele", use_container_width=True, key="list_docs_btn"):
+            # Fetch fresh documents when opening modal
+            st.session_state.knowledge_base_documents = api_client.fetch_documents()
             st.session_state.show_documents_modal = True

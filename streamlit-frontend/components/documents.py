@@ -129,9 +129,13 @@ def render_documents_modal():
                                     success, result = api_client.delete_document(doc_id)
 
                                     if success:
+                                        # Immediately remove from local state
+                                        st.session_state.knowledge_base_documents = [
+                                            d for d in st.session_state.knowledge_base_documents
+                                            if d.get('document_id') != doc_id
+                                        ]
                                         st.success(f"✅ '{doc_title}' başarıyla silindi!")
-                                        # Refresh the list
-                                        st.session_state.knowledge_base_documents = api_client.fetch_documents()
+                                        # Rerun to update the display
                                         st.rerun()
                                     else:
                                         st.error(f"❌ Silme başarısız: {result}")
