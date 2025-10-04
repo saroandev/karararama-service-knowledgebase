@@ -5,20 +5,28 @@ import datetime
 import json
 import logging
 from typing import List
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
 from schemas.api.responses.document import DocumentInfo
 from api.core.milvus_manager import milvus_manager
 from app.core.storage import storage
+from app.core.auth import UserContext, require_permission
+from app.services.auth_service import get_auth_service_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 @router.get("/documents", response_model=List[DocumentInfo])
-async def list_documents():
+async def list_documents(
+    user: UserContext = Depends(require_permission("documents", "read"))
+):
     """
     List all ingested documents
+
+    Requires:
+    - Valid JWT token in Authorization header
+    - User must have 'documents:read' permission
     """
     try:
         collection = milvus_manager.get_collection()
@@ -81,9 +89,16 @@ async def list_documents():
 
 
 @router.delete("/documents/{document_id}")
-async def delete_document(document_id: str):
+async def delete_document(
+    document_id: str,
+    user: UserContext = Depends(require_permission("documents", "delete"))
+):
     """
     Delete a document and all its chunks
+
+    Requires:
+    - Valid JWT token in Authorization header
+    - User must have 'documents:delete' permission
     """
     # Validate document ID format
     if not document_id or not document_id.strip():
@@ -174,6 +189,24 @@ async def delete_document(document_id: str):
         except Exception as e:
             logger.warning(f"Failed to delete from MinIO: {e}")
             minio_error = str(e)
+
+        # Report usage to auth service (deletion operation)
+        auth_client = get_auth_service_client()
+        try:
+            await auth_client.consume_usage(
+                user_id=user.user_id,
+                service_type="rag_delete",
+                tokens_used=0,  # No tokens for delete operation
+                processing_time=0,
+                metadata={
+                    "document_id": document_id,
+                    "document_title": doc_title,
+                    "chunks_deleted": len(chunks)
+                }
+            )
+        except Exception as e:
+            # Log but don't fail the request
+            logger.warning(f"Failed to report usage to auth service: {str(e)}")
 
         # Prepare response based on deletion results
         if milvus_deleted and minio_deleted:

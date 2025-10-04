@@ -23,6 +23,18 @@ from api.utils.json_response import CustomJSONResponse
 # Import routers
 from api.endpoints import health, query, documents, ingest
 
+# Import exception handlers
+from app.core.exceptions import (
+    AuthenticationError,
+    InsufficientCreditsError,
+    AuthServiceError,
+    QuotaExceededError,
+    authentication_error_handler,
+    insufficient_credits_error_handler,
+    auth_service_error_handler,
+    quota_exceeded_error_handler
+)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -63,6 +75,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"]
 )
+
+# Register exception handlers
+app.add_exception_handler(AuthenticationError, authentication_error_handler)
+app.add_exception_handler(InsufficientCreditsError, insufficient_credits_error_handler)
+app.add_exception_handler(AuthServiceError, auth_service_error_handler)
+app.add_exception_handler(QuotaExceededError, quota_exceeded_error_handler)
 
 # Include routers
 app.include_router(health.router, tags=["Health"])

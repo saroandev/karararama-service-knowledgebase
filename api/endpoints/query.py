@@ -5,7 +5,7 @@ import datetime
 import json
 import logging
 from urllib.parse import quote
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from openai import OpenAI
 
 from schemas.api.requests.query import QueryRequest
@@ -15,6 +15,8 @@ from api.core.dependencies import retry_with_backoff
 from api.core.embeddings import embedding_service
 from app.config import settings
 from app.core.storage import storage
+from app.core.auth import UserContext, require_permission
+from app.services.auth_service import get_auth_service_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -22,9 +24,16 @@ router = APIRouter()
 
 @router.post("/query", response_model=QueryResponse)
 @retry_with_backoff(max_retries=3)
-async def query_documents(request: QueryRequest) -> QueryResponse:
+async def query_documents(
+    request: QueryRequest,
+    user: UserContext = Depends(require_permission("research", "query"))
+) -> QueryResponse:
     """
     Production query endpoint with persistent storage
+
+    Requires:
+    - Valid JWT token in Authorization header
+    - User must have 'research:query' permission
     """
     start_time = datetime.datetime.now()
 
@@ -164,13 +173,44 @@ Lütfen bu soruya kaynak belgelere dayanarak cevap ver ve hangi kaynak(lardan) b
 
         processing_time = (datetime.datetime.now() - start_time).total_seconds()
 
+        # Get token usage from OpenAI response
+        tokens_used = chat_response.usage.total_tokens if hasattr(chat_response, 'usage') else 0
+
+        # Report usage to auth service
+        auth_client = get_auth_service_client()
+        remaining_credits = user.remaining_credits
+
+        try:
+            usage_result = await auth_client.consume_usage(
+                user_id=user.user_id,
+                service_type="rag_query",
+                tokens_used=tokens_used,
+                processing_time=processing_time,
+                metadata={
+                    "question_length": len(request.question),
+                    "sources_count": len(sources),
+                    "model": model_used,
+                    "top_k": request.top_k
+                }
+            )
+
+            # Update credits from auth service response
+            if usage_result.get("remaining_credits") is not None:
+                remaining_credits = usage_result.get("remaining_credits")
+
+        except Exception as e:
+            # Log but don't fail the request (already processed)
+            logger.warning(f"Failed to report usage to auth service: {str(e)}")
+
         logger.info(f"Query completed in {processing_time:.2f}s")
 
         return QueryResponse(
             answer=answer,
             sources=sources,
             processing_time=processing_time,
-            model_used=model_used
+            model_used=model_used,
+            tokens_used=tokens_used,
+            remaining_credits=remaining_credits
         )
 
     except Exception as e:

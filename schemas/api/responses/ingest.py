@@ -20,6 +20,8 @@ class SuccessfulIngestResponse(BaseIngestResponse):
     """Response for successful document ingestion"""
     success: bool = Field(default=True, description="Success status")
     chunks_created: int = Field(..., description="Number of chunks created")
+    tokens_used: int = Field(default=0, description="Total tokens consumed")
+    remaining_credits: int = Field(default=0, description="User's remaining credits")
 
     model_config = {
         "json_schema_extra": {

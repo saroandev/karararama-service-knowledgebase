@@ -5,7 +5,7 @@ import datetime
 import hashlib
 import logging
 from typing import List, Union
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 
 # Import from new schemas location
 from schemas.api.responses.ingest import (
@@ -29,6 +29,8 @@ from api.utils.error_handler import (
     get_user_friendly_error_message,
     log_error_with_context
 )
+from app.core.auth import UserContext, require_permission
+from app.services.auth_service import get_auth_service_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -36,9 +38,16 @@ router = APIRouter()
 
 @router.post("/ingest", response_model=Union[SuccessfulIngestResponse, ExistingDocumentResponse, FailedIngestResponse])
 @retry_with_backoff(max_retries=3)
-async def ingest_document(file: UploadFile = File(...)):
+async def ingest_document(
+    file: UploadFile = File(...),
+    user: UserContext = Depends(require_permission("research", "ingest"))
+):
     """
     Production PDF ingest endpoint with document validation and persistent storage
+
+    Requires:
+    - Valid JWT token in Authorization header
+    - User must have 'research:ingest' permission
     """
     start_time = datetime.datetime.now()
 
@@ -227,6 +236,36 @@ async def ingest_document(file: UploadFile = File(...)):
 
         processing_time = (datetime.datetime.now() - start_time).total_seconds()
 
+        # Calculate tokens used (estimate from embeddings)
+        total_embedding_tokens = sum(len(emb) for emb in embeddings)
+
+        # Report usage to auth service
+        auth_client = get_auth_service_client()
+        remaining_credits = user.remaining_credits
+
+        try:
+            usage_result = await auth_client.consume_usage(
+                user_id=user.user_id,
+                service_type="rag_ingest",
+                tokens_used=total_embedding_tokens,
+                processing_time=processing_time,
+                metadata={
+                    "filename": file.filename,
+                    "chunks_created": len(chunks),
+                    "pages_count": len(pages),
+                    "file_size_bytes": len(pdf_data),
+                    "document_type": validation_result.document_type
+                }
+            )
+
+            # Update credits from auth service response
+            if usage_result.get("remaining_credits") is not None:
+                remaining_credits = usage_result.get("remaining_credits")
+
+        except Exception as e:
+            # Log but don't fail the request (already processed)
+            logger.warning(f"Failed to report usage to auth service: {str(e)}")
+
         logger.info(f"Successfully ingested {len(chunks)} chunks in {processing_time:.2f}s")
 
         # Include validation warnings in response message if any
@@ -240,7 +279,9 @@ async def ingest_document(file: UploadFile = File(...)):
             chunks_created=len(chunks),
             processing_time=processing_time,
             file_hash=file_hash,
-            message=message
+            message=message,
+            tokens_used=total_embedding_tokens,
+            remaining_credits=remaining_credits
         )
 
     except Exception as e:
@@ -276,10 +317,15 @@ async def ingest_document(file: UploadFile = File(...)):
 @router.post("/batch-ingest", response_model=BatchIngestResponse)
 async def batch_ingest_documents(
     files: List[UploadFile] = File(...),
-    max_files: int = 10
+    max_files: int = 10,
+    user: UserContext = Depends(require_permission("research", "ingest"))
 ):
     """
     Batch ingest multiple PDF documents
+
+    Requires:
+    - Valid JWT token in Authorization header
+    - User must have 'research:ingest' permission
     """
     start_time = datetime.datetime.now()
 

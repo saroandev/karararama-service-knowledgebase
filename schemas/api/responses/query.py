@@ -24,6 +24,8 @@ class QueryResponse(BaseModel):
     sources: List[QuerySource] = Field(..., description="Source documents used")
     processing_time: float = Field(..., description="Processing time in seconds")
     model_used: str = Field(..., description="LLM model used for generation")
+    tokens_used: int = Field(default=0, description="Total tokens consumed")
+    remaining_credits: int = Field(default=0, description="User's remaining credits")
 
     model_config = {
         "json_schema_extra": {

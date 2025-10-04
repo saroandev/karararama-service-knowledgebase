@@ -37,4 +37,13 @@ class Settings:
     MIN_CHUNK_SIZE = int(os.getenv("MIN_CHUNK_SIZE", "100"))
     SEMANTIC_SIMILARITY_THRESHOLD = float(os.getenv("SEMANTIC_SIMILARITY_THRESHOLD", "0.7"))
 
+    # Authentication Configuration
+    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
+    JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+    REQUIRE_AUTH = os.getenv("REQUIRE_AUTH", "true").lower() == "true"
+
+    # Auth Service Configuration
+    AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "http://localhost:8001")
+    AUTH_SERVICE_TIMEOUT = int(os.getenv("AUTH_SERVICE_TIMEOUT", "5"))
+
 settings = Settings()
