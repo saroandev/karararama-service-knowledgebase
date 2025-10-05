@@ -81,6 +81,22 @@ async def list_documents(
                 url=document_url  # Add URL to response
             ))
 
+        # Report usage to auth service (list operation)
+        auth_client = get_auth_service_client()
+        try:
+            await auth_client.consume_usage(
+                user_id=user.user_id,
+                service_type="rag_list_documents",
+                tokens_used=0,  # No tokens for list operation
+                processing_time=0,
+                metadata={
+                    "documents_count": len(documents)
+                }
+            )
+        except Exception as e:
+            # Log but don't fail the request
+            logger.warning(f"Failed to report usage to auth service: {str(e)}")
+
         return documents
 
     except Exception as e:
