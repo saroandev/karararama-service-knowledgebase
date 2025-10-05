@@ -21,11 +21,20 @@ class QuerySource(BaseModel):
 class QueryResponse(BaseModel):
     """Response model for query endpoint"""
     answer: str = Field(..., description="Generated answer")
-    sources: List[QuerySource] = Field(..., description="Source documents used")
+    sources: List[QuerySource] = Field(..., description="High-confidence source documents used")
     processing_time: float = Field(..., description="Processing time in seconds")
     model_used: str = Field(..., description="LLM model used for generation")
     tokens_used: int = Field(default=0, description="Total tokens consumed")
     remaining_credits: int = Field(default=0, description="User's remaining credits")
+
+    # Filtering metadata
+    total_sources_retrieved: int = Field(default=0, description="Total sources retrieved from vector DB")
+    sources_after_filtering: int = Field(default=0, description="Sources remaining after relevance filtering")
+    min_score_applied: float = Field(default=0.0, description="Minimum relevance score threshold applied")
+    low_confidence_sources: Optional[List[QuerySource]] = Field(
+        default=None,
+        description="Sources below the relevance threshold (only if include_low_confidence_sources=true)"
+    )
 
     model_config = {
         "json_schema_extra": {

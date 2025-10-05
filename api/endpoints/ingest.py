@@ -54,7 +54,7 @@ async def ingest_document(
     try:
         logger.info(f"Starting ingest for: {file.filename}")
 
-        # [NEW] Document Validation Layer using Factory Pattern
+        # Document Validation Layer using Factory Pattern
         async with get_document_validator() as validator:
             validation_result = await validator.validate(file, milvus_manager)
 
@@ -101,6 +101,8 @@ async def ingest_document(
         file_hash = validation_result.file_hash
         pdf_data = validation_result.pdf_data
 
+
+        # Starting main processing
         # Upload to raw-documents bucket with validation metadata
         try:
             logger.info(f"[INGEST] Calling upload_pdf_to_raw_documents for {document_id}")

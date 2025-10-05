@@ -46,4 +46,9 @@ class Settings:
     AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "http://localhost:8001")
     AUTH_SERVICE_TIMEOUT = int(os.getenv("AUTH_SERVICE_TIMEOUT", "5"))
 
+    # Query Source Filtering Configuration
+    DEFAULT_MIN_RELEVANCE_SCORE = float(os.getenv("DEFAULT_MIN_RELEVANCE_SCORE", "0.7"))
+    ENABLE_SOURCE_FILTERING = os.getenv("ENABLE_SOURCE_FILTERING", "true").lower() == "true"
+    DEFAULT_MAX_SOURCES_IN_CONTEXT = int(os.getenv("DEFAULT_MAX_SOURCES_IN_CONTEXT", "5"))
+
 settings = Settings()

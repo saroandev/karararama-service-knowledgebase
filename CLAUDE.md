@@ -6,13 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a production-ready Retrieval-Augmented Generation (RAG) system built with FastAPI, Milvus vector database, and MinIO object storage. The system processes PDF documents (particularly Turkish legal documents), creates embeddings, stores them in a vector database, and provides intelligent answers to queries using OpenAI's GPT models.
 
+**Key Feature**: Full JWT-based authentication and authorization integrated with OneDocs Auth Service, including permission-based access control, credit tracking, and usage logging.
+
 ## Architecture
 
 The system follows a modular architecture with clear separation of concerns:
 
 ### Directory Structure
 - **`api/`**: Modern FastAPI-based REST API (production code)
-  - `api/main.py`: Main FastAPI application entry point
+  - `api/main.py`: Main FastAPI application entry point with auth exception handlers
   - `api/endpoints/`: Individual endpoint modules (query, ingest, documents, health)
   - `api/core/`: Core services (embeddings, Milvus manager, dependencies)
   - `api/utils/`: Utility functions and custom response handlers
@@ -41,16 +43,31 @@ The system follows a modular architecture with clear separation of concerns:
     - `vector_search.py`: Milvus vector search
     - `reranker.py`: Result reranking
     - `hybrid_retriever.py`: Combined retrieval strategies
+  - `app/core/validation/`: Document validation system
+    - `document_validator.py`: Comprehensive validation layer
+    - `content_analyzer.py`: Content quality analysis
+    - `type_detector.py`: Document type detection
+    - `metadata_extractor.py`: Metadata extraction
+  - `app/core/auth.py`: JWT authentication and permission checking
+  - `app/core/exceptions.py`: Custom auth exceptions
+  - `app/services/auth_service.py`: Auth service client for usage tracking
   - `app/pipelines/`: End-to-end processing pipelines
     - `ingest_pipeline.py`: Document ingestion workflow
     - `query_pipeline.py`: Query processing workflow
   - `app/config/`: Configuration management
-    - `settings.py`: Central configuration
-    - `constants.py`: System constants
-    - `validators.py`: Configuration validation
+    - `settings.py`: Central configuration with auth settings
+
+- **`schemas/`**: Pydantic models for validation
+  - Centralized schema definitions for API requests/responses
+  - Validation schemas
 
 - **`streamlit-frontend/`**: Streamlit-based chat interface
-- **`tests/`**: Comprehensive test suite with unit and integration tests
+- **`tests/`**: Comprehensive test suite
+  - `tests/unit/`: Unit tests
+  - `tests/integration/`: Integration tests requiring Docker services
+  - `tests/conftest.py`: Shared test fixtures
+  - Uses pytest markers: `unit`, `integration`, `docker`, `api`, `storage`, `embedding`, `chunk`
+
 - **`models/`**: Local model cache directory
 
 ### Storage Layer
@@ -61,10 +78,23 @@ The system follows a modular architecture with clear separation of concerns:
 
 ### Processing Pipeline
 1. PDF ingestion → Text extraction (PyMuPDF)
-2. Text chunking → Multiple strategies (token, semantic, document, hybrid)
-3. Embedding generation → OpenAI or local models
-4. Vector storage → Milvus collection
-5. Query processing → Semantic search + reranking + GPT generation
+2. Document validation → Quality checks, type detection, metadata extraction
+3. Text chunking → Multiple strategies (token, semantic, document, hybrid)
+4. Embedding generation → OpenAI or local models
+5. Vector storage → Milvus collection
+6. Query processing → Semantic search + reranking + GPT generation
+
+## Authentication & Authorization
+
+The system uses JWT-based authentication with OneDocs Auth Service:
+
+- **JWT Token Authentication**: Secure token-based auth with HTTPBearer
+- **Permission System**: Resource:action format (e.g., "research:query", "research:ingest")
+- **Credit Tracking**: Automatic usage logging and credit consumption
+- **Development Mode**: Set `REQUIRE_AUTH=false` for local development without auth
+- **Swagger Integration**: Automatic 🔒 Authorize button in API docs
+
+See `auth-integration.md` for comprehensive integration guide.
 
 ## Essential Commands
 
@@ -72,8 +102,7 @@ The system follows a modular architecture with clear separation of concerns:
 ```bash
 # Start all Docker services
 docker compose up -d
-
-# Or use Makefile
+# Or
 make docker-up
 
 # Check service health
@@ -109,6 +138,17 @@ uvicorn api.main:app --host 0.0.0.0 --port 8080 --workers 4
 python -m api.main
 ```
 
+### Running Streamlit Frontend
+```bash
+# Start Streamlit interface
+make streamlit
+# Or:
+streamlit run streamlit-frontend/app.py --server.port 8501
+
+# Run both API and Streamlit together
+make run-all
+```
+
 ### Building and Testing
 ```bash
 # Install dependencies
@@ -116,16 +156,19 @@ pip install -r requirements.txt
 
 # Run all tests
 pytest
+# Or
+make test
 
 # Run specific test categories
 pytest -m unit           # Unit tests only
 pytest -m integration    # Integration tests requiring services
-pytest -m docker        # Docker-dependent tests
+pytest -m docker         # Docker-dependent tests
+pytest -m api            # API endpoint tests
+pytest -m storage        # Storage tests (Milvus/MinIO)
 
 # Or use Makefile
-make test              # All tests
-make test-unit         # Unit tests only
-make test-integration  # Integration tests
+make test-unit
+make test-integration
 
 # Run with coverage report
 pytest --cov=app --cov-report=html:test_output/htmlcov
@@ -158,7 +201,7 @@ The system uses collections with the following fields:
 - `document_id`: Document reference (VARCHAR)
 - `page_number`: Page reference (INT64)
 - `chunk_index`: Chunk order (INT64)
-- `embedding`: Vector field (FLOAT_VECTOR)
+- `embedding`: Vector field (FLOAT_VECTOR, dimension 1536 for OpenAI)
 - `metadata`: JSON field for additional document metadata
 - Indexes: HNSW index on embedding field
 
@@ -175,13 +218,20 @@ Default configuration:
 - Method: Token-based
 
 ### API Endpoints
+
+All endpoints except `/health` require JWT authentication.
+
 - `GET /health`: System health check with service status
 - `POST /ingest`: Upload and process PDF documents
+  - Requires: `research:ingest` permission
   - Accepts: multipart/form-data with PDF file
   - Returns: document_id and processing statistics
+  - Logs usage to auth service
 - `POST /query`: Query the knowledge base
+  - Requires: `research:query` permission
   - Body: `{"question": "...", "top_k": 5, "use_reranker": false}`
   - Returns: answer with sources and scores
+  - Logs usage to auth service
 - `GET /documents`: List all documents with metadata
 - `DELETE /documents/{document_id}`: Delete document and its chunks
 
@@ -205,11 +255,14 @@ MINIO_BUCKET_CHUNKS=chunks
 MINIO_SECURE=false
 
 # Embedding Configuration
-EMBEDDING_MODEL=intfloat/multilingual-e5-small
+EMBEDDING_PROVIDER=openai
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIMENSION=1536
 RERANKER_MODEL=BAAI/bge-reranker-v2-m3
 
 # LLM Configuration
 LLM_PROVIDER=openai
+OPENAI_MODEL=gpt-4o-mini
 OLLAMA_MODEL=qwen2.5:7b-instruct
 
 # Chunking Configuration
@@ -221,6 +274,15 @@ CHUNK_METHOD=token
 API_HOST=0.0.0.0
 API_PORT=8080
 
+# JWT Authentication (CRITICAL - must match Auth Service)
+JWT_SECRET_KEY=dev-secret-key-min-32-characters-long-12345
+JWT_ALGORITHM=HS256
+REQUIRE_AUTH=true
+
+# Auth Service Configuration
+AUTH_SERVICE_URL=http://onedocs-auth:8001
+AUTH_SERVICE_TIMEOUT=5
+
 # Logging
 LOG_LEVEL=INFO
 ```
@@ -230,8 +292,10 @@ LOG_LEVEL=INFO
 ### Making API Changes
 1. Add/modify endpoints in `api/endpoints/`
 2. Update core services in `api/core/` if needed
-3. Add corresponding tests in `tests/unit/` and `tests/integration/`
-4. Run `pytest -m unit` before committing
+3. Add schemas in `schemas/api/`
+4. Add corresponding tests in `tests/unit/` and `tests/integration/`
+5. Run `pytest -m unit` before committing
+6. For protected endpoints, use `Depends(require_permission("resource", "action"))`
 
 ### Working with Storage
 - MinIO operations are in `app/core/storage/client.py`
@@ -244,6 +308,13 @@ LOG_LEVEL=INFO
 2. For new embedding providers: Extend `app/core/embeddings/base.py`
 3. For new LLM providers: Extend `app/core/generation/base.py`
 4. For new parsers: Extend `app/core/parsing/base.py`
+
+### Working with Authentication
+1. Protected endpoints require `Depends(get_current_user)` or `Depends(require_permission("resource", "action"))`
+2. Use permission format: `resource:action` (e.g., "research:query", "research:ingest")
+3. Report usage with `auth_service.consume_usage()` after processing
+4. Set `REQUIRE_AUTH=false` for local development without auth
+5. JWT_SECRET_KEY must match the one in OneDocs Auth Service
 
 ### Debugging Tips
 ```bash
@@ -272,6 +343,18 @@ col = Collection('rag_chunks')
 for field in col.schema.fields:
     print(f'{field.name}: {field.dtype.name}')
 "
+
+# Test authentication
+# 1. Get token from auth service
+curl -X POST http://localhost:8001/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "password"}'
+
+# 2. Use token in API request
+curl -X POST http://localhost:8080/query \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "test"}'
 ```
 
 ### Common Issues and Solutions
@@ -298,6 +381,18 @@ make milvus-clean
 docker system prune -a --volumes
 ```
 
+**Authentication errors**:
+```bash
+# Verify JWT_SECRET_KEY matches auth service
+grep JWT_SECRET_KEY .env
+
+# Check auth service is running
+curl http://localhost:8001/health
+
+# For local dev without auth
+echo "REQUIRE_AUTH=false" >> .env
+```
+
 ## Testing Strategy
 
 The project uses pytest with markers for test organization:
@@ -311,6 +406,15 @@ The project uses pytest with markers for test organization:
 
 Test configuration is in `pytest.ini` with coverage reporting to `test_output/`.
 
+Run tests before committing:
+```bash
+# Quick unit tests
+pytest -m unit
+
+# Full test suite (requires Docker services)
+pytest
+```
+
 ## Important Notes
 
 - The system requires OpenAI API key for embeddings and generation (or local models via Ollama)
@@ -319,3 +423,8 @@ Test configuration is in `pytest.ini` with coverage reporting to `test_output/`.
 - Python 3.9+ is required for all components
 - The system is optimized for Turkish legal documents but works with any PDF
 - Use Makefile commands when available for consistency
+- **Authentication is enabled by default** - set `REQUIRE_AUTH=false` for local dev only
+- JWT_SECRET_KEY must be identical to OneDocs Auth Service
+- All endpoints (except `/health`) require valid JWT token
+- Permissions use format: `resource:action` (e.g., "research:query", "research:ingest")
+- The current branch is `feature/auth` - main branch for PRs is typically `main` or `master`

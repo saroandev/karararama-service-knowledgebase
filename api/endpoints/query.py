@@ -64,11 +64,18 @@ async def query_documents(
                 answer="İlgili bilgi bulunamadı.",
                 sources=[],
                 processing_time=0,
-                model_used="gpt-4o-mini"
+                model_used="gpt-4o-mini",
+                total_sources_retrieved=0,
+                sources_after_filtering=0,
+                min_score_applied=request.min_relevance_score
             )
 
+        # Track total sources retrieved
+        total_sources_retrieved = len(search_results[0])
+
         # Prepare context
-        sources = []
+        high_confidence_sources = []
+        low_confidence_sources = []
         context_parts = []
 
         # Cache for document metadata
@@ -104,7 +111,6 @@ async def query_documents(
                 original_filename = f'{doc_id}.pdf'
 
             doc_title = document_title if document_title != 'Unknown' else original_filename.replace('.pdf', '')
-            chunk_id = meta_dict.get('chunk_id', f'chunk_{chunk_index}')
             page_num = meta_dict.get('page_number', 0)
             created_at = meta_dict.get('created_at', 0)
 
@@ -112,7 +118,8 @@ async def query_documents(
             encoded_filename = quote(original_filename)
             document_url = f"http://localhost:9001/browser/raw-documents/{doc_id}/{encoded_filename}"
 
-            sources.append(QuerySource(
+            # Create source object
+            source = QuerySource(
                 rank=i + 1,
                 score=round(score, 3),
                 document_id=doc_id,
@@ -122,9 +129,18 @@ async def query_documents(
                 page_number=page_num,
                 text_preview=text[:200] + "..." if len(text) > 200 else text,
                 created_at=created_at
-            ))
+            )
 
-            context_parts.append(f"[Kaynak {i+1} - Sayfa {page_num}]: {text}")
+            # Filter by relevance score
+            if score >= request.min_relevance_score:
+                high_confidence_sources.append(source)
+                # Only add high-confidence sources to context (limited by max_sources_in_context)
+                if len(high_confidence_sources) <= request.max_sources_in_context:
+                    context_parts.append(f"[Kaynak {len(high_confidence_sources)} - Sayfa {page_num}]: {text}")
+            else:
+                # Low confidence source
+                if request.include_low_confidence_sources:
+                    low_confidence_sources.append(source)
 
         # Generate answer
         context = "\n\n".join(context_parts)
@@ -188,9 +204,10 @@ Lütfen bu soruya kaynak belgelere dayanarak cevap ver ve hangi kaynak(lardan) b
                 processing_time=processing_time,
                 metadata={
                     "question_length": len(request.question),
-                    "sources_count": len(sources),
+                    "sources_count": len(high_confidence_sources),
                     "model": model_used,
-                    "top_k": request.top_k
+                    "top_k": request.top_k,
+                    "min_relevance_score": request.min_relevance_score
                 }
             )
 
@@ -202,15 +219,40 @@ Lütfen bu soruya kaynak belgelere dayanarak cevap ver ve hangi kaynak(lardan) b
             # Log but don't fail the request (already processed)
             logger.warning(f"Failed to report usage to auth service: {str(e)}")
 
-        logger.info(f"Query completed in {processing_time:.2f}s")
+        logger.info(
+            f"Query completed in {processing_time:.2f}s | "
+            f"Retrieved: {total_sources_retrieved} | "
+            f"High confidence: {len(high_confidence_sources)} | "
+            f"Low confidence: {len(low_confidence_sources)} | "
+            f"Threshold: {request.min_relevance_score}"
+        )
+
+        # Check if we have any high-confidence sources
+        if not high_confidence_sources:
+            return QueryResponse(
+                answer="İlgili bilgi bulunamadı. Lütfen sorunuzu farklı şekilde ifade etmeyi deneyin veya minimum alakalılık skorunu düşürün.",
+                sources=[],
+                processing_time=processing_time,
+                model_used=model_used,
+                tokens_used=0,
+                remaining_credits=remaining_credits,
+                total_sources_retrieved=total_sources_retrieved,
+                sources_after_filtering=0,
+                min_score_applied=request.min_relevance_score,
+                low_confidence_sources=low_confidence_sources if request.include_low_confidence_sources else None
+            )
 
         return QueryResponse(
             answer=answer,
-            sources=sources,
+            sources=high_confidence_sources,
             processing_time=processing_time,
             model_used=model_used,
             tokens_used=tokens_used,
-            remaining_credits=remaining_credits
+            remaining_credits=remaining_credits,
+            total_sources_retrieved=total_sources_retrieved,
+            sources_after_filtering=len(high_confidence_sources),
+            min_score_applied=request.min_relevance_score,
+            low_confidence_sources=low_confidence_sources if request.include_low_confidence_sources else None
         )
 
     except Exception as e:
