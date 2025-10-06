@@ -14,6 +14,8 @@ class Settings:
     MILVUS_HOST = os.getenv("MILVUS_HOST", "localhost")
     MILVUS_PORT = int(os.getenv("MILVUS_PORT", "19530"))
     MILVUS_COLLECTION = os.getenv("MILVUS_COLLECTION", "rag_chunks")
+    MILVUS_CONNECTION_TIMEOUT = float(os.getenv("MILVUS_CONNECTION_TIMEOUT", "3.0"))
+    MILVUS_MAX_RETRY = int(os.getenv("MILVUS_MAX_RETRY", "1"))
 
     # Embedding Configuration - Using OpenAI by default
     EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "openai")
