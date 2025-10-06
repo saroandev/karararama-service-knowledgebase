@@ -1,5 +1,5 @@
 """
-MinIO client management
+MinIO client management with multi-tenant scope support
 """
 import logging
 import urllib3
@@ -7,6 +7,7 @@ from typing import Optional
 from minio import Minio
 from minio.error import S3Error
 from app.config import settings
+from schemas.api.requests.scope import ScopeIdentifier
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,47 @@ class MinIOClientManager:
 
         logger.debug("Created fresh MinIO client instance")
         return fresh_client
+
+    def get_bucket_for_scope(
+        self,
+        scope: ScopeIdentifier,
+        category: str = "docs"
+    ) -> str:
+        """
+        Get bucket name for a specific scope and ensure it exists
+
+        Args:
+            scope: ScopeIdentifier (org + scope_type + user_id if private)
+            category: "docs" for raw documents, "chunks" for chunk JSONs
+
+        Returns:
+            Bucket name
+        """
+        bucket_name = scope.get_bucket_name(category)
+
+        # Ensure bucket exists
+        try:
+            if not self._client.bucket_exists(bucket_name):
+                self._client.make_bucket(bucket_name)
+                logger.info(f"Created scope bucket: {bucket_name}")
+            else:
+                logger.debug(f"Bucket exists: {bucket_name}")
+        except S3Error as e:
+            logger.error(f"Error ensuring bucket {bucket_name}: {e}")
+            raise
+
+        return bucket_name
+
+    def ensure_scope_buckets(self, scope: ScopeIdentifier):
+        """
+        Ensure both docs and chunks buckets exist for a scope
+
+        Args:
+            scope: ScopeIdentifier
+        """
+        self.get_bucket_for_scope(scope, "docs")
+        self.get_bucket_for_scope(scope, "chunks")
+        logger.info(f"Ensured buckets for scope: {scope}")
 
     def check_connection(self) -> bool:
         """

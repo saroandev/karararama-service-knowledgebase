@@ -15,14 +15,37 @@ logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
 
 
+class DataAccessScope(BaseModel):
+    """User's data access scope configuration"""
+    own_data: bool = True              # Can access own private data
+    shared_data: bool = True           # Can access organization shared data
+    all_users_data: bool = False       # Can access all users' data (admin only)
+
+    model_config = {"frozen": True}
+
+
 class UserContext(BaseModel):
     """User context extracted from JWT token"""
     user_id: str
+    organization_id: str               # Organization ID
     email: str
+    role: str = "member"               # User role: admin, member, viewer
     remaining_credits: int = 0
     permissions: List[Union[str, Dict[str, Any]]] = []
+    data_access: DataAccessScope = DataAccessScope()  # Data access scope
 
     model_config = {"frozen": True}
+
+    def get_accessible_scopes(self) -> List[str]:
+        """Get list of data scopes this user can access"""
+        scopes = []
+        if self.data_access.own_data:
+            scopes.append(f"user_{self.user_id}")
+        if self.data_access.shared_data:
+            scopes.append(f"org_{self.organization_id}_shared")
+        if self.data_access.all_users_data:
+            scopes.append(f"org_{self.organization_id}_all")
+        return scopes
 
 
 def decode_jwt_token(token: str) -> dict:
@@ -92,9 +115,16 @@ async def get_current_user(
         logger.info("🔓 Auth disabled, using mock user")
         return UserContext(
             user_id="dev-user",
+            organization_id="dev-org",
             email="dev@example.com",
+            role="admin",
             remaining_credits=999999,
-            permissions=["*"]
+            permissions=["*"],
+            data_access=DataAccessScope(
+                own_data=True,
+                shared_data=True,
+                all_users_data=True
+            )
         )
 
     # Check if token is provided
@@ -111,16 +141,21 @@ async def get_current_user(
 
     # Extract user information from token payload
     user_id = payload.get("user_id") or payload.get("sub")
+    organization_id = payload.get("organization_id")
     email = payload.get("email")
+    role = payload.get("role", "member")
     remaining_credits = payload.get("remaining_credits", 0)
     permissions = payload.get("permissions", [])
+    data_access_dict = payload.get("data_access", {})
 
     # Debug logging
     logger.info(f"🔐 Token decoded for user: {user_id}")
+    logger.info(f"🏢 Organization: {organization_id}")
     logger.info(f"📧 Email: {email}")
+    logger.info(f"👤 Role: {role}")
     logger.info(f"💳 Credits: {remaining_credits}")
     logger.info(f"🔑 Permissions in token: {permissions}")
-    logger.info(f"🔑 Permissions type: {type(permissions)}")
+    logger.info(f"🔓 Data access: {data_access_dict}")
 
     if not user_id:
         raise HTTPException(
@@ -129,11 +164,24 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    if not organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token: missing organization_id",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Parse data access scope
+    data_access = DataAccessScope(**data_access_dict) if data_access_dict else DataAccessScope()
+
     return UserContext(
         user_id=user_id,
+        organization_id=organization_id,
         email=email or "",
+        role=role,
         remaining_credits=remaining_credits,
-        permissions=permissions
+        permissions=permissions,
+        data_access=data_access
     )
 
 

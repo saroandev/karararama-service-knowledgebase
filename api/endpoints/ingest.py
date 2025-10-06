@@ -1,11 +1,11 @@
 """
-Document ingestion endpoints
+Document ingestion endpoints with multi-tenant scope support
 """
 import datetime
 import hashlib
 import logging
 from typing import List, Union
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
 
 # Import from new schemas location
 from schemas.api.responses.ingest import (
@@ -15,6 +15,7 @@ from schemas.api.responses.ingest import (
     BatchIngestResponse,
     FileIngestStatus
 )
+from schemas.api.requests.scope import DataScope, ScopeIdentifier
 from schemas.internal.chunk import SimpleChunk
 from schemas.validation import ValidationStatus
 
@@ -40,19 +41,41 @@ router = APIRouter()
 @retry_with_backoff(max_retries=3)
 async def ingest_document(
     file: UploadFile = File(...),
+    scope: DataScope = Form(DataScope.PRIVATE),
     user: UserContext = Depends(require_permission("research", "ingest"))
 ):
     """
-    Production PDF ingest endpoint with document validation and persistent storage
+    Multi-tenant PDF ingest endpoint with scope-based storage
 
     Requires:
     - Valid JWT token in Authorization header
     - User must have 'research:ingest' permission
+
+    Scope options:
+    - PRIVATE (default): Store in user's private collection/bucket
+    - SHARED: Store in organization shared collection/bucket (admin only)
     """
     start_time = datetime.datetime.now()
 
+    # Validate scope permissions
+    if scope == DataScope.SHARED and user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can upload to shared scope. Please use 'private' scope."
+        )
+
+    # Create scope identifier
+    scope_id = ScopeIdentifier(
+        organization_id=user.organization_id,
+        scope_type=scope,
+        user_id=user.user_id if scope == DataScope.PRIVATE else None
+    )
+
+    logger.info(f"📄 Starting ingest for: {file.filename}")
+    logger.info(f"👤 User: {user.user_id} (org: {user.organization_id})")
+    logger.info(f"🎯 Scope: {scope} → Collection: {scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)}")
+
     try:
-        logger.info(f"Starting ingest for: {file.filename}")
 
         # Document Validation Layer using Factory Pattern
         async with get_document_validator() as validator:
@@ -172,8 +195,8 @@ async def ingest_document(
 
         logger.info(f"Created {len(chunks)} chunks")
 
-        # 3. Connect to production Milvus
-        collection = milvus_manager.get_collection()
+        # 3. Connect to scoped Milvus collection
+        collection = milvus_manager.get_collection(scope_id)
 
         # 4. Generate embeddings with batch processing
         chunk_texts = [chunk.text for chunk in chunks]
@@ -186,7 +209,7 @@ async def ingest_document(
         chunk_indices = list(range(len(chunks)))
         texts = chunk_texts
 
-        # Prepare metadata for each chunk
+        # Prepare metadata for each chunk (with scope info)
         combined_metadata = []
         for i, chunk in enumerate(chunks):
             meta = {
@@ -198,9 +221,14 @@ async def ingest_document(
                 "created_at": int(current_time.timestamp() * 1000),
                 "embedding_model": settings.EMBEDDING_MODEL,
                 "embedding_dimension": len(embeddings[i]) if i < len(embeddings) else 1536,
-                "embedding_size_bytes": len(embeddings[i]) * 4 if i < len(embeddings) else 1536 * 4,  # float32 = 4 bytes
+                "embedding_size_bytes": len(embeddings[i]) * 4 if i < len(embeddings) else 1536 * 4,
                 "document_type": validation_result.document_type,
-                "validation_status": validation_result.status
+                "validation_status": validation_result.status,
+                # Multi-tenant metadata
+                "organization_id": user.organization_id,
+                "user_id": user.user_id if scope == DataScope.PRIVATE else None,
+                "scope_type": scope.value,
+                "uploaded_by": user.user_id
             }
             combined_metadata.append(meta)
 

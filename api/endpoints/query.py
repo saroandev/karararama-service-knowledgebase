@@ -1,14 +1,16 @@
 """
-Query endpoint for document search
+Query endpoint for document search with multi-tenant scope support
 """
 import datetime
 import json
 import logging
 from urllib.parse import quote
+from typing import List
 from fastapi import APIRouter, HTTPException, Depends
 from openai import OpenAI
 
 from schemas.api.requests.query import QueryRequest
+from schemas.api.requests.scope import DataScope, ScopeIdentifier
 from schemas.api.responses.query import QueryResponse, QuerySource
 from api.core.milvus_manager import milvus_manager
 from api.core.dependencies import retry_with_backoff
@@ -29,49 +31,74 @@ async def query_documents(
     user: UserContext = Depends(require_permission("research", "query"))
 ) -> QueryResponse:
     """
-    Production query endpoint with persistent storage
+    Multi-tenant query endpoint with scope-based search
 
     Requires:
     - Valid JWT token in Authorization header
     - User must have 'research:query' permission
+
+    Searches across user's accessible scopes based on search_scope parameter:
+    - PRIVATE: Only user's private data
+    - SHARED: Only organization shared data
+    - ALL: Both private and shared data
     """
     start_time = datetime.datetime.now()
 
     try:
-        logger.info(f"Query: {request.question}")
+        logger.info(f"🔍 Query from user {user.user_id} (org: {user.organization_id}): {request.question}")
+        logger.info(f"🎯 Search scope: {request.search_scope}")
 
-        # Connect to Milvus
-        collection = milvus_manager.get_collection()
+        # Determine which collections to search
+        target_collections = _get_target_collections(user, request.search_scope)
+
+        if not target_collections:
+            logger.warning(f"No accessible collections for user {user.user_id} with scope {request.search_scope}")
+            return _create_empty_response(request, start_time)
 
         # Generate query embedding
         query_embedding = embedding_service.generate_embedding(request.question)
 
-        # No filters - search in all documents
-        expr = None
+        # Search across all target collections and merge results
+        all_search_results = []
+        for collection_info in target_collections:
+            collection = collection_info["collection"]
+            scope_label = collection_info["scope_label"]
 
-        # Vector search
-        search_results = collection.search(
-            [query_embedding],
-            'embedding',
-            {'metric_type': 'COSINE'},  # COSINE metric to match collection index
-            limit=request.top_k,
-            expr=expr,
-            output_fields=['document_id', 'chunk_index', 'text', 'metadata']
-        )
+            logger.info(f"🔎 Searching in collection: {collection.name} ({scope_label})")
 
-        if not search_results[0]:
-            return QueryResponse(
-                answer="İlgili bilgi bulunamadı.",
-                sources=[],
-                processing_time=0,
-                model_used="gpt-4o-mini",
-                total_sources_retrieved=0,
-                sources_after_filtering=0,
-                min_score_applied=request.min_relevance_score
-            )
+            try:
+                # Vector search
+                search_results = collection.search(
+                    [query_embedding],
+                    'embedding',
+                    {'metric_type': 'COSINE'},
+                    limit=request.top_k,
+                    expr=None,  # No filters within scope
+                    output_fields=['document_id', 'chunk_index', 'text', 'metadata']
+                )
 
-        # Track total sources retrieved
-        total_sources_retrieved = len(search_results[0])
+                # Tag results with scope info
+                for result in search_results[0]:
+                    result._scope_label = scope_label
+                    all_search_results.append(result)
+
+                logger.info(f"✅ Found {len(search_results[0])} results in {scope_label}")
+
+            except Exception as e:
+                logger.error(f"❌ Search failed in collection {collection.name}: {e}")
+                continue
+
+        # Sort all results by score (descending)
+        all_search_results.sort(key=lambda x: x.score, reverse=True)
+
+        # Limit to top_k
+        all_search_results = all_search_results[:request.top_k]
+
+        if not all_search_results:
+            return _create_empty_response(request, start_time)
+
+        # Track total sources retrieved (before filtering)
+        total_sources_retrieved = len(all_search_results)
 
         # Prepare context
         high_confidence_sources = []
@@ -81,8 +108,10 @@ async def query_documents(
         # Cache for document metadata
         doc_metadata_cache = {}
 
-        for i, result in enumerate(search_results[0]):
+        for i, result in enumerate(all_search_results):
             score = result.score
+            scope_label = getattr(result, '_scope_label', 'unknown')
+
             # Access entity fields directly as attributes
             doc_id = result.entity.document_id
             chunk_index = result.entity.chunk_index if hasattr(result.entity, 'chunk_index') else 0
@@ -258,3 +287,104 @@ Lütfen bu soruya kaynak belgelere dayanarak cevap ver ve hangi kaynak(lardan) b
     except Exception as e:
         logger.error(f"Query error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
+
+
+def _get_target_collections(user: UserContext, search_scope: DataScope) -> List[dict]:
+    """
+    Get list of collections to search based on user context and search scope
+
+    Args:
+        user: User context with organization and access scope
+        search_scope: Requested search scope (PRIVATE, SHARED, or ALL)
+
+    Returns:
+        List of dicts with 'collection' and 'scope_label' keys
+    """
+    collections = []
+
+    if search_scope == DataScope.ALL:
+        # Search in all accessible scopes
+        # Private data
+        if user.data_access.own_data:
+            private_scope = ScopeIdentifier(
+                organization_id=user.organization_id,
+                scope_type=DataScope.PRIVATE,
+                user_id=user.user_id
+            )
+            try:
+                collection = milvus_manager.get_collection(private_scope)
+                collections.append({
+                    "collection": collection,
+                    "scope_label": "private"
+                })
+            except Exception as e:
+                logger.warning(f"Could not load private collection: {e}")
+
+        # Shared data
+        if user.data_access.shared_data:
+            shared_scope = ScopeIdentifier(
+                organization_id=user.organization_id,
+                scope_type=DataScope.SHARED
+            )
+            try:
+                collection = milvus_manager.get_collection(shared_scope)
+                collections.append({
+                    "collection": collection,
+                    "scope_label": "shared"
+                })
+            except Exception as e:
+                logger.warning(f"Could not load shared collection: {e}")
+
+    elif search_scope == DataScope.PRIVATE:
+        # Only private data
+        if not user.data_access.own_data:
+            raise HTTPException(
+                status_code=403,
+                detail="You don't have access to private data"
+            )
+
+        private_scope = ScopeIdentifier(
+            organization_id=user.organization_id,
+            scope_type=DataScope.PRIVATE,
+            user_id=user.user_id
+        )
+        collection = milvus_manager.get_collection(private_scope)
+        collections.append({
+            "collection": collection,
+            "scope_label": "private"
+        })
+
+    elif search_scope == DataScope.SHARED:
+        # Only shared data
+        if not user.data_access.shared_data:
+            raise HTTPException(
+                status_code=403,
+                detail="You don't have access to shared data"
+            )
+
+        shared_scope = ScopeIdentifier(
+            organization_id=user.organization_id,
+            scope_type=DataScope.SHARED
+        )
+        collection = milvus_manager.get_collection(shared_scope)
+        collections.append({
+            "collection": collection,
+            "scope_label": "shared"
+        })
+
+    return collections
+
+
+def _create_empty_response(request: QueryRequest, start_time: datetime.datetime) -> QueryResponse:
+    """Create empty response when no results found"""
+    processing_time = (datetime.datetime.now() - start_time).total_seconds()
+
+    return QueryResponse(
+        answer="İlgili bilgi bulunamadı.",
+        sources=[],
+        processing_time=processing_time,
+        model_used=settings.OPENAI_MODEL,
+        total_sources_retrieved=0,
+        sources_after_filtering=0,
+        min_score_applied=request.min_relevance_score
+    )

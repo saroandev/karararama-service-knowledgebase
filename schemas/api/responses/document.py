@@ -13,6 +13,7 @@ class DocumentInfo(BaseModel):
     created_at: str = Field(..., description="Creation timestamp")
     file_hash: str = Field(..., description="MD5 hash of the file")
     url: Optional[str] = Field(default=None, description="MinIO presigned URL for document download")
+    scope: Optional[str] = Field(default=None, description="Data scope: private or shared")
     metadata: Optional[Dict[str, Any]] = Field(default=None, description="Additional metadata")
 
     model_config = {
