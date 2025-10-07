@@ -30,7 +30,7 @@ from api.utils.error_handler import (
     get_user_friendly_error_message,
     log_error_with_context
 )
-from app.core.auth import UserContext, require_permission
+from app.core.auth import UserContext, require_permission, get_current_user
 from app.services.auth_service import get_auth_service_client
 
 logger = logging.getLogger(__name__)
@@ -42,17 +42,18 @@ router = APIRouter()
 async def ingest_document(
     file: UploadFile = File(...),
     scope: DataScope = Form(DataScope.PRIVATE),
-    user: UserContext = Depends(require_permission("research", "ingest"))
+    user: UserContext = Depends(get_current_user)  # Only JWT token required, no specific permission
 ):
     """
     Multi-tenant PDF ingest endpoint with scope-based storage
 
     Requires:
     - Valid JWT token in Authorization header
-    - User must have 'research:ingest' permission
+    - Any authenticated user can upload to their PRIVATE scope
+    - Only ADMIN role can upload to SHARED scope
 
     Scope options:
-    - PRIVATE (default): Store in user's private collection/bucket
+    - PRIVATE (default): Store in user's private collection/bucket (all users)
     - SHARED: Store in organization shared collection/bucket (admin only)
     """
     start_time = datetime.datetime.now()
@@ -63,6 +64,8 @@ async def ingest_document(
             status_code=403,
             detail="Only admins can upload to shared scope. Please use 'private' scope."
         )
+
+    # For private scope, user automatically has permission (it's their own data)
 
     # Create scope identifier
     scope_id = ScopeIdentifier(

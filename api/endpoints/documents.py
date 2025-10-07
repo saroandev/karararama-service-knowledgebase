@@ -11,7 +11,7 @@ from schemas.api.responses.document import DocumentInfo
 from schemas.api.requests.scope import DataScope, ScopeIdentifier
 from api.core.milvus_manager import milvus_manager
 from app.core.storage import storage
-from app.core.auth import UserContext, require_permission
+from app.core.auth import UserContext, require_permission, get_current_user
 from app.services.auth_service import get_auth_service_client
 from app.config import settings
 
@@ -22,7 +22,7 @@ router = APIRouter()
 @router.get("/documents", response_model=List[DocumentInfo])
 async def list_documents(
     scope: Optional[DataScope] = Query(None, description="Filter by scope: private, shared, or all (default: all accessible)"),
-    user: UserContext = Depends(require_permission("documents", "read"))
+    user: UserContext = Depends(get_current_user)  # Only JWT token required
 ):
     """
     List documents with multi-tenant scope filtering
@@ -175,16 +175,16 @@ async def list_documents(
 async def delete_document(
     document_id: str,
     scope: DataScope = Query(..., description="Scope of the document to delete (private or shared)"),
-    user: UserContext = Depends(require_permission("documents", "delete"))
+    user: UserContext = Depends(get_current_user)  # Only JWT token required
 ):
     """
     Delete a document and all its chunks from a specific scope
 
     Requires:
     - Valid JWT token in Authorization header
-    - User must have 'documents:delete' permission
     - Scope must be specified (private or shared)
-    - Only admins can delete from shared scope
+    - Users can delete from their PRIVATE scope
+    - Only ADMIN role can delete from SHARED scope
     """
     # Validate scope permissions
     if scope == DataScope.SHARED and user.role != "admin":

@@ -17,7 +17,7 @@ from api.core.dependencies import retry_with_backoff
 from api.core.embeddings import embedding_service
 from app.config import settings
 from app.core.storage import storage
-from app.core.auth import UserContext, require_permission
+from app.core.auth import UserContext, require_permission, get_current_user
 from app.services.auth_service import get_auth_service_client
 
 logger = logging.getLogger(__name__)
@@ -28,19 +28,19 @@ router = APIRouter()
 @retry_with_backoff(max_retries=3)
 async def query_documents(
     request: QueryRequest,
-    user: UserContext = Depends(require_permission("research", "query"))
+    user: UserContext = Depends(get_current_user)  # Only JWT token required, no specific permission
 ) -> QueryResponse:
     """
     Multi-tenant query endpoint with scope-based search
 
     Requires:
     - Valid JWT token in Authorization header
-    - User must have 'research:query' permission
+    - Any authenticated user can query their accessible scopes
 
     Searches across user's accessible scopes based on search_scope parameter:
-    - PRIVATE: Only user's private data
-    - SHARED: Only organization shared data
-    - ALL: Both private and shared data
+    - PRIVATE: Only user's private data (always accessible)
+    - SHARED: Only organization shared data (if user has shared_data access)
+    - ALL: Both private and shared data (based on user's data_access)
     """
     start_time = datetime.datetime.now()
 
