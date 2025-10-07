@@ -50,23 +50,17 @@ async def ingest_document(
 
     Requires:
     - Valid JWT token in Authorization header
-    - Any authenticated user can upload to their PRIVATE scope
-    - Only ADMIN role can upload to SHARED scope
+    - All organization members can upload to both PRIVATE and SHARED scopes
 
     Scope options:
-    - PRIVATE (default): Store in user's private collection/bucket (all users)
-    - SHARED: Store in organization shared collection/bucket (admin only)
+    - PRIVATE (default): Store in user's private collection/bucket
+    - SHARED: Store in organization shared collection/bucket (accessible by all org members)
     """
     start_time = datetime.datetime.now()
 
-    # Validate scope permissions
-    if scope == DataScope.SHARED and user.role != "admin":
-        raise HTTPException(
-            status_code=403,
-            detail="Only admins can upload to shared scope. Please use 'private' scope."
-        )
-
-    # For private scope, user automatically has permission (it's their own data)
+    # All organization members can upload to both PRIVATE and SHARED scopes
+    # PRIVATE: User's own data
+    # SHARED: Organization-wide shared data
 
     # Create scope identifier
     scope_id = ScopeIdentifier(
