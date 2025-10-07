@@ -78,8 +78,8 @@ class ScopeIdentifier(BaseModel):
         """
         Generate MinIO object prefix (folder path) for this scope
 
-        New folder structure:
-        - PRIVATE: users/user-{user_id}/{category}/
+        Simplified folder structure to avoid deep nesting:
+        - PRIVATE: {user_id}/{category}/
         - SHARED: shared/{category}/
 
         Args:
@@ -89,11 +89,11 @@ class ScopeIdentifier(BaseModel):
             Object prefix string (folder path with trailing slash)
 
         Examples:
-            Private docs: "users/user-17d0faab-0830-4007-8ed6-73cfd049505b/docs/"
+            Private docs: "17d0faab-0830-4007-8ed6-73cfd049505b/docs/"
             Shared chunks: "shared/chunks/"
         """
         if self.scope_type == DataScope.PRIVATE:
-            return f"users/user-{self.user_id}/{category}/"
+            return f"{self.user_id}/{category}/"
         elif self.scope_type == DataScope.SHARED:
             return f"shared/{category}/"
         else:

@@ -24,13 +24,14 @@ class MinIOClientManager:
     def _initialize_client(self):
         """Initialize MinIO client with custom HTTP settings"""
         try:
-            # Create HTTP client with optimized settings
+            # Create HTTP client with optimized settings to prevent deadlock
             http_client = urllib3.PoolManager(
-                timeout=urllib3.Timeout(connect=60.0, read=600.0),
-                maxsize=100,
+                timeout=urllib3.Timeout(connect=30.0, read=300.0),
+                maxsize=50,  # Reduced pool size
+                block=False,  # Non-blocking mode to prevent deadlock
                 retries=urllib3.Retry(
                     total=3,
-                    backoff_factor=1.0,
+                    backoff_factor=0.5,
                     status_forcelist=[502, 503, 504]
                 )
             )

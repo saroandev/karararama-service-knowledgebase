@@ -77,9 +77,9 @@ class DocumentStorage(BaseStorage):
         logger.info(f"[UPLOAD_START] Filename: {filename}, Size: {len(file_data)} bytes")
 
         try:
-            # Create fresh client to avoid deadlock
-            client = self.client_manager.create_fresh_client()
-            logger.info(f"[CLIENT_CREATED] Fresh MinIO client created to avoid deadlock")
+            # Use shared client with proper connection management
+            client = self.client_manager.get_client()
+            logger.info(f"[CLIENT_READY] Using MinIO client for upload")
 
             # Determine bucket and prefix based on scope
             if scope:
@@ -87,55 +87,32 @@ class DocumentStorage(BaseStorage):
                 raw_bucket = scope.get_bucket_name()
                 object_prefix = scope.get_object_prefix("docs")
                 logger.info(f"[SCOPE_AWARE] Bucket: {raw_bucket}, Prefix: {object_prefix}")
+                # Ensure bucket exists for scope
+                self.client_manager.ensure_scope_bucket(scope)
             else:
                 # Legacy: use old bucket structure
                 raw_bucket = self.legacy_bucket
                 object_prefix = ""
                 logger.info(f"[LEGACY_MODE] Using legacy bucket: {raw_bucket}")
 
-            # Check/create bucket
-            try:
-                if not client.bucket_exists(raw_bucket):
-                    logger.warning(f"Bucket does not exist: {raw_bucket}, creating...")
-                    client.make_bucket(raw_bucket)
-                    logger.info(f"Created bucket: {raw_bucket}")
-            except Exception as bucket_error:
-                logger.debug(f"Bucket check/create info: {bucket_error}")
-
             # Sanitize filename for safe storage
             sanitized_filename = sanitize_filename(filename)
             pdf_object_name = f"{object_prefix}{document_id}/{sanitized_filename}"
 
-            # Upload PDF with retry logic
-            max_retries = 3
-            retry_delay = 2
+            # Upload PDF - direct upload with proper stream handling
             file_size = len(file_data)
+            file_stream = io.BytesIO(file_data)
 
-            for attempt in range(max_retries):
-                try:
-                    if attempt > 0:
-                        logger.info(f"[RETRY] Attempt {attempt + 1}/{max_retries} after {retry_delay}s delay")
-                        time.sleep(retry_delay)
+            # Direct upload (bucket already ensured above)
+            client.put_object(
+                raw_bucket,
+                pdf_object_name,
+                file_stream,
+                file_size,
+                content_type="application/pdf"
+            )
 
-                    # Direct upload without multipart
-                    client.put_object(
-                        raw_bucket,
-                        pdf_object_name,
-                        io.BytesIO(file_data),
-                        file_size,
-                        content_type="application/pdf"
-                    )
-
-                    logger.info(f"[PDF_UPLOADED] Successfully uploaded: {pdf_object_name}")
-                    break
-
-                except Exception as upload_error:
-                    if attempt < max_retries - 1:
-                        logger.warning(f"[RETRY_NEEDED] Attempt {attempt + 1} failed: {upload_error}")
-                        continue
-                    else:
-                        logger.error(f"[UPLOAD_FAILED] All {max_retries} attempts failed")
-                        raise
+            logger.info(f"[PDF_UPLOADED] Successfully uploaded: {pdf_object_name}")
 
             # Upload metadata
             self._upload_document_metadata(client, raw_bucket, object_prefix, document_id, filename, file_data, metadata)
