@@ -55,8 +55,16 @@ async def ingest_document(
     Scope options:
     - PRIVATE (default): Store in user's private collection/bucket
     - SHARED: Store in organization shared collection/bucket (accessible by all org members)
+    - ALL: Not allowed for ingest (only for queries)
     """
     start_time = datetime.datetime.now()
+
+    # Validate scope for ingest
+    if scope == DataScope.ALL:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot ingest to 'all' scope. Please use 'private' or 'shared'."
+        )
 
     # All organization members can upload to both PRIVATE and SHARED scopes
     # PRIVATE: User's own data

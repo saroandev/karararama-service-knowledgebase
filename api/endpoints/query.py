@@ -226,6 +226,12 @@ Lütfen bu soruya kaynak belgelere dayanarak cevap ver ve hangi kaynak(lardan) b
         auth_client = get_auth_service_client()
         remaining_credits = user.remaining_credits
 
+        logger.info(f"[CONSUME] Starting usage reporting to auth service")
+        logger.info(f"[CONSUME] User ID: {user.user_id}")
+        logger.info(f"[CONSUME] Service Type: rag_query")
+        logger.info(f"[CONSUME] Tokens Used: {tokens_used}")
+        logger.info(f"[CONSUME] Processing Time: {processing_time:.2f}s")
+
         try:
             usage_result = await auth_client.consume_usage(
                 user_id=user.user_id,
@@ -241,13 +247,18 @@ Lütfen bu soruya kaynak belgelere dayanarak cevap ver ve hangi kaynak(lardan) b
                 }
             )
 
+            logger.info(f"[CONSUME] ✅ Auth service response: {usage_result}")
+
             # Update credits from auth service response
             if usage_result.get("remaining_credits") is not None:
                 remaining_credits = usage_result.get("remaining_credits")
+                logger.info(f"[CONSUME] Updated remaining credits: {remaining_credits}")
 
         except Exception as e:
             # Log but don't fail the request (already processed)
-            logger.warning(f"Failed to report usage to auth service: {str(e)}")
+            logger.error(f"[CONSUME] ❌ Failed to report usage to auth service: {str(e)}")
+            import traceback
+            logger.error(f"[CONSUME] Traceback: {traceback.format_exc()}")
 
         logger.info(
             f"Query completed in {processing_time:.2f}s | "
