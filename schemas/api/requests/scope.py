@@ -39,7 +39,7 @@ class ScopeIdentifier(BaseModel):
         Generate Milvus collection name for this scope
 
         Format:
-        - PRIVATE: org_{org_id}_user_{user_id}_private_chunks_{dimension}
+        - PRIVATE: user_{user_id}_chunks_{dimension}
         - SHARED: org_{org_id}_shared_chunks_{dimension}
 
         Note: UUID dashes are converted to underscores for Milvus compatibility
@@ -51,13 +51,13 @@ class ScopeIdentifier(BaseModel):
         Returns:
             Collection name string (safe for Milvus)
         """
-        # Convert UUIDs to Milvus-safe format (replace dashes with underscores)
-        safe_org_id = self.organization_id.replace('-', '_')
-
         if self.scope_type == DataScope.PRIVATE:
+            # User ID is globally unique, no need for org_id prefix
             safe_user_id = self.user_id.replace('-', '_')
-            return f"org_{safe_org_id}_user_{safe_user_id}_private_chunks_{dimension}"
+            return f"user_{safe_user_id}_chunks_{dimension}"
         elif self.scope_type == DataScope.SHARED:
+            # Organization shared collection needs org_id
+            safe_org_id = self.organization_id.replace('-', '_')
             return f"org_{safe_org_id}_shared_chunks_{dimension}"
         else:
             raise ValueError(f"Cannot generate collection name for scope type: {self.scope_type}")
