@@ -100,28 +100,28 @@ class MinIOClientManager:
         logger.debug("Created fresh MinIO client instance")
         return fresh_client
 
-    def get_bucket_for_scope(
-        self,
-        scope: ScopeIdentifier,
-        category: str = "docs"
-    ) -> str:
+    def get_bucket_for_scope(self, scope: ScopeIdentifier) -> str:
         """
-        Get bucket name for a specific scope and ensure it exists
+        Get organization bucket name for a scope and ensure it exists
+
+        New structure: One bucket per organization (org-{org_id})
+        Data isolation via folder prefixes:
+        - Private: users/user-{user_id}/docs/ or users/user-{user_id}/chunks/
+        - Shared: shared/docs/ or shared/chunks/
 
         Args:
             scope: ScopeIdentifier (org + scope_type + user_id if private)
-            category: "docs" for raw documents, "chunks" for chunk JSONs
 
         Returns:
-            Bucket name
+            Bucket name (organization bucket)
         """
-        bucket_name = scope.get_bucket_name(category)
+        bucket_name = scope.get_bucket_name()
 
         # Ensure bucket exists
         try:
             if not self._client.bucket_exists(bucket_name):
                 self._client.make_bucket(bucket_name)
-                logger.info(f"Created scope bucket: {bucket_name}")
+                logger.info(f"✅ Created organization bucket: {bucket_name}")
             else:
                 logger.debug(f"Bucket exists: {bucket_name}")
         except S3Error as e:
@@ -130,16 +130,15 @@ class MinIOClientManager:
 
         return bucket_name
 
-    def ensure_scope_buckets(self, scope: ScopeIdentifier):
+    def ensure_scope_bucket(self, scope: ScopeIdentifier):
         """
-        Ensure both docs and chunks buckets exist for a scope
+        Ensure organization bucket exists for a scope
 
         Args:
             scope: ScopeIdentifier
         """
-        self.get_bucket_for_scope(scope, "docs")
-        self.get_bucket_for_scope(scope, "chunks")
-        logger.info(f"Ensured buckets for scope: {scope}")
+        bucket_name = self.get_bucket_for_scope(scope)
+        logger.info(f"📦 Ensured bucket for scope: {scope} → {bucket_name}")
 
     def check_connection(self) -> bool:
         """

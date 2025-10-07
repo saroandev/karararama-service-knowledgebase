@@ -86,13 +86,32 @@ The system follows a modular architecture with clear separation of concerns:
 
 ## Authentication & Authorization
 
-The system uses JWT-based authentication with OneDocs Auth Service:
+The system uses JWT-based authentication with OneDocs Auth Service and multi-tenant data isolation:
 
 - **JWT Token Authentication**: Secure token-based auth with HTTPBearer
 - **Permission System**: Resource:action format (e.g., "research:query", "research:ingest")
+- **Multi-Tenant Isolation**: Organization-based data separation with private/shared scopes
+- **Role-Based Access**: User roles (admin, user) with different capabilities
+- **Data Access Control**: Fine-grained access to own_data and shared_data
 - **Credit Tracking**: Automatic usage logging and credit consumption
 - **Development Mode**: Set `REQUIRE_AUTH=false` for local development without auth
 - **Swagger Integration**: Automatic 🔒 Authorize button in API docs
+
+### User Context Structure
+JWT tokens decode to a UserContext containing:
+- `user_id`: Unique user identifier
+- `email`: User email address
+- `organization_id`: User's organization (for multi-tenant isolation)
+- `role`: User role (admin, user)
+- `remaining_credits`: Available credits
+- `permissions`: List of resource:action permissions
+- `data_access`: Access flags for own_data and shared_data
+
+### Data Scope System
+The system implements three data scopes:
+- **PRIVATE**: User's personal documents (accessible only by owner)
+- **SHARED**: Organization-wide documents (accessible by all org members)
+- **ALL**: Query across both private and shared (based on access permissions)
 
 See `auth-integration.md` for comprehensive integration guide.
 
@@ -194,16 +213,64 @@ print('Collection cleared')
 
 ## Key Implementation Details
 
+### Multi-Tenant Architecture
+
+The system implements organization-based multi-tenancy with data isolation:
+
+**Scope Hierarchy:**
+```
+Organization (org_id)
+  ├── Shared Scope (org-wide documents)
+  │   └── Collection: rag_chunks_{org_id}_shared
+  └── Private Scopes (per-user documents)
+      ├── User 1: rag_chunks_{org_id}_private_{user1_id}
+      ├── User 2: rag_chunks_{org_id}_private_{user2_id}
+      └── ...
+```
+
+**Access Control:**
+- Users can always access their PRIVATE scope (if `data_access.own_data = true`)
+- Users can access org SHARED scope (if `data_access.shared_data = true`)
+- Only ADMIN role can write/delete in SHARED scope
+- Regular users can only write/delete in their PRIVATE scope
+
+**Working with Scopes:**
+```python
+from schemas.api.requests.scope import DataScope, ScopeIdentifier
+
+# Create scope identifier for private collection
+private_scope = ScopeIdentifier(
+    organization_id=user.organization_id,
+    scope_type=DataScope.PRIVATE,
+    user_id=user.user_id
+)
+
+# Create scope identifier for shared collection
+shared_scope = ScopeIdentifier(
+    organization_id=user.organization_id,
+    scope_type=DataScope.SHARED
+)
+
+# Get scoped collection
+collection = milvus_manager.get_collection(scope_id)
+```
+
 ### Milvus Collection Schema
-The system uses collections with the following fields:
+The system uses **scope-based collections** for multi-tenant isolation:
+
+**Collection Naming Pattern:**
+- Private: `rag_chunks_{org_id}_private_{user_id}`
+- Shared: `rag_chunks_{org_id}_shared`
+
+**Collection Fields:**
 - `id`: Primary key (VARCHAR)
 - `chunk_text`: Text content (VARCHAR)
 - `document_id`: Document reference (VARCHAR)
 - `page_number`: Page reference (INT64)
 - `chunk_index`: Chunk order (INT64)
 - `embedding`: Vector field (FLOAT_VECTOR, dimension 1536 for OpenAI)
-- `metadata`: JSON field for additional document metadata
-- Indexes: HNSW index on embedding field
+- `metadata`: JSON field for additional document metadata (includes document_title, file_hash, created_at)
+- Indexes: HNSW index on embedding field for fast similarity search
 
 ### Chunking Strategies
 The system supports multiple chunking strategies:
@@ -225,15 +292,22 @@ All endpoints except `/health` require JWT authentication.
 - `POST /ingest`: Upload and process PDF documents
   - Requires: `research:ingest` permission
   - Accepts: multipart/form-data with PDF file
+  - Query params: `scope` (private/shared) determines where document is stored
   - Returns: document_id and processing statistics
   - Logs usage to auth service
 - `POST /query`: Query the knowledge base
   - Requires: `research:query` permission
-  - Body: `{"question": "...", "top_k": 5, "use_reranker": false}`
-  - Returns: answer with sources and scores
+  - Body: `{"question": "...", "top_k": 5, "use_reranker": false, "scope": "all"}`
+  - Query params: `scope` (private/shared/all) determines which collections to search
+  - Returns: answer with sources and scores (filtered by min_relevance_score)
   - Logs usage to auth service
 - `GET /documents`: List all documents with metadata
+  - Query params: `scope` (private/shared/all) filters documents by scope
+  - Returns: list of DocumentInfo with scope labels
 - `DELETE /documents/{document_id}`: Delete document and its chunks
+  - Query params: `scope` (private/shared) specifies which collection to delete from
+  - Only admins can delete from shared scope
+  - Removes from both Milvus and MinIO
 
 ### Environment Variables
 Required configuration in `.env`:
@@ -283,6 +357,11 @@ REQUIRE_AUTH=true
 AUTH_SERVICE_URL=http://onedocs-auth:8001
 AUTH_SERVICE_TIMEOUT=5
 
+# Query Source Filtering Configuration
+DEFAULT_MIN_RELEVANCE_SCORE=0.7
+ENABLE_SOURCE_FILTERING=true
+DEFAULT_MAX_SOURCES_IN_CONTEXT=5
+
 # Logging
 LOG_LEVEL=INFO
 ```
@@ -296,6 +375,8 @@ LOG_LEVEL=INFO
 4. Add corresponding tests in `tests/unit/` and `tests/integration/`
 5. Run `pytest -m unit` before committing
 6. For protected endpoints, use `Depends(require_permission("resource", "action"))`
+7. For scope-aware endpoints, accept `scope: DataScope` query parameter
+8. Use `milvus_manager.get_collection(scope_id)` to get scoped collections
 
 ### Working with Storage
 - MinIO operations are in `app/core/storage/client.py`
@@ -315,6 +396,9 @@ LOG_LEVEL=INFO
 3. Report usage with `auth_service.consume_usage()` after processing
 4. Set `REQUIRE_AUTH=false` for local development without auth
 5. JWT_SECRET_KEY must match the one in OneDocs Auth Service
+6. UserContext contains `organization_id`, `role`, and `data_access` for multi-tenant operations
+7. Always create `ScopeIdentifier` when accessing scoped collections
+8. Check `user.data_access.own_data` and `user.data_access.shared_data` before operations
 
 ### Debugging Tips
 ```bash
@@ -398,11 +482,15 @@ echo "REQUIRE_AUTH=false" >> .env
 The project uses pytest with markers for test organization:
 - `unit`: Fast, isolated unit tests
 - `integration`: Tests requiring service connections
+- `e2e`: End-to-end tests for complete workflows
 - `docker`: Tests requiring Docker services running
 - `api`: API endpoint tests
 - `storage`: Storage layer tests (Milvus/MinIO)
 - `embedding`: Embedding generation tests
 - `chunk`: Text chunking tests
+- `parse`: PDF parsing functionality tests
+- `llm`: Tests that interact with LLM services
+- `slow`: Tests that take longer to run
 
 Test configuration is in `pytest.ini` with coverage reporting to `test_output/`.
 
@@ -411,8 +499,20 @@ Run tests before committing:
 # Quick unit tests
 pytest -m unit
 
+# Integration tests only
+pytest -m integration
+
+# Exclude slow tests
+pytest -m "not slow"
+
+# Run specific category
+pytest -m api
+
 # Full test suite (requires Docker services)
 pytest
+
+# With coverage report
+pytest --cov=app --cov-report=html:test_output/htmlcov
 ```
 
 ## Important Notes
@@ -427,4 +527,8 @@ pytest
 - JWT_SECRET_KEY must be identical to OneDocs Auth Service
 - All endpoints (except `/health`) require valid JWT token
 - Permissions use format: `resource:action` (e.g., "research:query", "research:ingest")
+- **Multi-tenant isolation**: Each organization has separate Milvus collections (private and shared)
+- **Scope parameter**: Most endpoints accept `scope` query param (private/shared/all)
+- **Role-based deletion**: Only admins can delete from shared scope
+- **Query filtering**: Sources are filtered by relevance score (configurable via DEFAULT_MIN_RELEVANCE_SCORE)
 - The current branch is `feature/auth` - main branch for PRs is typically `main` or `master`

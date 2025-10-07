@@ -11,6 +11,7 @@ class DataScope(str, Enum):
     PRIVATE = "private"      # User's private data only
     SHARED = "shared"        # Organization shared data
     ALL = "all"              # All accessible scopes (for queries)
+    # PUBLIC = "public"      # Public data (if applicable)
 
 
 class ScopeIdentifier(BaseModel):
@@ -41,41 +42,62 @@ class ScopeIdentifier(BaseModel):
         - PRIVATE: org_{org_id}_user_{user_id}_private_chunks_{dimension}
         - SHARED: org_{org_id}_shared_chunks_{dimension}
 
+        Note: UUID dashes are converted to underscores for Milvus compatibility
+        (Milvus only allows letters, numbers, and underscores)
+
         Args:
             dimension: Embedding dimension (default: 1536 for OpenAI)
 
         Returns:
-            Collection name string
+            Collection name string (safe for Milvus)
         """
+        # Convert UUIDs to Milvus-safe format (replace dashes with underscores)
+        safe_org_id = self.organization_id.replace('-', '_')
+
         if self.scope_type == DataScope.PRIVATE:
-            return f"org_{self.organization_id}_user_{self.user_id}_private_chunks_{dimension}"
+            safe_user_id = self.user_id.replace('-', '_')
+            return f"org_{safe_org_id}_user_{safe_user_id}_private_chunks_{dimension}"
         elif self.scope_type == DataScope.SHARED:
-            return f"org_{self.organization_id}_shared_chunks_{dimension}"
+            return f"org_{safe_org_id}_shared_chunks_{dimension}"
         else:
             raise ValueError(f"Cannot generate collection name for scope type: {self.scope_type}")
 
-    def get_bucket_name(self, category: str = "docs") -> str:
+    def get_bucket_name(self) -> str:
         """
-        Generate MinIO bucket name for this scope
+        Generate MinIO bucket name for the organization
 
-        Format:
-        - PRIVATE docs: org-{org_id}-user-{user_id}-docs
-        - PRIVATE chunks: org-{org_id}-user-{user_id}-chunks
-        - SHARED docs: org-{org_id}-shared-docs
-        - SHARED chunks: org-{org_id}-shared-chunks
-
-        Args:
-            category: Bucket category ("docs" or "chunks")
+        New structure: One bucket per organization with folder-based isolation
+        Format: org-{org_id}
 
         Returns:
             Bucket name string (lowercase, hyphens)
         """
+        return f"org-{self.organization_id}".lower()
+
+    def get_object_prefix(self, category: str = "docs") -> str:
+        """
+        Generate MinIO object prefix (folder path) for this scope
+
+        New folder structure:
+        - PRIVATE: users/user-{user_id}/{category}/
+        - SHARED: shared/{category}/
+
+        Args:
+            category: Storage category ("docs" or "chunks")
+
+        Returns:
+            Object prefix string (folder path with trailing slash)
+
+        Examples:
+            Private docs: "users/user-17d0faab-0830-4007-8ed6-73cfd049505b/docs/"
+            Shared chunks: "shared/chunks/"
+        """
         if self.scope_type == DataScope.PRIVATE:
-            return f"org-{self.organization_id}-user-{self.user_id}-{category}".lower()
+            return f"users/user-{self.user_id}/{category}/"
         elif self.scope_type == DataScope.SHARED:
-            return f"org-{self.organization_id}-shared-{category}".lower()
+            return f"shared/{category}/"
         else:
-            raise ValueError(f"Cannot generate bucket name for scope type: {self.scope_type}")
+            raise ValueError(f"Cannot generate object prefix for scope type: {self.scope_type}")
 
     def __str__(self) -> str:
         """String representation"""

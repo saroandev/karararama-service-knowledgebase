@@ -42,6 +42,7 @@ async def query_documents(
     - SHARED: Only organization shared data (if user has shared_data access)
     - ALL: Both private and shared data (based on user's data_access)
     """
+#Buraya bir de PUBLIC eklenebilir.
     start_time = datetime.datetime.now()
 
     try:

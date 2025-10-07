@@ -179,7 +179,7 @@ async def get_current_user(
         organization_id=organization_id,
         email=email or "",
         role=role,
-        remaining_credits=remaining_credits,
+        remaining_credits=remaining_credits if remaining_credits is not None else 0,
         permissions=permissions,
         data_access=data_access
     )
