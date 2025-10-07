@@ -35,9 +35,10 @@ class Storage:
     # === Document Operations (backward compatibility) ===
 
     def upload_pdf_to_raw_documents(self, document_id: str, file_data: bytes,
-                                   filename: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
-        """Upload PDF to raw-documents bucket (backward compatibility)"""
-        return self.documents.upload_pdf_to_raw_documents(document_id, file_data, filename, metadata)
+                                   filename: str, metadata: Optional[Dict[str, Any]] = None,
+                                   scope: Any = None) -> bool:
+        """Upload PDF to scope-aware bucket"""
+        return self.documents.upload_pdf_to_raw_documents(document_id, file_data, filename, metadata, scope)
 
     def get_document(self, document_id: str) -> Optional[bytes]:
         """Get document from storage"""
@@ -70,13 +71,15 @@ class Storage:
     # === Chunk Operations (backward compatibility) ===
 
     def upload_chunk(self, document_id: str, chunk_id: str,
-                    chunk_text: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+                    chunk_text: str, metadata: Optional[Dict[str, Any]] = None,
+                    scope: Any = None) -> bool:
         """Upload single chunk"""
-        return self.chunks.upload_chunk(document_id, chunk_id, chunk_text, metadata)
+        return self.chunks.upload_chunk(document_id, chunk_id, chunk_text, metadata, scope)
 
-    def upload_chunks(self, chunks: List[Dict[str, Any]], document_id: str) -> bool:
+    def upload_chunks(self, chunks: List[Dict[str, Any]], document_id: str,
+                     scope: Any = None) -> bool:
         """Upload multiple chunks"""
-        return self.chunks.upload_chunks(chunks, document_id)
+        return self.chunks.upload_chunks(chunks, document_id, scope)
 
     def save_chunks_batch(self, document_id: str, chunks_data: List[Dict[str, Any]]) -> List[str]:
         """Save multiple chunks (compatibility)"""

@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class ChunkStorage(BaseChunkStorage):
-    """Handles chunk storage operations in MinIO"""
+    """Handles chunk storage operations in MinIO with scope support"""
 
     def __init__(self, client_manager: MinIOClientManager, cache: StorageCache):
         """
@@ -28,10 +28,12 @@ class ChunkStorage(BaseChunkStorage):
         """
         self.client_manager = client_manager
         self.cache = cache
-        self.bucket = settings.MINIO_BUCKET_CHUNKS
+        # Legacy bucket for backward compatibility
+        self.legacy_bucket = settings.MINIO_BUCKET_CHUNKS
 
     def upload_chunk(self, document_id: str, chunk_id: str,
-                    chunk_text: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+                    chunk_text: str, metadata: Optional[Dict[str, Any]] = None,
+                    scope: Any = None) -> bool:
         """
         Upload a single text chunk to MinIO
 
@@ -40,12 +42,25 @@ class ChunkStorage(BaseChunkStorage):
             chunk_id: Unique chunk identifier
             chunk_text: Chunk text content
             metadata: Optional metadata
+            scope: ScopeIdentifier for multi-tenant storage (optional, uses legacy if None)
 
         Returns:
             True if successful, False otherwise
         """
         try:
             client = self.client_manager.get_client()
+
+            # Determine bucket and prefix based on scope
+            if scope:
+                # Scope-aware: use organization bucket + folder structure
+                bucket = scope.get_bucket_name()
+                object_prefix = scope.get_object_prefix("chunks")
+                logger.debug(f"[SCOPE_AWARE] Bucket: {bucket}, Prefix: {object_prefix}")
+            else:
+                # Legacy: use old bucket structure
+                bucket = self.legacy_bucket
+                object_prefix = ""
+                logger.debug(f"[LEGACY_MODE] Using legacy bucket: {bucket}")
 
             # Prepare chunk data
             chunk_data = {
@@ -59,12 +74,12 @@ class ChunkStorage(BaseChunkStorage):
             chunk_json = json.dumps(chunk_data, ensure_ascii=False, indent=2)
             chunk_bytes = chunk_json.encode('utf-8')
 
-            # Object name: document_id/chunk_id.json
-            object_name = f"{document_id}/{chunk_id}.json"
+            # Object name with scope-aware path
+            object_name = f"{object_prefix}{document_id}/{chunk_id}.json"
 
             # Upload to MinIO
             client.put_object(
-                self.bucket,
+                bucket,
                 object_name,
                 io.BytesIO(chunk_bytes),
                 len(chunk_bytes),
@@ -84,13 +99,15 @@ class ChunkStorage(BaseChunkStorage):
             logger.error(f"Unexpected error uploading chunk: {e}")
             return False
 
-    def upload_chunks(self, chunks: List[Dict[str, Any]], document_id: str) -> bool:
+    def upload_chunks(self, chunks: List[Dict[str, Any]], document_id: str,
+                     scope: Any = None) -> bool:
         """
         Upload multiple chunks in batch
 
         Args:
             chunks: List of chunk dictionaries
             document_id: Document identifier
+            scope: ScopeIdentifier for multi-tenant storage (optional)
 
         Returns:
             True if all successful, False otherwise
@@ -102,7 +119,7 @@ class ChunkStorage(BaseChunkStorage):
             chunk_text = chunk.get('text', '')
             metadata = chunk.get('metadata', {})
 
-            if self.upload_chunk(document_id, chunk_id, chunk_text, metadata):
+            if self.upload_chunk(document_id, chunk_id, chunk_text, metadata, scope):
                 success_count += 1
             else:
                 logger.warning(f"Failed to upload chunk {chunk_id}")

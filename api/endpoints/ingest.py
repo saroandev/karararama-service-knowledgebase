@@ -173,7 +173,8 @@ async def ingest_document(
                 document_id=document_id,
                 file_data=pdf_data,
                 filename=file.filename,
-                metadata=upload_metadata
+                metadata=upload_metadata,
+                scope=scope_id
             )
             if success:
                 logger.info(f"[INGEST] Upload successful for {document_id}/{file.filename}")
@@ -258,7 +259,8 @@ async def ingest_document(
                     metadata={
                         "page_num": chunks[i].page_number,
                         "chunk_index": i
-                    }
+                    },
+                    scope=scope_id
                 )
             logger.info(f"Saved {len(chunks)} chunks to MinIO")
         except Exception as e:
@@ -476,7 +478,8 @@ async def batch_ingest_documents(
                         "document_id": document_id,
                         "file_hash": file_hash,
                         "original_filename": file.filename
-                    }
+                    },
+                    scope=scope_id
                 )
             except Exception as e:
                 logger.warning(f"MinIO upload failed for {file.filename}: {e}")

@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class DocumentStorage(BaseStorage):
-    """Handles document storage operations in MinIO"""
+    """Handles document storage operations in MinIO with scope support"""
 
     def __init__(self, client_manager: MinIOClientManager, cache: StorageCache):
         """
@@ -35,10 +35,12 @@ class DocumentStorage(BaseStorage):
         """
         self.client_manager = client_manager
         self.cache = cache
-        self.bucket = settings.MINIO_BUCKET_DOCS
+        # Legacy bucket for backward compatibility
+        self.legacy_bucket = settings.MINIO_BUCKET_DOCS
 
     def upload_document(self, document_id: str, file_data: bytes,
-                       filename: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+                       filename: str, metadata: Optional[Dict[str, Any]] = None,
+                       scope: Any = None) -> bool:
         """
         Upload a document to storage
 
@@ -47,16 +49,18 @@ class DocumentStorage(BaseStorage):
             file_data: File content bytes
             filename: Original filename
             metadata: Optional metadata
+            scope: ScopeIdentifier for multi-tenant storage (optional)
 
         Returns:
             True if successful, False otherwise
         """
-        return self.upload_pdf_to_raw_documents(document_id, file_data, filename, metadata)
+        return self.upload_pdf_to_raw_documents(document_id, file_data, filename, metadata, scope)
 
     def upload_pdf_to_raw_documents(self, document_id: str, file_data: bytes,
-                                   filename: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+                                   filename: str, metadata: Optional[Dict[str, Any]] = None,
+                                   scope: Any = None) -> bool:
         """
-        Upload PDF to raw-documents bucket with original filename
+        Upload PDF to scope-aware bucket with original filename
         Uses fresh client to avoid resource deadlock issues
 
         Args:
@@ -64,6 +68,7 @@ class DocumentStorage(BaseStorage):
             file_data: PDF file bytes
             filename: Original filename to preserve
             metadata: Optional metadata dictionary
+            scope: ScopeIdentifier for multi-tenant storage (optional, uses legacy if None)
 
         Returns:
             True if successful, False otherwise
@@ -76,8 +81,19 @@ class DocumentStorage(BaseStorage):
             client = self.client_manager.create_fresh_client()
             logger.info(f"[CLIENT_CREATED] Fresh MinIO client created to avoid deadlock")
 
+            # Determine bucket and prefix based on scope
+            if scope:
+                # Scope-aware: use organization bucket + folder structure
+                raw_bucket = scope.get_bucket_name()
+                object_prefix = scope.get_object_prefix("docs")
+                logger.info(f"[SCOPE_AWARE] Bucket: {raw_bucket}, Prefix: {object_prefix}")
+            else:
+                # Legacy: use old bucket structure
+                raw_bucket = self.legacy_bucket
+                object_prefix = ""
+                logger.info(f"[LEGACY_MODE] Using legacy bucket: {raw_bucket}")
+
             # Check/create bucket
-            raw_bucket = settings.MINIO_BUCKET_DOCS
             try:
                 if not client.bucket_exists(raw_bucket):
                     logger.warning(f"Bucket does not exist: {raw_bucket}, creating...")
@@ -88,7 +104,7 @@ class DocumentStorage(BaseStorage):
 
             # Sanitize filename for safe storage
             sanitized_filename = sanitize_filename(filename)
-            pdf_object_name = f"{document_id}/{sanitized_filename}"
+            pdf_object_name = f"{object_prefix}{document_id}/{sanitized_filename}"
 
             # Upload PDF with retry logic
             max_retries = 3
@@ -122,7 +138,7 @@ class DocumentStorage(BaseStorage):
                         raise
 
             # Upload metadata
-            self._upload_document_metadata(client, document_id, filename, file_data, metadata)
+            self._upload_document_metadata(client, raw_bucket, object_prefix, document_id, filename, file_data, metadata)
 
             # Invalidate cache
             self.cache.invalidate(document_id)
@@ -141,13 +157,16 @@ class DocumentStorage(BaseStorage):
             logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
-    def _upload_document_metadata(self, client, document_id: str, filename: str,
+    def _upload_document_metadata(self, client, bucket: str, object_prefix: str,
+                                 document_id: str, filename: str,
                                  file_data: bytes, additional_metadata: Optional[Dict[str, Any]] = None):
         """
         Upload document metadata as separate JSON file
 
         Args:
             client: MinIO client
+            bucket: Bucket name
+            object_prefix: Object prefix (folder path)
             document_id: Document ID
             filename: Original filename
             file_data: File content
@@ -157,12 +176,12 @@ class DocumentStorage(BaseStorage):
             # Prepare metadata
             metadata = prepare_metadata(document_id, filename, file_data, additional_metadata)
 
-            # Save metadata as JSON
-            metadata_object_name = f"{document_id}/{document_id}_metadata.json"
+            # Save metadata as JSON with scope-aware path
+            metadata_object_name = f"{object_prefix}{document_id}/{document_id}_metadata.json"
             metadata_json = json.dumps(metadata, ensure_ascii=False, indent=2).encode('utf-8')
 
             client.put_object(
-                self.bucket,
+                bucket,
                 metadata_object_name,
                 io.BytesIO(metadata_json),
                 len(metadata_json),
