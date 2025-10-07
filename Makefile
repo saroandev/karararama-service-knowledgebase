@@ -53,16 +53,19 @@ run-all: ## Run both API and Streamlit in parallel
 
 # Docker Commands
 docker-up: ## Start all Docker services
-	docker compose up -d
+	docker compose -p onedocs-research up -d
 
 docker-down: ## Stop all Docker services
-	docker compose down
+	docker compose -p onedocs-research down
 
 docker-restart: ## Restart all Docker services
-	docker compose down && docker compose up -d
+	docker compose -p onedocs-research down && docker compose -p onedocs-research up -d
 
 docker-logs: ## Show Docker logs
-	docker compose logs -f
+	docker compose -p onedocs-research logs -f
+
+docker-ps: ## Show Docker services status
+	docker compose -p onedocs-research ps
 
 # Database Commands
 milvus-clean: ## Clean Milvus collection
@@ -89,7 +92,7 @@ clean: ## Clean cache and temporary files
 	rm -rf .coverage
 
 clean-all: clean ## Clean everything including Docker volumes
-	docker compose down -v
+	docker compose -p onedocs-research down -v
 
 # Installation Commands
 install: ## Install dependencies

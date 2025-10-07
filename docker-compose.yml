@@ -27,15 +27,19 @@ services:
             MINIO_ROOT_USER: minioadmin
             MINIO_ROOT_PASSWORD: minioadmin
             MINIO_API_REQUESTS_MAX: 10000
-            MINIO_API_REQUESTS_DEADLINE: 30s
+            MINIO_API_REQUESTS_DEADLINE: 60s
+            MINIO_API_SYNC_EVENTS: "off"
+            MINIO_API_REPLICATION_WORKERS: "500"
+            MINIO_STORAGE_CLASS_STANDARD: "EC:0"
         ports:
             - "9000:9000"
             - "9001:9001"
         volumes:
             - ./data/minio:/data
         command: server /data --console-address ":9001" --address ":9000"
-        mem_limit: 4g
-        memswap_limit: 4g
+        mem_limit: 6g
+        memswap_limit: 6g
+        cpus: 2
         ulimits:
             nofile:
                 soft: 65536

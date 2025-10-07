@@ -76,6 +76,42 @@ The system follows a modular architecture with clear separation of concerns:
 - **ETCD**: Metadata storage for Milvus
 - **Attu**: Milvus management UI (port 8000)
 
+#### MinIO Multi-Tenant Structure
+The system uses organization-based bucket isolation with folder-based user separation:
+
+**Bucket Naming**: `org-{organization_id}` (one bucket per organization)
+
+**Folder Structure**:
+- **Private (User-specific)**:
+  - Documents: `users/{user_id}/docs/{document_id}/{filename}.pdf`
+  - Chunks: `users/{user_id}/chunks/{document_id}/{chunk_id}.json`
+  - Metadata: `users/{user_id}/docs/{document_id}/{document_id}_metadata.json`
+
+- **Shared (Organization-wide)**:
+  - Documents: `shared/docs/{document_id}/{filename}.pdf`
+  - Chunks: `shared/chunks/{document_id}/{chunk_id}.json`
+  - Metadata: `shared/docs/{document_id}/{document_id}_metadata.json`
+
+**Example Path**:
+```
+org-696e4ef0-9470-4425-ba80-43d94a48a4c1/
+  └── users/
+      └── 17d0faab-0830-4007-8ed6-73cfd049505b/
+          ├── docs/
+          │   └── doc_ea8b12a5a9e054b0/
+          │       ├── icra_ve_iflas_kanunu.pdf
+          │       └── doc_ea8b12a5a9e054b0_metadata.json
+          └── chunks/
+              └── doc_ea8b12a5a9e054b0/
+                  ├── doc_ea8b12a5a9e054b0_0000.json
+                  └── doc_ea8b12a5a9e054b0_0001.json
+```
+
+**Legacy Buckets** (deprecated, not used in new code):
+- `raw-documents`: Old document storage
+- `rag-chunks`: Old chunk storage
+- `pdf-bucket`: Old PDF storage
+
 ### Processing Pipeline
 1. PDF ingestion → Text extraction (PyMuPDF)
 2. Document validation → Quality checks, type detection, metadata extraction

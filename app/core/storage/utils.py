@@ -56,8 +56,8 @@ def sanitize_filename(filename: str) -> str:
     if not name_part:
         name_part = 'document'
 
-    # Truncate if too long (MinIO has limits)
-    max_name_length = 200
+    # Truncate if too long (MinIO has limits, keep it safe to avoid deadlocks)
+    max_name_length = 150  # Reduced from 200 to prevent MinIO internal errors
     if len(name_part) > max_name_length:
         name_part = name_part[:max_name_length]
 

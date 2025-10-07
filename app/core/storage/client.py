@@ -26,7 +26,7 @@ class MinIOClientManager:
         try:
             # Create HTTP client with optimized settings to prevent deadlock
             http_client = urllib3.PoolManager(
-                timeout=urllib3.Timeout(connect=30.0, read=300.0),
+                timeout=urllib3.Timeout(connect=60.0, read=600.0),  # Increased timeouts
                 maxsize=50,  # Reduced pool size
                 block=False,  # Non-blocking mode to prevent deadlock
                 retries=urllib3.Retry(
