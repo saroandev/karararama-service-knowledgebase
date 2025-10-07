@@ -52,7 +52,8 @@ class DocumentValidator(BaseValidator):
     async def validate(
         self,
         file: UploadFile,
-        milvus_manager: Any = None
+        milvus_manager: Any = None,
+        scope: Any = None
     ) -> ValidationResult:
         """
         Validate document and prepare for processing
@@ -60,6 +61,7 @@ class DocumentValidator(BaseValidator):
         Args:
             file: Uploaded file object
             milvus_manager: Milvus manager for duplicate checking
+            scope: ScopeIdentifier for multi-tenant collection (optional)
 
         Returns:
             ValidationResult with validation status and metadata
@@ -90,7 +92,7 @@ class DocumentValidator(BaseValidator):
 
             # Step 1: Check for duplicate (if Milvus manager provided)
             if milvus_manager:
-                duplicate_check = await self._check_duplicate(document_id, milvus_manager)
+                duplicate_check = await self._check_duplicate(document_id, milvus_manager, scope)
                 if duplicate_check['exists']:
                     validation_result.status = ValidationStatus.EXISTS
                     validation_result.existing_metadata = duplicate_check['metadata']
@@ -235,7 +237,8 @@ class DocumentValidator(BaseValidator):
     async def _check_duplicate(
         self,
         document_id: str,
-        milvus_manager: Any
+        milvus_manager: Any,
+        scope: Any = None
     ) -> Dict[str, Any]:
         """
         Check if document already exists in Milvus
@@ -243,12 +246,14 @@ class DocumentValidator(BaseValidator):
         Args:
             document_id: Document identifier
             milvus_manager: Milvus manager instance
+            scope: ScopeIdentifier for multi-tenant collection (optional)
 
         Returns:
             Dictionary with existence check result
         """
         try:
-            collection: Collection = milvus_manager.get_collection()
+            # Use scope-aware collection if provided
+            collection: Collection = milvus_manager.get_collection(scope)
 
             # Query for existing document
             search_results = collection.query(

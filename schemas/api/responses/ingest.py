@@ -5,6 +5,14 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
+# Scope information model
+class ScopeInfo(BaseModel):
+    """Information about data scope and storage"""
+    scope_type: str = Field(..., description="Scope type: private or shared")
+    collection_name: str = Field(..., description="Milvus collection name")
+    bucket_name: str = Field(..., description="MinIO bucket name")
+
+
 # Base response class for ingestion
 class BaseIngestResponse(BaseModel):
     """Base response model for document ingestion"""
@@ -13,6 +21,8 @@ class BaseIngestResponse(BaseModel):
     file_hash: str = Field(..., description="MD5 hash of the file")
     processing_time: float = Field(..., description="Processing time in seconds")
     message: str = Field(..., description="Response message")
+    scope_info: ScopeInfo = Field(..., description="Scope and storage information")
+    uploaded_at: str = Field(..., description="Upload timestamp in ISO format")
 
 
 # Successful document ingestion
@@ -31,6 +41,12 @@ class SuccessfulIngestResponse(BaseIngestResponse):
                 "file_hash": "5d41402abc4b2a76b9719d911017c592",
                 "processing_time": 2.5,
                 "message": "Document successfully ingested with 10 chunks",
+                "scope_info": {
+                    "scope_type": "private",
+                    "collection_name": "user_17d0faab_0830_4007_8ed6_73cfd049505b_chunks_1536",
+                    "bucket_name": "org-696e4ef0-9470-4425-ba80-43d94a48a4c1"
+                },
+                "uploaded_at": "2025-10-07T12:47:42.660Z",
                 "success": True,
                 "chunks_created": 10
             }
@@ -52,6 +68,12 @@ class ExistingDocumentResponse(BaseIngestResponse):
                 "file_hash": "5d41402abc4b2a76b9719d911017c592",
                 "processing_time": 0.1,
                 "message": "Document already exists in database",
+                "scope_info": {
+                    "scope_type": "private",
+                    "collection_name": "user_17d0faab_0830_4007_8ed6_73cfd049505b_chunks_1536",
+                    "bucket_name": "org-696e4ef0-9470-4425-ba80-43d94a48a4c1"
+                },
+                "uploaded_at": "2025-10-07T12:47:42.660Z",
                 "success": False,
                 "chunks_count": 10
             }
@@ -73,6 +95,12 @@ class FailedIngestResponse(BaseIngestResponse):
                 "file_hash": "",
                 "processing_time": 0.5,
                 "message": "Ingest failed: Invalid PDF format",
+                "scope_info": {
+                    "scope_type": "private",
+                    "collection_name": "user_17d0faab_0830_4007_8ed6_73cfd049505b_chunks_1536",
+                    "bucket_name": "org-696e4ef0-9470-4425-ba80-43d94a48a4c1"
+                },
+                "uploaded_at": "2025-10-07T12:47:42.660Z",
                 "success": False,
                 "error_details": "PDF parsing error: Unable to read file"
             }

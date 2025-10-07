@@ -13,7 +13,8 @@ from schemas.api.responses.ingest import (
     ExistingDocumentResponse,
     FailedIngestResponse,
     BatchIngestResponse,
-    FileIngestStatus
+    FileIngestStatus,
+    ScopeInfo
 )
 from schemas.api.requests.scope import DataScope, ScopeIdentifier
 from schemas.internal.chunk import SimpleChunk
@@ -82,7 +83,7 @@ async def ingest_document(
 
         # Document Validation Layer using Factory Pattern
         async with get_document_validator() as validator:
-            validation_result = await validator.validate(file, milvus_manager)
+            validation_result = await validator.validate(file, milvus_manager, scope_id)
 
         # Log validation summary
         logger.info(f"Validation completed for {file.filename}: {validation_result.status}")
@@ -104,7 +105,13 @@ async def ingest_document(
                 processing_time=validation_result.processing_time,
                 file_hash=validation_result.file_hash,
                 message="Document already exists in database",
-                chunks_count=validation_result.existing_chunks_count or 0
+                chunks_count=validation_result.existing_chunks_count or 0,
+                scope_info=ScopeInfo(
+                    scope_type=scope.value,
+                    collection_name=scope_id.get_collection_name(settings.EMBEDDING_DIMENSION),
+                    bucket_name=scope_id.get_bucket_name()
+                ),
+                uploaded_at=datetime.datetime.now().isoformat()
             )
 
         # Handle invalid document
@@ -118,7 +125,13 @@ async def ingest_document(
                 processing_time=validation_result.processing_time,
                 file_hash=validation_result.file_hash,
                 message=f"Document validation failed: {error_message}",
-                error_details=error_message
+                error_details=error_message,
+                scope_info=ScopeInfo(
+                    scope_type=scope.value,
+                    collection_name=scope_id.get_collection_name(settings.EMBEDDING_DIMENSION),
+                    bucket_name=scope_id.get_bucket_name()
+                ),
+                uploaded_at=datetime.datetime.now().isoformat()
             )
 
         # Validation passed (VALID or WARNING status)
@@ -314,7 +327,13 @@ async def ingest_document(
             file_hash=file_hash,
             message=message,
             tokens_used=total_embedding_tokens,
-            remaining_credits=remaining_credits
+            remaining_credits=remaining_credits,
+            scope_info=ScopeInfo(
+                scope_type=scope.value,
+                collection_name=scope_id.get_collection_name(settings.EMBEDDING_DIMENSION),
+                bucket_name=scope_id.get_bucket_name()
+            ),
+            uploaded_at=current_time.isoformat()
         )
 
     except Exception as e:
@@ -343,7 +362,13 @@ async def ingest_document(
             processing_time=processing_time,
             file_hash=file_hash if 'file_hash' in locals() else "",
             message=user_message,
-            error_details=f"{type(e).__name__}: {str(e)}"
+            error_details=f"{type(e).__name__}: {str(e)}",
+            scope_info=ScopeInfo(
+                scope_type=scope.value,
+                collection_name=scope_id.get_collection_name(settings.EMBEDDING_DIMENSION),
+                bucket_name=scope_id.get_bucket_name()
+            ),
+            uploaded_at=datetime.datetime.now().isoformat()
         )
 
 
@@ -394,8 +419,8 @@ async def batch_ingest_documents(
             file_hash = hashlib.md5(pdf_data).hexdigest()
             document_id = f"doc_{file_hash[:16]}"
 
-            # Check if document already exists
-            collection = milvus_manager.get_collection()
+            # Check if document already exists in scoped collection
+            collection = milvus_manager.get_collection(scope_id)
             search_existing = collection.query(
                 expr=f'document_id == "{document_id}"',
                 output_fields=['id'],
