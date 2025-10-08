@@ -6,7 +6,7 @@ import json
 import logging
 from urllib.parse import quote
 from typing import List
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from openai import OpenAI
 
 from schemas.api.requests.query import QueryRequest
@@ -19,6 +19,7 @@ from app.config import settings
 from app.core.storage import storage
 from app.core.auth import UserContext, require_permission, get_current_user
 from app.services.auth_service import get_auth_service_client
+from app.services.global_db_service import get_global_db_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -28,6 +29,7 @@ router = APIRouter()
 @retry_with_backoff(max_retries=3)
 async def query_documents(
     request: QueryRequest,
+    http_request: Request,
     user: UserContext = Depends(get_current_user)  # Only JWT token required, no specific permission
 ) -> QueryResponse:
     """
@@ -54,12 +56,16 @@ async def query_documents(
         # Determine which collections to search
         target_collections = _get_target_collections(user, request.sources)
 
-        if not target_collections:
-            logger.warning(f"No accessible collections for user {user.user_id} with sources {request.sources}")
+        # Check if we have any collections or PUBLIC source
+        has_public_source = DataScope.PUBLIC in request.sources
+        if not target_collections and not has_public_source:
+            logger.warning(f"No accessible sources for user {user.user_id} with sources {request.sources}")
             return _create_empty_response(request, start_time)
 
-        # Generate query embedding
-        query_embedding = embedding_service.generate_embedding(request.question)
+        # Generate query embedding (only if we have Milvus collections to search)
+        query_embedding = None
+        if target_collections:
+            query_embedding = embedding_service.generate_embedding(request.question)
 
         # Search across all target collections and merge results
         all_search_results = []
@@ -91,13 +97,73 @@ async def query_documents(
                 logger.error(f"❌ Search failed in collection {collection.name}: {e}")
                 continue
 
+        # Check if PUBLIC source is requested
+        public_answer = None
+        public_sources = []
+        if DataScope.PUBLIC in request.sources:
+            logger.info("🌍 Querying Global DB service for PUBLIC sources...")
+            try:
+                # Extract JWT token from authorization header
+                auth_header = http_request.headers.get("Authorization", "")
+                user_token = ""
+                if auth_header.startswith("Bearer "):
+                    user_token = auth_header.replace("Bearer ", "")
+                else:
+                    logger.warning("⚠️ No valid Authorization header found for PUBLIC query")
+
+                # Get global DB client and call search
+                global_db_client = get_global_db_client()
+
+                external_response = await global_db_client.search_public(
+                    question=request.question,
+                    user_token=user_token,
+                    top_k=request.top_k,
+                    min_relevance_score=request.min_relevance_score
+                )
+
+                if external_response.get("success"):
+                    public_answer = external_response.get("answer", "")
+                    public_sources = external_response.get("sources", [])
+
+                    logger.info(f"✅ Global DB returned {len(public_sources)} sources")
+
+                    # Convert external sources to our internal format
+                    for source in public_sources:
+                        # Create a mock result object that mimics Milvus result structure
+                        class PublicResult:
+                            def __init__(self, source_data):
+                                self.score = source_data.get("score", 0.0)
+                                self._scope_label = "public"
+                                self.entity = type('obj', (object,), {
+                                    'document_id': source_data.get("document_id", "unknown"),
+                                    'text': source_data.get("text", ""),
+                                    'metadata': {
+                                        'document_title': source_data.get("document_name", "Unknown"),
+                                        'page_number': source_data.get("page_number", 0),
+                                        'created_at': source_data.get("created_at", 0),
+                                        'document_url': source_data.get("document_url", "")
+                                    }
+                                })()
+
+                        all_search_results.append(PublicResult(source))
+
+                else:
+                    logger.warning(f"⚠️ Global DB query failed: {external_response.get('error', 'Unknown error')}")
+
+            except Exception as e:
+                logger.error(f"❌ Failed to query Global DB service: {str(e)}")
+                # Continue with Milvus results only
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+
         # Sort all results by score (descending)
         all_search_results.sort(key=lambda x: x.score, reverse=True)
 
         # Limit to top_k
         all_search_results = all_search_results[:request.top_k]
 
-        if not all_search_results:
+        # Check if we have any results (or will use public answer)
+        if not all_search_results and not public_answer:
             return _create_empty_response(request, start_time)
 
         # Track total sources retrieved (before filtering)
@@ -129,26 +195,34 @@ async def query_documents(
 
             # Get the original filename from metadata
             document_title = meta_dict.get('document_title', 'Unknown')
-
-            # Try to get better metadata from MinIO if needed
-            if doc_id not in doc_metadata_cache:
-                doc_metadata_cache[doc_id] = storage.get_document_metadata(doc_id)
-
-            # Use document title from Milvus metadata, fallback to MinIO metadata
-            if document_title and document_title != 'Unknown':
-                original_filename = f"{document_title}.pdf" if not document_title.endswith('.pdf') else document_title
-            elif doc_id in doc_metadata_cache:
-                original_filename = doc_metadata_cache[doc_id].get("original_filename", f'{doc_id}.pdf')
-            else:
-                original_filename = f'{doc_id}.pdf'
-
-            doc_title = document_title if document_title != 'Unknown' else original_filename.replace('.pdf', '')
             page_num = meta_dict.get('page_number', 0)
             created_at = meta_dict.get('created_at', 0)
 
-            # Generate document URL for MinIO console (properly encoded)
-            encoded_filename = quote(original_filename)
-            document_url = f"http://localhost:9001/browser/raw-documents/{doc_id}/{encoded_filename}"
+            # Handle URL differently based on scope
+            if scope_label == 'public':
+                # External source - use URL from metadata
+                document_url = meta_dict.get('document_url', '#')
+                original_filename = document_title if document_title != 'Unknown' else 'Public Document'
+                doc_title = document_title
+            else:
+                # Internal source (private/shared) - generate MinIO URL
+                # Try to get better metadata from MinIO if needed
+                if doc_id not in doc_metadata_cache:
+                    doc_metadata_cache[doc_id] = storage.get_document_metadata(doc_id)
+
+                # Use document title from Milvus metadata, fallback to MinIO metadata
+                if document_title and document_title != 'Unknown':
+                    original_filename = f"{document_title}.pdf" if not document_title.endswith('.pdf') else document_title
+                elif doc_id in doc_metadata_cache:
+                    original_filename = doc_metadata_cache[doc_id].get("original_filename", f'{doc_id}.pdf')
+                else:
+                    original_filename = f'{doc_id}.pdf'
+
+                doc_title = document_title if document_title != 'Unknown' else original_filename.replace('.pdf', '')
+
+                # Generate document URL for MinIO console (properly encoded)
+                encoded_filename = quote(original_filename)
+                document_url = f"http://localhost:9001/browser/raw-documents/{doc_id}/{encoded_filename}"
 
             # Create source object
             source = QuerySource(
@@ -177,15 +251,24 @@ async def query_documents(
         # Generate answer
         context = "\n\n".join(context_parts)
 
-        # Generate answer using OpenAI
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        # Determine if we should use external answer or generate our own
+        # Use external answer if PUBLIC is the only source requested
+        if public_answer and request.sources == [DataScope.PUBLIC]:
+            # Use external service answer directly
+            answer = public_answer
+            model_used = "OneDocs Global DB"
+            tokens_used = 0  # External service tokens not tracked here
+            logger.info("✅ Using answer from Global DB service")
+        elif high_confidence_sources:
+            # Generate answer using OpenAI with our sources
+            client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
-        chat_response = client.chat.completions.create(
-            model=settings.OPENAI_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": """Sen yardımsever bir RAG (Retrieval-Augmented Generation) asistanısın.
+            chat_response = client.chat.completions.create(
+                model=settings.OPENAI_MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": """Sen yardımsever bir RAG (Retrieval-Augmented Generation) asistanısın.
 
 GÖREVİN:
 • Verilen kaynak belgelerden faydalanarak soruları net ve anlaşılır şekilde cevaplamak
@@ -202,27 +285,30 @@ CEVAP FORMATI:
 • Sadece verilen kaynaklardaki bilgileri kullan
 • Kendi bilgini ekleme, sadece kaynakları yorumla
 • Belirsizlik varsa bunu belirt"""
-                },
-                {
-                    "role": "user",
-                    "content": f"""Kaynak Belgeler:
+                    },
+                    {
+                        "role": "user",
+                        "content": f"""Kaynak Belgeler:
 {context}
 
 Soru: {request.question}
 
 Lütfen bu soruya kaynak belgelere dayanarak cevap ver ve hangi kaynak(lardan) bilgi aldığını belirt."""
-                }
-            ],
-            max_tokens=500
-        )
+                    }
+                ],
+                max_tokens=500
+            )
 
-        answer = chat_response.choices[0].message.content
-        model_used = settings.OPENAI_MODEL
+            answer = chat_response.choices[0].message.content
+            model_used = settings.OPENAI_MODEL
+            tokens_used = chat_response.usage.total_tokens if hasattr(chat_response, 'usage') else 0
+        else:
+            # No high confidence sources found
+            answer = "İlgili bilgi bulunamadı. Lütfen sorunuzu farklı şekilde ifade etmeyi deneyin."
+            model_used = settings.OPENAI_MODEL
+            tokens_used = 0
 
         processing_time = (datetime.datetime.now() - start_time).total_seconds()
-
-        # Get token usage from OpenAI response
-        tokens_used = chat_response.usage.total_tokens if hasattr(chat_response, 'usage') else 0
 
         # Report usage to auth service
         auth_client = get_auth_service_client()
@@ -378,10 +464,8 @@ def _get_target_collections(user: UserContext, sources: List[DataScope]) -> List
                 logger.warning(f"Could not load shared collection: {e}")
 
         elif source == DataScope.PUBLIC:
-            # TODO: Implement external public data service integration
-            logger.warning(f"⚠️  PUBLIC source requested but not yet implemented. Skipping...")
-            # Future: Add external service call here
-            # Example: public_results = await external_service.search(query)
+            # PUBLIC is handled separately in query_documents() via Global DB service
+            logger.info("🌍 PUBLIC source requested - will query Global DB service")
             continue
 
     return collections

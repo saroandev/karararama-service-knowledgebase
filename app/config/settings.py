@@ -48,6 +48,11 @@ class Settings:
     AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "http://localhost:8001")
     AUTH_SERVICE_TIMEOUT = int(os.getenv("AUTH_SERVICE_TIMEOUT", "5"))
 
+    # Global DB Service Configuration (Public Data Source)
+    GLOBAL_DB_SERVICE_URL = os.getenv("GLOBAL_DB_SERVICE_URL", "http://localhost:8070")
+    GLOBAL_DB_SERVICE_TIMEOUT = int(os.getenv("GLOBAL_DB_SERVICE_TIMEOUT", "30"))
+    GLOBAL_DB_DEFAULT_BUCKET = os.getenv("GLOBAL_DB_DEFAULT_BUCKET", "mevzuat")
+
     # Query Source Filtering Configuration
     DEFAULT_MIN_RELEVANCE_SCORE = float(os.getenv("DEFAULT_MIN_RELEVANCE_SCORE", "0.7"))
     ENABLE_SOURCE_FILTERING = os.getenv("ENABLE_SOURCE_FILTERING", "true").lower() == "true"
