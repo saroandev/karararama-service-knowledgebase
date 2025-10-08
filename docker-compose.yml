@@ -1,5 +1,7 @@
 # Docker Compose file for RAG Pipeline
 
+name: onedocs-research
+
 services:
     etcd:
         container_name: milvus-etcd
@@ -83,7 +85,7 @@ services:
 
     attu:
         container_name: milvus-attu
-        image: zilliz/attu:v2.3.3
+        image: zilliz/attu:v2.4
         environment:
             MILVUS_URL: milvus:19530
             HOST_URL: http://localhost:8000

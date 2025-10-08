@@ -9,8 +9,8 @@ class MilvusStatus(BaseModel):
     """Milvus service status"""
     status: str = Field(..., description="Connection status: connected/disconnected")
     message: str = Field(..., description="Status message")
-    collection: Optional[str] = Field(None, description="Active collection name")
-    entities: Optional[int] = Field(None, description="Number of entities in collection")
+    server_version: Optional[str] = Field(None, description="Milvus server version")
+    collections_count: Optional[int] = Field(None, description="Total number of collections")
 
 
 class MinioStatus(BaseModel):
@@ -19,10 +19,18 @@ class MinioStatus(BaseModel):
     message: str = Field(..., description="Status message")
 
 
+class GlobalDBStatus(BaseModel):
+    """OneDocs Global DB service status"""
+    status: str = Field(..., description="Connection status: connected/disconnected")
+    message: str = Field(..., description="Status message")
+    url: Optional[str] = Field(None, description="Global DB service URL")
+
+
 class ServiceStatus(BaseModel):
     """Individual service status"""
     milvus: MilvusStatus = Field(..., description="Milvus service status")
     minio: MinioStatus = Field(..., description="MinIO service status")
+    global_db: GlobalDBStatus = Field(..., description="OneDocs Global DB service status")
     embedding_model: str = Field(..., description="Active embedding model")
     embedding_dimension: int = Field(..., description="Embedding dimension")
 
@@ -42,13 +50,18 @@ class HealthResponse(BaseModel):
                 "services": {
                     "milvus": {
                         "status": "connected",
-                        "message": "Connected to collection 'rag_chunks'",
-                        "collection": "rag_chunks",
-                        "entities": 1000
+                        "message": "Connected to Milvus server v2.6.1",
+                        "server_version": "2.6.1",
+                        "collections_count": 5
                     },
                     "minio": {
                         "status": "connected",
                         "message": "Connected to MinIO"
+                    },
+                    "global_db": {
+                        "status": "connected",
+                        "message": "Connected to Global DB service",
+                        "url": "http://localhost:8070"
                     },
                     "embedding_model": "text-embedding-3-small",
                     "embedding_dimension": 1536

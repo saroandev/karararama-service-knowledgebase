@@ -179,25 +179,27 @@ class MilvusConnectionManager:
             return []
 
     def check_health(self) -> dict:
-        """Check Milvus connection health without extensive retries
+        """Check Milvus connection health without checking specific collections
 
         Returns:
-            dict: Health status with keys 'status', 'message', 'entity_count' (if connected)
+            dict: Health status with keys 'status', 'message', 'server_version', 'collections_count'
         """
         try:
             # Try to get connection with minimal retry
             self.get_connection()
 
-            # Try to get collection
-            collection = self.get_collection()
+            # Get server version to verify connection
+            server_version = utility.get_server_version()
 
-            # If we got here, connection is good
-            entity_count = collection.num_entities
+            # List all collections
+            all_collections = utility.list_collections()
+            collections_count = len(all_collections)
 
             return {
                 "status": "connected",
-                "message": f"Connected to collection '{settings.MILVUS_COLLECTION}'",
-                "entity_count": entity_count
+                "message": f"Connected to Milvus server v{server_version}",
+                "server_version": server_version,
+                "collections_count": collections_count
             }
         except Exception as e:
             error_msg = str(e)
@@ -206,7 +208,8 @@ class MilvusConnectionManager:
             return {
                 "status": "disconnected",
                 "message": f"Cannot connect to Milvus: {error_msg}",
-                "entity_count": None
+                "server_version": None,
+                "collections_count": 0
             }
 
 
