@@ -15,6 +15,12 @@ class DataScope(str, Enum):
     KARAR = "karar"          # Public court decisions from external service
 
 
+class IngestScope(str, Enum):
+    """Data scope types allowed for document ingestion"""
+    PRIVATE = "private"      # User's private data only
+    SHARED = "shared"        # Organization shared data
+
+
 class ScopeIdentifier(BaseModel):
     """
     Identifies a specific data scope in the multi-tenant system

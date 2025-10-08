@@ -16,7 +16,7 @@ from schemas.api.responses.ingest import (
     FileIngestStatus,
     ScopeInfo
 )
-from schemas.api.requests.scope import DataScope, ScopeIdentifier
+from schemas.api.requests.scope import DataScope, IngestScope, ScopeIdentifier
 from schemas.internal.chunk import SimpleChunk
 from schemas.validation import ValidationStatus
 
@@ -42,8 +42,8 @@ router = APIRouter()
 @retry_with_backoff(max_retries=3)
 async def ingest_document(
     file: UploadFile = File(..., description="PDF file to upload"),
-    scope: DataScope = Form(
-        DataScope.PRIVATE,
+    scope: IngestScope = Form(
+        IngestScope.PRIVATE,
         description="Storage scope: 'private' (your documents - default) or 'shared' (organization documents)"
     ),
     user: UserContext = Depends(get_current_user)  # Only JWT token required, no specific permission
@@ -58,16 +58,16 @@ async def ingest_document(
     Scope options:
     - PRIVATE (default): Store in user's private collection/bucket
     - SHARED: Store in organization shared collection/bucket (accessible by all org members)
-    - ALL: Not allowed for ingest (only for queries)
+
+    Not allowed for ingest:
+    - ALL: Not a storage scope (only used for queries)
+    - MEVZUAT/KARAR: External Global DB data (read-only, managed externally)
     """
     start_time = datetime.datetime.now()
 
-    # Validate scope for ingest
-    if scope == DataScope.ALL:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot ingest to 'all' scope. Please use 'private' or 'shared'."
-        )
+    # Convert IngestScope to DataScope for ScopeIdentifier
+    # IngestScope only contains PRIVATE and SHARED, so this is safe
+    data_scope = DataScope(scope.value)
 
     # All organization members can upload to both PRIVATE and SHARED scopes
     # PRIVATE: User's own data
@@ -76,8 +76,8 @@ async def ingest_document(
     # Create scope identifier
     scope_id = ScopeIdentifier(
         organization_id=user.organization_id,
-        scope_type=scope,
-        user_id=user.user_id if scope == DataScope.PRIVATE else None
+        scope_type=data_scope,
+        user_id=user.user_id if scope == IngestScope.PRIVATE else None
     )
 
     logger.info(f"📄 Starting ingest for: {file.filename}")
@@ -248,8 +248,8 @@ async def ingest_document(
                 "validation_status": validation_result.status,
                 # Multi-tenant metadata
                 "organization_id": user.organization_id,
-                "user_id": user.user_id if scope == DataScope.PRIVATE else None,
-                "scope_type": scope.value,
+                "user_id": user.user_id if data_scope == DataScope.PRIVATE else None,
+                "scope_type": data_scope.value,
                 "uploaded_by": user.user_id
             }
             combined_metadata.append(meta)
@@ -382,17 +382,35 @@ async def ingest_document(
 @router.post("/batch-ingest", response_model=BatchIngestResponse)
 async def batch_ingest_documents(
     files: List[UploadFile] = File(...),
+    scope: IngestScope = Form(
+        IngestScope.PRIVATE,
+        description="Storage scope: 'private' (your documents - default) or 'shared' (organization documents)"
+    ),
     max_files: int = 10,
-    user: UserContext = Depends(require_permission("research", "ingest"))
+    user: UserContext = Depends(require_permission("documents", "upload"))
 ):
     """
     Batch ingest multiple PDF documents
 
     Requires:
     - Valid JWT token in Authorization header
-    - User must have 'research:ingest' permission
+    - User must have 'documents:upload' permission
+
+    Scope options:
+    - PRIVATE (default): Store in user's private collection/bucket
+    - SHARED: Store in organization shared collection/bucket
     """
     start_time = datetime.datetime.now()
+
+    # Convert IngestScope to DataScope for ScopeIdentifier
+    data_scope = DataScope(scope.value)
+
+    # Create scope identifier
+    scope_id = ScopeIdentifier(
+        organization_id=user.organization_id,
+        scope_type=data_scope,
+        user_id=user.user_id if scope == IngestScope.PRIVATE else None
+    )
 
     # Validate file count
     if len(files) > max_files:
@@ -414,7 +432,9 @@ async def batch_ingest_documents(
     failed = 0
     skipped = 0
 
-    logger.info(f"Starting batch ingest for {len(files)} files")
+    logger.info(f"📦 Starting batch ingest for {len(files)} files")
+    logger.info(f"👤 User: {user.user_id} (org: {user.organization_id})")
+    logger.info(f"🎯 Scope: {scope} → Collection: {scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)}")
 
     # Process each file
     for file in files:
@@ -508,7 +528,12 @@ async def batch_ingest_documents(
                     "created_at": int(current_time.timestamp() * 1000),
                     "embedding_model": settings.EMBEDDING_MODEL,
                     "embedding_dimension": len(embeddings[i]) if i < len(embeddings) else 1536,
-                    "embedding_size_bytes": len(embeddings[i]) * 4 if i < len(embeddings) else 1536 * 4  # float32 = 4 bytes
+                    "embedding_size_bytes": len(embeddings[i]) * 4 if i < len(embeddings) else 1536 * 4,  # float32 = 4 bytes
+                    # Multi-tenant metadata
+                    "organization_id": user.organization_id,
+                    "user_id": user.user_id if data_scope == DataScope.PRIVATE else None,
+                    "scope_type": data_scope.value,
+                    "uploaded_by": user.user_id
                 }
                 combined_metadata.append(meta)
 
