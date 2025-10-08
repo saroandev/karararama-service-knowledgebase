@@ -42,10 +42,11 @@ async def query_documents(
     Searches across selected sources based on sources parameter (list):
     - PRIVATE: User's private data (requires own_data access)
     - SHARED: Organization shared data (requires shared_data access)
-    - PUBLIC: External public data service (not yet implemented)
+    - MEVZUAT: External legislation database (Global DB)
+    - KARAR: External court decisions database (Global DB)
     - ALL: Expands to both PRIVATE and SHARED
 
-    User can select multiple sources: ["private", "shared"] or just ["private"]
+    User can select multiple sources: ["private", "mevzuat"] or ["karar"] or ["mevzuat", "karar"]
     """
     start_time = datetime.datetime.now()
 
@@ -56,9 +57,9 @@ async def query_documents(
         # Determine which collections to search
         target_collections = _get_target_collections(user, request.sources)
 
-        # Check if we have any collections or PUBLIC source
-        has_public_source = DataScope.PUBLIC in request.sources
-        if not target_collections and not has_public_source:
+        # Check if we have any collections or external sources
+        has_external_source = DataScope.MEVZUAT in request.sources or DataScope.KARAR in request.sources
+        if not target_collections and not has_external_source:
             logger.warning(f"No accessible sources for user {user.user_id} with sources {request.sources}")
             return _create_empty_response(request, start_time)
 
@@ -97,43 +98,41 @@ async def query_documents(
                 logger.error(f"❌ Search failed in collection {collection.name}: {e}")
                 continue
 
-        # Check if PUBLIC source is requested
-        public_answer = None
-        public_sources = []
-        if DataScope.PUBLIC in request.sources:
-            logger.info("🌍 Querying Global DB service for PUBLIC sources...")
-            try:
-                # Extract JWT token from authorization header
-                auth_header = http_request.headers.get("Authorization", "")
-                user_token = ""
-                if auth_header.startswith("Bearer "):
-                    user_token = auth_header.replace("Bearer ", "")
-                else:
-                    logger.warning("⚠️ No valid Authorization header found for PUBLIC query")
+        # Check if external sources (MEVZUAT or KARAR) are requested
+        external_answers = {}  # Dict to store answers by source type
 
-                # Get global DB client and call search
+        # Extract JWT token for external service calls
+        auth_header = http_request.headers.get("Authorization", "")
+        user_token = ""
+        if auth_header.startswith("Bearer "):
+            user_token = auth_header.replace("Bearer ", "")
+
+        # Query MEVZUAT if requested
+        if DataScope.MEVZUAT in request.sources:
+            logger.info("📜 Querying Global DB service for MEVZUAT sources...")
+            try:
                 global_db_client = get_global_db_client()
 
                 external_response = await global_db_client.search_public(
                     question=request.question,
                     user_token=user_token,
                     top_k=request.top_k,
-                    min_relevance_score=request.min_relevance_score
+                    min_relevance_score=request.min_relevance_score,
+                    bucket="mevzuat"
                 )
 
                 if external_response.get("success"):
-                    public_answer = external_response.get("answer", "")
-                    public_sources = external_response.get("sources", [])
+                    external_answers["mevzuat"] = external_response.get("answer", "")
+                    external_sources = external_response.get("sources", [])
 
-                    logger.info(f"✅ Global DB returned {len(public_sources)} sources")
+                    logger.info(f"✅ Global DB (mevzuat) returned {len(external_sources)} sources")
 
                     # Convert external sources to our internal format
-                    for source in public_sources:
-                        # Create a mock result object that mimics Milvus result structure
-                        class PublicResult:
-                            def __init__(self, source_data):
+                    for source in external_sources:
+                        class ExternalResult:
+                            def __init__(self, source_data, scope_label):
                                 self.score = source_data.get("score", 0.0)
-                                self._scope_label = "public"
+                                self._scope_label = scope_label
                                 self.entity = type('obj', (object,), {
                                     'document_id': source_data.get("document_id", "unknown"),
                                     'text': source_data.get("text", ""),
@@ -145,14 +144,60 @@ async def query_documents(
                                     }
                                 })()
 
-                        all_search_results.append(PublicResult(source))
+                        all_search_results.append(ExternalResult(source, "mevzuat"))
 
                 else:
-                    logger.warning(f"⚠️ Global DB query failed: {external_response.get('error', 'Unknown error')}")
+                    logger.warning(f"⚠️ Global DB (mevzuat) query failed: {external_response.get('error', 'Unknown error')}")
 
             except Exception as e:
-                logger.error(f"❌ Failed to query Global DB service: {str(e)}")
-                # Continue with Milvus results only
+                logger.error(f"❌ Failed to query Global DB service (mevzuat): {str(e)}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+
+        # Query KARAR if requested
+        if DataScope.KARAR in request.sources:
+            logger.info("⚖️ Querying Global DB service for KARAR sources...")
+            try:
+                global_db_client = get_global_db_client()
+
+                external_response = await global_db_client.search_public(
+                    question=request.question,
+                    user_token=user_token,
+                    top_k=request.top_k,
+                    min_relevance_score=request.min_relevance_score,
+                    bucket="karar"
+                )
+
+                if external_response.get("success"):
+                    external_answers["karar"] = external_response.get("answer", "")
+                    external_sources = external_response.get("sources", [])
+
+                    logger.info(f"✅ Global DB (karar) returned {len(external_sources)} sources")
+
+                    # Convert external sources to our internal format
+                    for source in external_sources:
+                        class ExternalResult:
+                            def __init__(self, source_data, scope_label):
+                                self.score = source_data.get("score", 0.0)
+                                self._scope_label = scope_label
+                                self.entity = type('obj', (object,), {
+                                    'document_id': source_data.get("document_id", "unknown"),
+                                    'text': source_data.get("text", ""),
+                                    'metadata': {
+                                        'document_title': source_data.get("document_name", "Unknown"),
+                                        'page_number': source_data.get("page_number", 0),
+                                        'created_at': source_data.get("created_at", 0),
+                                        'document_url': source_data.get("document_url", "")
+                                    }
+                                })()
+
+                        all_search_results.append(ExternalResult(source, "karar"))
+
+                else:
+                    logger.warning(f"⚠️ Global DB (karar) query failed: {external_response.get('error', 'Unknown error')}")
+
+            except Exception as e:
+                logger.error(f"❌ Failed to query Global DB service (karar): {str(e)}")
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
 
@@ -162,8 +207,8 @@ async def query_documents(
         # Limit to top_k
         all_search_results = all_search_results[:request.top_k]
 
-        # Check if we have any results (or will use public answer)
-        if not all_search_results and not public_answer:
+        # Check if we have any results (or will use external answer)
+        if not all_search_results and not external_answers:
             return _create_empty_response(request, start_time)
 
         # Track total sources retrieved (before filtering)
@@ -199,10 +244,10 @@ async def query_documents(
             created_at = meta_dict.get('created_at', 0)
 
             # Handle URL differently based on scope
-            if scope_label == 'public':
+            if scope_label in ['mevzuat', 'karar']:
                 # External source - use URL from metadata
                 document_url = meta_dict.get('document_url', '#')
-                original_filename = document_title if document_title != 'Unknown' else 'Public Document'
+                original_filename = document_title if document_title != 'Unknown' else f'{scope_label.capitalize()} Document'
                 doc_title = document_title
             else:
                 # Internal source (private/shared) - generate MinIO URL
@@ -252,13 +297,14 @@ async def query_documents(
         context = "\n\n".join(context_parts)
 
         # Determine if we should use external answer or generate our own
-        # Use external answer if PUBLIC is the only source requested
-        if public_answer and request.sources == [DataScope.PUBLIC]:
-            # Use external service answer directly
-            answer = public_answer
-            model_used = "OneDocs Global DB"
+        # Use external answer if only one external source is requested
+        if len(external_answers) == 1 and len(request.sources) == 1:
+            # Single external source - use its answer directly
+            source_type = list(external_answers.keys())[0]
+            answer = external_answers[source_type]
+            model_used = f"OneDocs Global DB ({source_type})"
             tokens_used = 0  # External service tokens not tracked here
-            logger.info("✅ Using answer from Global DB service")
+            logger.info(f"✅ Using answer from Global DB service ({source_type})")
         elif high_confidence_sources:
             # Generate answer using OpenAI with our sources
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
@@ -395,7 +441,7 @@ def _get_target_collections(user: UserContext, sources: List[DataScope]) -> List
 
     Args:
         user: User context with organization and access scope
-        sources: List of requested data sources (PRIVATE, SHARED, PUBLIC, or ALL)
+        sources: List of requested data sources (PRIVATE, SHARED, MEVZUAT, KARAR, or ALL)
 
     Returns:
         List of dicts with 'collection' and 'scope_label' keys
@@ -463,9 +509,14 @@ def _get_target_collections(user: UserContext, sources: List[DataScope]) -> List
             except Exception as e:
                 logger.warning(f"Could not load shared collection: {e}")
 
-        elif source == DataScope.PUBLIC:
-            # PUBLIC is handled separately in query_documents() via Global DB service
-            logger.info("🌍 PUBLIC source requested - will query Global DB service")
+        elif source == DataScope.MEVZUAT:
+            # MEVZUAT is handled separately in query_documents() via Global DB service
+            logger.info("📜 MEVZUAT source requested - will query Global DB service")
+            continue
+
+        elif source == DataScope.KARAR:
+            # KARAR is handled separately in query_documents() via Global DB service
+            logger.info("⚖️ KARAR source requested - will query Global DB service")
             continue
 
     return collections

@@ -13,7 +13,7 @@ class QueryRequest(BaseModel):
     # Multi-source selection parameter
     sources: List[DataScope] = Field(
         default=[DataScope.PRIVATE, DataScope.SHARED],
-        description="List of data sources to search: 'private' (your documents), 'shared' (organization documents), 'public' (external service)"
+        description="List of data sources to search: 'private' (your documents), 'shared' (organization documents), 'mevzuat' (legislation), 'karar' (court decisions)"
     )
 
     top_k: int = Field(default=5, ge=1, le=20, description="Maximum number of sources to retrieve from vector DB")
@@ -40,8 +40,8 @@ class QueryRequest(BaseModel):
     model_config = {
         "json_schema_extra": {
             "example": {
-                "question": "What is RAG?",
-                "sources": ["private", "shared"],
+                "question": "İcra ve İflas Kanunu nedir?",
+                "sources": ["private", "mevzuat"],
                 "top_k": 5,
                 "use_reranker": True,
                 "min_relevance_score": 0.7,
