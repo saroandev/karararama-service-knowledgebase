@@ -21,7 +21,10 @@ router = APIRouter()
 
 @router.get("/documents", response_model=List[DocumentInfo])
 async def list_documents(
-    scope: Optional[DataScope] = Query(None, description="Filter by scope: private, shared, or all (default: all accessible)"),
+    scope: Optional[DataScope] = Query(
+        None,
+        description="Filter by scope: 'private' (your documents), 'shared' (organization documents), or 'all' (both). Default: all accessible documents"
+    ),
     user: UserContext = Depends(get_current_user)  # Only JWT token required
 ):
     """
@@ -29,10 +32,13 @@ async def list_documents(
 
     Requires:
     - Valid JWT token in Authorization header
-    - User must have 'documents:read' permission
 
     Query Parameters:
-    - scope: Filter documents by scope (private, shared, or null for all accessible)
+    - scope (optional): Filter documents by scope
+      - **private**: Only your personal documents
+      - **shared**: Only organization shared documents
+      - **all**: Both private and shared documents (default)
+      - If not provided, returns all accessible documents
     """
     try:
         logger.info(f"📋 Listing documents for user {user.user_id} (org: {user.organization_id})")

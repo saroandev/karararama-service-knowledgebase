@@ -12,7 +12,7 @@ class QueryRequest(BaseModel):
     # Multi-tenant scope parameter
     search_scope: DataScope = Field(
         default=DataScope.ALL,
-        description="Data scope to search: PRIVATE (only user's data), SHARED (only org shared), or ALL (both)"
+        description="Data scope to search: 'private' (only your documents), 'shared' (only organization documents), or 'all' (both - default)"
     )
 
     top_k: int = Field(default=5, ge=1, le=20, description="Maximum number of sources to retrieve from vector DB")

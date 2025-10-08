@@ -41,8 +41,11 @@ router = APIRouter()
 @router.post("/ingest", response_model=Union[SuccessfulIngestResponse, ExistingDocumentResponse, FailedIngestResponse])
 @retry_with_backoff(max_retries=3)
 async def ingest_document(
-    file: UploadFile = File(...),
-    scope: DataScope = Form(DataScope.PRIVATE),
+    file: UploadFile = File(..., description="PDF file to upload"),
+    scope: DataScope = Form(
+        DataScope.PRIVATE,
+        description="Storage scope: 'private' (your documents - default) or 'shared' (organization documents)"
+    ),
     user: UserContext = Depends(get_current_user)  # Only JWT token required, no specific permission
 ):
     """
