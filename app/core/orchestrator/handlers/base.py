@@ -5,6 +5,8 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 import logging
+from openai import OpenAI
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +54,9 @@ class HandlerResult:
 class BaseHandler(ABC):
     """Abstract base class for all search handlers"""
 
-    def __init__(self, source_type: SourceType):
+    def __init__(self, source_type: SourceType, system_prompt: Optional[str] = None):
         self.source_type = source_type
+        self.system_prompt = system_prompt
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
     @abstractmethod
@@ -103,3 +106,76 @@ class BaseHandler(ABC):
             generated_answer=generated_answer,
             processing_time=processing_time
         )
+
+    async def _generate_answer(
+        self,
+        question: str,
+        search_results: List[SearchResult],
+        max_sources: int = 5
+    ) -> Optional[str]:
+        """
+        Generate answer using scope-specific prompt and retrieved chunks
+
+        Args:
+            question: User's question
+            search_results: Retrieved search results with chunks
+            max_sources: Maximum number of sources to include in context
+
+        Returns:
+            Generated answer or None if no prompt configured
+        """
+        if not self.system_prompt:
+            self.logger.warning(f"No system prompt configured for {self.source_type}, skipping answer generation")
+            return None
+
+        if not search_results:
+            self.logger.warning(f"No search results for {self.source_type}, cannot generate answer")
+            return None
+
+        try:
+            # Prepare context from search results
+            context_parts = []
+            for i, result in enumerate(search_results[:max_sources]):
+                page_info = f"Sayfa {result.page_number}" if result.page_number else ""
+                context_parts.append(
+                    f"[Kaynak {i+1} {page_info}]: {result.text}"
+                )
+
+            context = "\n\n".join(context_parts)
+
+            # Generate answer with OpenAI
+            client = OpenAI(api_key=settings.OPENAI_API_KEY)
+            self.logger.info(f"🤖 Generating answer for {self.source_type} with {len(search_results)} sources...")
+
+            chat_response = client.chat.completions.create(
+                model=settings.OPENAI_MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": self.system_prompt
+                    },
+                    {
+                        "role": "user",
+                        "content": f"""Kaynak Belgeler:
+{context}
+
+Soru: {question}
+
+Lütfen bu soruya kaynak belgelere dayanarak cevap ver ve hangi kaynak(lardan) bilgi aldığını belirt."""
+                    }
+                ],
+                max_tokens=500,
+                temperature=0.7
+            )
+
+            answer = chat_response.choices[0].message.content
+            tokens_used = chat_response.usage.total_tokens if hasattr(chat_response, 'usage') else 0
+
+            self.logger.info(f"✅ Generated answer for {self.source_type} ({tokens_used} tokens)")
+            return answer
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to generate answer for {self.source_type}: {str(e)}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            return None

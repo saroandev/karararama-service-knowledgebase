@@ -6,6 +6,7 @@ from urllib.parse import quote
 from openai import OpenAI
 
 from app.core.orchestrator.handlers.base import HandlerResult, SearchResult, SourceType
+from app.core.orchestrator.prompts import PromptTemplate
 from schemas.api.requests.query import QueryRequest
 from schemas.api.responses.query import QueryResponse, QuerySource
 from app.config import settings
@@ -44,7 +45,6 @@ class ResultAggregator:
         try:
             # 1. Merge all search results
             all_results = []
-            external_answers = {}
 
             for handler_result in handler_results:
                 if not handler_result.success:
@@ -54,16 +54,13 @@ class ResultAggregator:
                 # Collect results
                 all_results.extend(handler_result.results)
 
-                # Collect external answers
-                if handler_result.generated_answer:
-                    external_answers[handler_result.source_type.value] = handler_result.generated_answer
-
             # 2. Sort by score and limit
             all_results.sort(key=lambda x: x.score, reverse=True)
             all_results = all_results[:request.top_k]
 
-            # Check if we have any results
-            if not all_results and not external_answers:
+            # Check if we have any results or answers
+            has_any_answer = any(r.success and r.generated_answer for r in handler_results)
+            if not all_results and not has_any_answer:
                 return self._create_empty_response(request, user, processing_time)
 
             # 3. Convert to QuerySource objects and filter by relevance
@@ -89,11 +86,11 @@ class ResultAggregator:
                     if request.include_low_confidence_sources:
                         low_confidence_sources.append(source)
 
-            # 4. Generate answer
+            # 4. Generate answer (or synthesize from handler answers)
             answer, model_used, tokens_used = await self._generate_answer(
                 context_parts=context_parts,
                 high_confidence_sources=high_confidence_sources,
-                external_answers=external_answers,
+                handler_results=handler_results,
                 request=request
             )
 
@@ -183,27 +180,91 @@ class ResultAggregator:
         self,
         context_parts: List[str],
         high_confidence_sources: List[QuerySource],
-        external_answers: Dict[str, str],
+        handler_results: List[HandlerResult],
         request: QueryRequest
     ) -> tuple[str, str, int]:
         """
-        Generate answer based on sources and context
+        Generate final answer from handler-generated answers
+
+        Each handler now generates its own answer with scope-specific prompts.
+        This method either:
+        1. Returns single handler's answer (if only one source)
+        2. Synthesizes multiple answers into meta-answer (if multiple sources)
 
         Returns:
             (answer, model_used, tokens_used)
         """
-        # Strategy 1: Single external source - use its answer
-        if len(external_answers) == 1 and len(request.sources) == 1:
-            source_type = list(external_answers.keys())[0]
-            answer = external_answers[source_type]
-            model_used = f"OneDocs Global DB ({source_type})"
+        # Collect all generated answers from handlers
+        handler_answers = {}
+        for result in handler_results:
+            if result.success and result.generated_answer:
+                handler_answers[result.source_type.value] = result.generated_answer
+
+        # Strategy 1: Single source - use its answer directly
+        if len(handler_answers) == 1:
+            source_type = list(handler_answers.keys())[0]
+            answer = handler_answers[source_type]
+            model_used = f"Handler: {source_type}"
             tokens_used = 0
-            logger.info(f"✅ Using answer from Global DB service ({source_type})")
+            logger.info(f"✅ Using answer from single source: {source_type}")
             return answer, model_used, tokens_used
 
-        # Strategy 2: Generate answer with OpenAI
-        if high_confidence_sources:
-            context = "\n\n".join(context_parts)
+        # Strategy 2: Multiple sources - synthesize answers
+        if len(handler_answers) > 1:
+            answer, tokens_used = await self._synthesize_answers(
+                answers=handler_answers,
+                question=request.question
+            )
+            model_used = f"{settings.OPENAI_MODEL} (meta-synthesis)"
+            logger.info(f"✅ Synthesized answer from {len(handler_answers)} sources")
+            return answer, model_used, tokens_used
+
+        # Strategy 3: No answers generated - fallback
+        answer = "İlgili bilgi bulunamadı. Lütfen sorunuzu farklı şekilde ifade etmeyi deneyin."
+        model_used = settings.OPENAI_MODEL
+        tokens_used = 0
+        logger.warning("⚠️ No answers generated from any handler")
+        return answer, model_used, tokens_used
+
+    async def _synthesize_answers(
+        self,
+        answers: Dict[str, str],
+        question: str
+    ) -> tuple[str, int]:
+        """
+        Synthesize multiple scope-specific answers into a comprehensive meta-answer
+
+        Args:
+            answers: Dict mapping source_type to generated answer
+            question: Original user question
+
+        Returns:
+            (synthesized_answer, tokens_used)
+        """
+        # Prepare combined answers text with emoji labels
+        source_emojis = {
+            "private": "📄",
+            "shared": "🏢",
+            "mevzuat": "📜",
+            "karar": "⚖️"
+        }
+
+        combined_text = []
+        for source_type, answer in answers.items():
+            emoji = source_emojis.get(source_type, "📌")
+            source_label = {
+                "private": "Kişisel Belgelerinize Göre",
+                "shared": "Organizasyon Belgelerine Göre",
+                "mevzuat": "Mevzuata Göre",
+                "karar": "İçtihatlara Göre"
+            }.get(source_type, source_type.capitalize())
+
+            combined_text.append(f"{emoji} {source_label}:\n{answer}")
+
+        combined_answers = "\n\n---\n\n".join(combined_text)
+
+        try:
+            # Generate meta-synthesis with OpenAI
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
             chat_response = client.chat.completions.create(
@@ -211,47 +272,33 @@ class ResultAggregator:
                 messages=[
                     {
                         "role": "system",
-                        "content": """Sen yardımsever bir RAG (Retrieval-Augmented Generation) asistanısın.
-
-GÖREVİN:
-• Verilen kaynak belgelerden faydalanarak soruları net ve anlaşılır şekilde cevaplamak
-• Cevaplarını Türkçe dilbilgisi kurallarına uygun, akıcı bir dille yazmak
-• Her zaman kaynak numaralarını belirtmek (Örn: [Kaynak 1], [Kaynak 2-3])
-
-CEVAP FORMATI:
-1. Soruya doğrudan ve özlü bir cevap ver
-2. Gerekirse madde madde veya paragraflar halinde açıkla
-3. Her bilgi için hangi kaynaktan alındığını belirt
-4. Eğer sorunun cevabı kaynak belgelerde yoksa, "Sağlanan kaynaklarda bu soruya ilişkin bilgi bulunmamaktadır" de
-
-ÖNEMLI:
-• Sadece verilen kaynaklardaki bilgileri kullan
-• Kendi bilgini ekleme, sadece kaynakları yorumla
-• Belirsizlik varsa bunu belirt"""
+                        "content": PromptTemplate.META_SYNTHESIS
                     },
                     {
                         "role": "user",
-                        "content": f"""Kaynak Belgeler:
-{context}
+                        "content": f"""Farklı kaynaklardan gelen cevaplar:
 
-Soru: {request.question}
+{combined_answers}
 
-Lütfen bu soruya kaynak belgelere dayanarak cevap ver ve hangi kaynak(lardan) bilgi aldığını belirt."""
+Soru: {question}
+
+Bu cevapları birleştir, karşılaştır ve kapsamlı bir yanıt oluştur."""
                     }
                 ],
-                max_tokens=500
+                max_tokens=700,
+                temperature=0.7
             )
 
-            answer = chat_response.choices[0].message.content
-            model_used = settings.OPENAI_MODEL
+            synthesized_answer = chat_response.choices[0].message.content
             tokens_used = chat_response.usage.total_tokens if hasattr(chat_response, 'usage') else 0
-            return answer, model_used, tokens_used
 
-        # Strategy 3: No sources found
-        answer = "İlgili bilgi bulunamadı. Lütfen sorunuzu farklı şekilde ifade etmeyi deneyin."
-        model_used = settings.OPENAI_MODEL
-        tokens_used = 0
-        return answer, model_used, tokens_used
+            return synthesized_answer, tokens_used
+
+        except Exception as e:
+            logger.error(f"❌ Failed to synthesize answers: {str(e)}")
+            # Fallback: just return all answers concatenated
+            fallback = "\n\n".join(combined_text)
+            return fallback, 0
 
     async def _report_usage(
         self,

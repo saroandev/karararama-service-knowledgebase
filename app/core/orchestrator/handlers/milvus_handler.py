@@ -6,6 +6,7 @@ from typing import List
 from fastapi import HTTPException
 
 from app.core.orchestrator.handlers.base import BaseHandler, HandlerResult, SearchResult, SourceType
+from app.core.orchestrator.prompts import PromptTemplate
 from schemas.api.requests.scope import DataScope, ScopeIdentifier
 from api.core.milvus_manager import milvus_manager
 from api.core.embeddings import embedding_service
@@ -25,7 +26,16 @@ class MilvusSearchHandler(BaseHandler):
         """
         # Use the first scope as source_type (or "private" if multiple)
         source_type = SourceType.PRIVATE if DataScope.PRIVATE in scopes else SourceType.SHARED
-        super().__init__(source_type)
+
+        # Get appropriate prompt based on scope
+        if DataScope.PRIVATE in scopes:
+            system_prompt = PromptTemplate.PRIVATE_SCOPE
+        elif DataScope.SHARED in scopes:
+            system_prompt = PromptTemplate.SHARED_SCOPE
+        else:
+            system_prompt = PromptTemplate.PRIVATE_SCOPE  # Default
+
+        super().__init__(source_type, system_prompt=system_prompt)
 
         self.user = user
         self.scopes = scopes
@@ -97,8 +107,21 @@ class MilvusSearchHandler(BaseHandler):
             all_results.sort(key=lambda x: x.score, reverse=True)
             all_results = all_results[:top_k]
 
+            # 5. Generate answer using scope-specific prompt
+            generated_answer = None
+            if all_results:
+                generated_answer = await self._generate_answer(
+                    question=question,
+                    search_results=all_results,
+                    max_sources=5
+                )
+
             processing_time = time.time() - start_time
-            return self._create_success_result(all_results, processing_time=processing_time)
+            return self._create_success_result(
+                all_results,
+                processing_time=processing_time,
+                generated_answer=generated_answer
+            )
 
         except Exception as e:
             self.logger.error(f"Milvus handler error: {str(e)}")

@@ -36,6 +36,9 @@ class UserContext(BaseModel):
 
     model_config = {"frozen": True}
 
+    # Internal cache for permission lookups (not serialized)
+    _permission_cache: Optional[set] = None
+
     def get_accessible_scopes(self) -> List[str]:
         """Get list of data scopes this user can access"""
         scopes = []
@@ -46,6 +49,50 @@ class UserContext(BaseModel):
         if self.data_access.all_users_data:
             scopes.append(f"org_{self.organization_id}_all")
         return scopes
+
+    def has_permission(self, resource: str, action: str) -> bool:
+        """
+        Check if user has specific permission (O(1) complexity via set lookup)
+
+        Args:
+            resource: Resource name (e.g., 'research', 'document')
+            action: Action name (e.g., 'query', 'ingest', 'read', 'delete')
+
+        Returns:
+            True if user has permission, False otherwise
+
+        Performance:
+        - First call: O(n) to build set from permission list
+        - Subsequent calls: O(1) set lookup
+        """
+        # Lazy initialization of permission set cache
+        if self._permission_cache is None:
+            # Use object.__setattr__ to bypass frozen model
+            object.__setattr__(self, '_permission_cache', set())
+
+            for perm in self.permissions:
+                if isinstance(perm, str):
+                    self._permission_cache.add(perm)
+                elif isinstance(perm, dict):
+                    perm_resource = perm.get("resource", "")
+                    perm_action = perm.get("action", "")
+                    if perm_resource and perm_action:
+                        self._permission_cache.add(f"{perm_resource}:{perm_action}")
+
+            logger.debug(f"🔧 Built permission cache for user {self.user_id}: {self._permission_cache}")
+
+        # Check permission with O(1) set lookup
+        # Priority order: wildcard > exact match > resource wildcard
+        if "*" in self._permission_cache:
+            return True
+        if "admin:*" in self._permission_cache:
+            return True
+        if f"{resource}:{action}" in self._permission_cache:
+            return True
+        if f"{resource}:*" in self._permission_cache:
+            return True
+
+        return False
 
 
 def decode_jwt_token(token: str) -> dict:
@@ -202,6 +249,11 @@ def require_permission(resource: str, action: str):
             user: UserContext = Depends(require_permission("resource", "action"))
         ):
             ...
+
+    Performance:
+        Uses O(1) set-based permission lookup via UserContext.has_permission()
+        instead of O(n) list iteration. Significantly faster for users with
+        many permissions.
     """
     async def permission_checker(
         user: UserContext = Depends(get_current_user)
@@ -213,58 +265,11 @@ def require_permission(resource: str, action: str):
 
         logger.info(f"🔍 Checking permission: {resource}:{action}")
         logger.info(f"👤 User: {user.user_id}")
-        logger.info(f"🔑 User permissions: {user.permissions}")
 
-        # Check permissions
-        has_permission = False
-
-        for i, perm in enumerate(user.permissions):
-            logger.debug(f"  Checking permission[{i}]: {perm} (type: {type(perm)})")
-            # Handle both string format "resource:action" and dict format
-            if isinstance(perm, str):
-                if perm == "*":
-                    has_permission = True
-                    break
-                elif perm == f"{resource}:{action}":
-                    has_permission = True
-                    break
-                elif perm == f"{resource}:*":
-                    has_permission = True
-                    break
-
-            elif isinstance(perm, dict):
-                perm_resource = perm.get("resource")
-                perm_action = perm.get("action")
-
-                # Global wildcard
-                if perm_resource == "*" and perm_action == "*":
-                    has_permission = True
-                    break
-
-                # Resource wildcard (e.g., "*:*")
-                if perm_resource == "*":
-                    has_permission = True
-                    break
-
-                # Admin wildcard (admin:* grants all permissions)
-                if perm_resource == "admin" and perm_action == "*":
-                    logger.info(f"✅ Permission granted via admin:* → {resource}:{action}")
-                    has_permission = True
-                    break
-
-                # Action wildcard (e.g., "research:*")
-                if perm_action == "*" and perm_resource == resource:
-                    logger.info(f"✅ Permission matched: {perm_resource}:* → {resource}:{action}")
-                    has_permission = True
-                    break
-
-                # Exact match (e.g., "research:query")
-                if perm_resource == resource and perm_action == action:
-                    has_permission = True
-                    break
-
-        if not has_permission:
+        # Use optimized O(1) permission check
+        if not user.has_permission(resource, action):
             logger.error(f"🚫 Permission denied: {resource}:{action}")
+            logger.info(f"🔑 User permissions: {user.permissions}")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Permission denied: {resource}:{action}",

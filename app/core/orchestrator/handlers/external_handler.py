@@ -8,7 +8,12 @@ from app.services.global_db_service import get_global_db_client
 
 
 class ExternalServiceHandler(BaseHandler):
-    """Handler for searching external Global DB service (MEVZUAT, KARAR)"""
+    """
+    Handler for searching external Global DB service (MEVZUAT, KARAR)
+
+    Note: This handler doesn't use local prompt because the external
+    Global DB service generates answers with its own prompts.
+    """
 
     def __init__(self, source_type: SourceType, user_token: str, bucket: str):
         """
@@ -19,7 +24,8 @@ class ExternalServiceHandler(BaseHandler):
             user_token: JWT token for authentication
             bucket: Bucket name for Global DB ("mevzuat" or "karar")
         """
-        super().__init__(source_type)
+        # No system_prompt needed - external service generates its own answer
+        super().__init__(source_type, system_prompt=None)
         self.user_token = user_token
         self.bucket = bucket
         self.global_db_client = get_global_db_client()
