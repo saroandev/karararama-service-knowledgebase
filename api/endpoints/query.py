@@ -31,29 +31,31 @@ async def query_documents(
     user: UserContext = Depends(get_current_user)  # Only JWT token required, no specific permission
 ) -> QueryResponse:
     """
-    Multi-tenant query endpoint with scope-based search
+    Multi-tenant query endpoint with multi-source search
 
     Requires:
     - Valid JWT token in Authorization header
-    - Any authenticated user can query their accessible scopes
+    - Any authenticated user can query their accessible sources
 
-    Searches across user's accessible scopes based on search_scope parameter:
-    - PRIVATE: Only user's private data (always accessible)
-    - SHARED: Only organization shared data (if user has shared_data access)
-    - ALL: Both private and shared data (based on user's data_access)
+    Searches across selected sources based on sources parameter (list):
+    - PRIVATE: User's private data (requires own_data access)
+    - SHARED: Organization shared data (requires shared_data access)
+    - PUBLIC: External public data service (not yet implemented)
+    - ALL: Expands to both PRIVATE and SHARED
+
+    User can select multiple sources: ["private", "shared"] or just ["private"]
     """
-#Buraya bir de PUBLIC eklenebilir.
     start_time = datetime.datetime.now()
 
     try:
         logger.info(f"🔍 Query from user {user.user_id} (org: {user.organization_id}): {request.question}")
-        logger.info(f"🎯 Search scope: {request.search_scope}")
+        logger.info(f"🎯 Requested sources: {[s.value for s in request.sources]}")
 
         # Determine which collections to search
-        target_collections = _get_target_collections(user, request.search_scope)
+        target_collections = _get_target_collections(user, request.sources)
 
         if not target_collections:
-            logger.warning(f"No accessible collections for user {user.user_id} with scope {request.search_scope}")
+            logger.warning(f"No accessible collections for user {user.user_id} with sources {request.sources}")
             return _create_empty_response(request, start_time)
 
         # Generate query embedding
@@ -301,23 +303,44 @@ Lütfen bu soruya kaynak belgelere dayanarak cevap ver ve hangi kaynak(lardan) b
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
 
 
-def _get_target_collections(user: UserContext, search_scope: DataScope) -> List[dict]:
+def _get_target_collections(user: UserContext, sources: List[DataScope]) -> List[dict]:
     """
-    Get list of collections to search based on user context and search scope
+    Get list of collections to search based on user context and selected sources
 
     Args:
         user: User context with organization and access scope
-        search_scope: Requested search scope (PRIVATE, SHARED, or ALL)
+        sources: List of requested data sources (PRIVATE, SHARED, PUBLIC, or ALL)
 
     Returns:
         List of dicts with 'collection' and 'scope_label' keys
     """
     collections = []
 
-    if search_scope == DataScope.ALL:
-        # Search in all accessible scopes
-        # Private data
-        if user.data_access.own_data:
+    # Expand ALL to both PRIVATE and SHARED
+    expanded_sources = []
+    for source in sources:
+        if source == DataScope.ALL:
+            expanded_sources.extend([DataScope.PRIVATE, DataScope.SHARED])
+        else:
+            expanded_sources.append(source)
+
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_sources = []
+    for source in expanded_sources:
+        if source not in seen:
+            seen.add(source)
+            unique_sources.append(source)
+
+    # Process each requested source
+    for source in unique_sources:
+        if source == DataScope.PRIVATE:
+            # Check access permission
+            if not user.data_access.own_data:
+                logger.warning(f"User {user.user_id} requested PRIVATE data but doesn't have own_data access")
+                continue
+
+            # Get private collection
             private_scope = ScopeIdentifier(
                 organization_id=user.organization_id,
                 scope_type=DataScope.PRIVATE,
@@ -329,11 +352,17 @@ def _get_target_collections(user: UserContext, search_scope: DataScope) -> List[
                     "collection": collection,
                     "scope_label": "private"
                 })
+                logger.info(f"✅ Added PRIVATE collection: {collection.name}")
             except Exception as e:
                 logger.warning(f"Could not load private collection: {e}")
 
-        # Shared data
-        if user.data_access.shared_data:
+        elif source == DataScope.SHARED:
+            # Check access permission
+            if not user.data_access.shared_data:
+                logger.warning(f"User {user.user_id} requested SHARED data but doesn't have shared_data access")
+                continue
+
+            # Get shared collection
             shared_scope = ScopeIdentifier(
                 organization_id=user.organization_id,
                 scope_type=DataScope.SHARED
@@ -344,45 +373,16 @@ def _get_target_collections(user: UserContext, search_scope: DataScope) -> List[
                     "collection": collection,
                     "scope_label": "shared"
                 })
+                logger.info(f"✅ Added SHARED collection: {collection.name}")
             except Exception as e:
                 logger.warning(f"Could not load shared collection: {e}")
 
-    elif search_scope == DataScope.PRIVATE:
-        # Only private data
-        if not user.data_access.own_data:
-            raise HTTPException(
-                status_code=403,
-                detail="You don't have access to private data"
-            )
-
-        private_scope = ScopeIdentifier(
-            organization_id=user.organization_id,
-            scope_type=DataScope.PRIVATE,
-            user_id=user.user_id
-        )
-        collection = milvus_manager.get_collection(private_scope)
-        collections.append({
-            "collection": collection,
-            "scope_label": "private"
-        })
-
-    elif search_scope == DataScope.SHARED:
-        # Only shared data
-        if not user.data_access.shared_data:
-            raise HTTPException(
-                status_code=403,
-                detail="You don't have access to shared data"
-            )
-
-        shared_scope = ScopeIdentifier(
-            organization_id=user.organization_id,
-            scope_type=DataScope.SHARED
-        )
-        collection = milvus_manager.get_collection(shared_scope)
-        collections.append({
-            "collection": collection,
-            "scope_label": "shared"
-        })
+        elif source == DataScope.PUBLIC:
+            # TODO: Implement external public data service integration
+            logger.warning(f"⚠️  PUBLIC source requested but not yet implemented. Skipping...")
+            # Future: Add external service call here
+            # Example: public_results = await external_service.search(query)
+            continue
 
     return collections
 

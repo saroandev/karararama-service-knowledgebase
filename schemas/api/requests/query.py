@@ -1,6 +1,7 @@
 """
 Query request schemas
 """
+from typing import List
 from pydantic import BaseModel, Field
 from schemas.api.requests.scope import DataScope
 
@@ -9,10 +10,10 @@ class QueryRequest(BaseModel):
     """Request model for query endpoint"""
     question: str = Field(..., description="Question to ask")
 
-    # Multi-tenant scope parameter
-    search_scope: DataScope = Field(
-        default=DataScope.ALL,
-        description="Data scope to search: 'private' (only your documents), 'shared' (only organization documents), or 'all' (both - default)"
+    # Multi-source selection parameter
+    sources: List[DataScope] = Field(
+        default=[DataScope.PRIVATE, DataScope.SHARED],
+        description="List of data sources to search: 'private' (your documents), 'shared' (organization documents), 'public' (external service)"
     )
 
     top_k: int = Field(default=5, ge=1, le=20, description="Maximum number of sources to retrieve from vector DB")
@@ -40,7 +41,7 @@ class QueryRequest(BaseModel):
         "json_schema_extra": {
             "example": {
                 "question": "What is RAG?",
-                "search_scope": "all",
+                "sources": ["private", "shared"],
                 "top_k": 5,
                 "use_reranker": True,
                 "min_relevance_score": 0.7,

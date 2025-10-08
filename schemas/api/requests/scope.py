@@ -11,7 +11,7 @@ class DataScope(str, Enum):
     PRIVATE = "private"      # User's private data only
     SHARED = "shared"        # Organization shared data
     ALL = "all"              # All accessible scopes (for queries)
-    # PUBLIC = "public"      # Public data (if applicable)
+    PUBLIC = "public"        # Public data from external service
 
 
 class ScopeIdentifier(BaseModel):
