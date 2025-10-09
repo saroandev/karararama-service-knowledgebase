@@ -95,6 +95,39 @@ async def ingest_to_collection(
             detail=f"Collection '{collection_name}' not found in {scope.value} scope. Create it first using POST /collections"
         )
 
+    # IMPORTANT: Verify exact collection name match from metadata
+    # This prevents "sozlesme" from ingesting to "Sözleşme" collection
+    try:
+        minio_prefix = scope_id.get_object_prefix("docs")
+        metadata_path = f"{minio_prefix}_collection_metadata.json"
+        bucket = scope_id.get_bucket_name()
+        from app.core.storage import storage
+        client = storage.client_manager.get_client()
+
+        response = client.get_object(bucket, metadata_path)
+        import json
+        collection_meta = json.loads(response.read().decode('utf-8'))
+
+        # Get original collection name from metadata
+        original_collection_name = collection_meta.get("collection_name")
+
+        # Exact match required (case-sensitive, Turkish characters must match)
+        if original_collection_name != collection_name:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Collection '{collection_name}' not found in {scope.value} scope. Create it first using POST /collections"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # If metadata doesn't exist, collection wasn't created properly
+        logger.warning(f"Could not verify collection name from metadata: {e}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Collection '{collection_name}' not found in {scope.value} scope. Create it first using POST /collections"
+        )
+
     logger.info(f"📄 Starting collection-specific ingest for: {file.filename}")
     logger.info(f"👤 User: {user.user_id} (org: {user.organization_id})")
     logger.info(f"📁 Target collection: {collection_name} ({scope.value})")
@@ -454,6 +487,39 @@ async def batch_ingest_to_collection(
     from pymilvus import utility
     collection_milvus_name = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
     if not utility.has_collection(collection_milvus_name):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Collection '{collection_name}' not found in {scope.value} scope. Create it first using POST /collections"
+        )
+
+    # IMPORTANT: Verify exact collection name match from metadata
+    # This prevents "sozlesme" from ingesting to "Sözleşme" collection
+    try:
+        minio_prefix = scope_id.get_object_prefix("docs")
+        metadata_path = f"{minio_prefix}_collection_metadata.json"
+        bucket = scope_id.get_bucket_name()
+        from app.core.storage import storage
+        client = storage.client_manager.get_client()
+
+        response = client.get_object(bucket, metadata_path)
+        import json
+        collection_meta = json.loads(response.read().decode('utf-8'))
+
+        # Get original collection name from metadata
+        original_collection_name = collection_meta.get("collection_name")
+
+        # Exact match required (case-sensitive, Turkish characters must match)
+        if original_collection_name != collection_name:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Collection '{collection_name}' not found in {scope.value} scope. Create it first using POST /collections"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # If metadata doesn't exist, collection wasn't created properly
+        logger.warning(f"Could not verify collection name from metadata: {e}")
         raise HTTPException(
             status_code=404,
             detail=f"Collection '{collection_name}' not found in {scope.value} scope. Create it first using POST /collections"

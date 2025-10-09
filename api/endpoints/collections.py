@@ -457,6 +457,8 @@ async def get_collection(
 ):
     """
     Get detailed information about a specific collection
+
+    Note: Collection name must match exactly (case-sensitive, Turkish characters must match)
     """
     logger.info(f"Getting collection '{collection_name}' in {scope} scope")
 
@@ -478,6 +480,38 @@ async def get_collection(
     if data_scope == DataScope.SHARED and not user.data_access.shared_data:
         raise HTTPException(status_code=403, detail="No access to shared collections")
 
+    # IMPORTANT: Verify exact collection name match from metadata before getting info
+    # This prevents "sozlesme" from matching "Sözleşme" collection
+    try:
+        minio_prefix = scope_id.get_object_prefix("docs")
+        metadata_path = f"{minio_prefix}_collection_metadata.json"
+        bucket = scope_id.get_bucket_name()
+        client = storage.client_manager.get_client()
+
+        response = client.get_object(bucket, metadata_path)
+        import json
+        collection_meta = json.loads(response.read().decode('utf-8'))
+
+        # Get original collection name from metadata
+        original_collection_name = collection_meta.get("collection_name")
+
+        # Exact match required (case-sensitive, Turkish characters must match)
+        if original_collection_name != collection_name:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Collection '{collection_name}' not found in {scope.value} scope"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # If metadata doesn't exist, collection wasn't created properly
+        logger.warning(f"Could not verify collection name from metadata: {e}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Collection '{collection_name}' not found in {scope.value} scope"
+        )
+
     return _get_collection_info(collection_name, scope_id, user)
 
 
@@ -497,6 +531,8 @@ async def delete_collection(
     Deletes:
     - Milvus collection and all vectors
     - All documents and chunks from MinIO
+
+    Note: Collection name must match exactly (case-sensitive, Turkish characters must match)
     """
     logger.info(f"Deleting collection '{collection_name}' in {scope} scope")
 
@@ -513,6 +549,38 @@ async def delete_collection(
         user_id=user.user_id if scope == IngestScope.PRIVATE else None,
         collection_name=collection_name
     )
+
+    # IMPORTANT: Verify exact collection name match from metadata before deletion
+    # This prevents "sozlesme" from deleting "Sözleşme" collection
+    try:
+        minio_prefix = scope_id.get_object_prefix("docs")
+        metadata_path = f"{minio_prefix}_collection_metadata.json"
+        bucket = scope_id.get_bucket_name()
+        client = storage.client_manager.get_client()
+
+        response = client.get_object(bucket, metadata_path)
+        import json
+        collection_meta = json.loads(response.read().decode('utf-8'))
+
+        # Get original collection name from metadata
+        original_collection_name = collection_meta.get("collection_name")
+
+        # Exact match required (case-sensitive, Turkish characters must match)
+        if original_collection_name != collection_name:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Collection '{collection_name}' not found in {scope.value} scope"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # If metadata doesn't exist, collection wasn't created properly
+        logger.warning(f"Could not verify collection name from metadata: {e}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Collection '{collection_name}' not found in {scope.value} scope"
+        )
 
     # Get collection info before deleting
     try:
@@ -592,6 +660,8 @@ async def list_collection_documents(
     Requires:
     - Valid JWT token
     - Access to the specified scope (private or shared)
+
+    Note: Collection name must match exactly (case-sensitive, Turkish characters must match)
     """
     logger.info(f"Listing documents in collection '{collection_name}' ({scope.value} scope)")
 
@@ -616,6 +686,38 @@ async def list_collection_documents(
     # Check if collection exists in Milvus
     milvus_collection_name = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
     if not utility.has_collection(milvus_collection_name):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Collection '{collection_name}' not found in {scope.value} scope"
+        )
+
+    # IMPORTANT: Verify exact collection name match from metadata
+    # This prevents "sozlesme" from matching "Sözleşme" collection
+    try:
+        minio_prefix = scope_id.get_object_prefix("docs")
+        metadata_path = f"{minio_prefix}_collection_metadata.json"
+        bucket = scope_id.get_bucket_name()
+        client = storage.client_manager.get_client()
+
+        response = client.get_object(bucket, metadata_path)
+        import json
+        collection_meta = json.loads(response.read().decode('utf-8'))
+
+        # Get original collection name from metadata
+        original_collection_name = collection_meta.get("collection_name")
+
+        # Exact match required (case-sensitive, Turkish characters must match)
+        if original_collection_name != collection_name:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Collection '{collection_name}' not found in {scope.value} scope"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # If metadata doesn't exist, collection wasn't created properly
+        logger.warning(f"Could not verify collection name from metadata: {e}")
         raise HTTPException(
             status_code=404,
             detail=f"Collection '{collection_name}' not found in {scope.value} scope"
