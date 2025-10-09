@@ -4,7 +4,7 @@ Document ingestion endpoints with multi-tenant scope support
 import datetime
 import hashlib
 import logging
-from typing import List, Union
+from typing import List, Union, Optional
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
 
 # Import from new schemas location
@@ -46,10 +46,14 @@ async def ingest_document(
         IngestScope.PRIVATE,
         description="Storage scope: 'private' (your documents - default) or 'shared' (organization documents)"
     ),
+    collection_name: Optional[str] = Form(
+        None,
+        description="Optional collection name (must exist). If None, documents go to default space."
+    ),
     user: UserContext = Depends(get_current_user)  # Only JWT token required, no specific permission
 ):
     """
-    Multi-tenant PDF ingest endpoint with scope-based storage
+    Multi-tenant PDF ingest endpoint with scope-based storage and collections
 
     Requires:
     - Valid JWT token in Authorization header
@@ -58,6 +62,10 @@ async def ingest_document(
     Scope options:
     - PRIVATE (default): Store in user's private collection/bucket
     - SHARED: Store in organization shared collection/bucket (accessible by all org members)
+
+    Collection feature:
+    - collection_name=None: Store in default space (backward compatible)
+    - collection_name="xyz": Store in named collection (must exist first)
 
     Not allowed for ingest:
     - ALL: Not a storage scope (only used for queries)
@@ -73,12 +81,24 @@ async def ingest_document(
     # PRIVATE: User's own data
     # SHARED: Organization-wide shared data
 
-    # Create scope identifier
+    # Create scope identifier with optional collection name
     scope_id = ScopeIdentifier(
         organization_id=user.organization_id,
         scope_type=data_scope,
-        user_id=user.user_id if scope == IngestScope.PRIVATE else None
+        user_id=user.user_id if scope == IngestScope.PRIVATE else None,
+        collection_name=collection_name
     )
+
+    # If collection is specified, verify it exists
+    if collection_name:
+        from pymilvus import utility
+        collection_milvus_name = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
+        if not utility.has_collection(collection_milvus_name):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Collection '{collection_name}' not found in {scope.value} scope. Create it first using POST /collections"
+            )
+        logger.info(f"📁 Using existing collection: {collection_name}")
 
     logger.info(f"📄 Starting ingest for: {file.filename}")
     logger.info(f"👤 User: {user.user_id} (org: {user.organization_id})")
@@ -386,6 +406,10 @@ async def batch_ingest_documents(
         IngestScope.PRIVATE,
         description="Storage scope: 'private' (your documents - default) or 'shared' (organization documents)"
     ),
+    collection_name: Optional[str] = Form(
+        None,
+        description="Optional collection name (must exist). If None, documents go to default space."
+    ),
     max_files: int = 10,
     user: UserContext = Depends(require_permission("documents", "upload"))
 ):
@@ -399,18 +423,34 @@ async def batch_ingest_documents(
     Scope options:
     - PRIVATE (default): Store in user's private collection/bucket
     - SHARED: Store in organization shared collection/bucket
+
+    Collection feature:
+    - collection_name=None: Store in default space (backward compatible)
+    - collection_name="xyz": Store in named collection (must exist first)
     """
     start_time = datetime.datetime.now()
 
     # Convert IngestScope to DataScope for ScopeIdentifier
     data_scope = DataScope(scope.value)
 
-    # Create scope identifier
+    # Create scope identifier with optional collection name
     scope_id = ScopeIdentifier(
         organization_id=user.organization_id,
         scope_type=data_scope,
-        user_id=user.user_id if scope == IngestScope.PRIVATE else None
+        user_id=user.user_id if scope == IngestScope.PRIVATE else None,
+        collection_name=collection_name
     )
+
+    # If collection is specified, verify it exists
+    if collection_name:
+        from pymilvus import utility
+        collection_milvus_name = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
+        if not utility.has_collection(collection_milvus_name):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Collection '{collection_name}' not found in {scope.value} scope. Create it first using POST /collections"
+            )
+        logger.info(f"📁 Using existing collection for batch ingest: {collection_name}")
 
     # Validate file count
     if len(files) > max_files:

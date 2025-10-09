@@ -63,8 +63,8 @@ class QueryOrchestrator:
             expanded_sources = self._expand_sources(request.sources)
             logger.info(f"📋 Expanded sources: {[s.value for s in expanded_sources]}")
 
-            # 2. Create handlers for each source type with options
-            handlers = self._create_handlers(expanded_sources, user, user_token, options)
+            # 2. Create handlers for each source type with options and collection filter
+            handlers = self._create_handlers(expanded_sources, user, user_token, options, request.collections)
 
             if not handlers:
                 logger.warning("⚠️ No handlers created - no accessible sources")
@@ -148,19 +148,34 @@ class QueryOrchestrator:
         sources: List[DataScope],
         user: UserContext,
         user_token: str,
-        options: QueryOptions
+        options: QueryOptions,
+        collection_names: List[str] = None
     ) -> List[BaseHandler]:
-        """Create handlers for requested sources with query options"""
+        """
+        Create handlers for requested sources with query options
+
+        Args:
+            sources: List of data sources to search
+            user: User context
+            user_token: JWT token for external services
+            options: Query options (tone, lang, etc.)
+            collection_names: Optional list of collection names to filter (None = all)
+        """
         handlers = []
 
         # Group Milvus sources (PRIVATE, SHARED)
         milvus_sources = [s for s in sources if s in [DataScope.PRIVATE, DataScope.SHARED]]
         if milvus_sources:
-            logger.info(f"📦 Creating Milvus handler for: {[s.value for s in milvus_sources]}")
+            if collection_names:
+                logger.info(f"📦 Creating Milvus handler for: {[s.value for s in milvus_sources]} with collections: {collection_names}")
+            else:
+                logger.info(f"📦 Creating Milvus handler for: {[s.value for s in milvus_sources]} (all collections)")
+
             handlers.append(
                 MilvusSearchHandler(
                     user=user,
                     scopes=milvus_sources,
+                    collection_names=collection_names,
                     options=options
                 )
             )

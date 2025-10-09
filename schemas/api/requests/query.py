@@ -59,6 +59,12 @@ class QueryRequest(BaseModel):
         description="List of data sources to search: 'private' (your documents), 'shared' (organization documents), 'mevzuat' (legislation), 'karar' (court decisions)"
     )
 
+    # Collection filtering (optional)
+    collections: Optional[List[str]] = Field(
+        default=None,
+        description="Optional list of collection names to search within. If None, searches all collections in specified sources. Only applies to 'private' and 'shared' sources."
+    )
+
     top_k: int = Field(default=5, ge=1, le=20, description="Maximum number of sources to retrieve from vector DB")
     use_reranker: bool = Field(default=True, description="Whether to use reranking for better results")
 
@@ -88,20 +94,34 @@ class QueryRequest(BaseModel):
 
     model_config = {
         "json_schema_extra": {
-            "example": {
-                "question": "İcra ve İflas Kanunu nedir?",
-                "sources": ["private", "mevzuat"],
-                "top_k": 5,
-                "use_reranker": True,
-                "min_relevance_score": 0.7,
-                "include_low_confidence_sources": False,
-                "max_sources_in_context": 5,
-                "options": {
-                    "tone": "resmi",
-                    "lang": "tr",  # or "eng" for English
-                    "citations": True,
-                    "stream": False
+            "examples": [
+                {
+                    "question": "İcra ve İflas Kanunu nedir?",
+                    "sources": ["private", "mevzuat"],
+                    "top_k": 5,
+                    "use_reranker": True,
+                    "min_relevance_score": 0.7,
+                    "include_low_confidence_sources": False,
+                    "max_sources_in_context": 5,
+                    "options": {
+                        "tone": "resmi",
+                        "lang": "tr",
+                        "citations": True,
+                        "stream": False
+                    }
+                },
+                {
+                    "question": "What are the key legal principles?",
+                    "sources": ["private", "shared"],
+                    "collections": ["legal-research", "contracts"],
+                    "top_k": 5,
+                    "use_reranker": True,
+                    "options": {
+                        "tone": "resmi",
+                        "lang": "eng",
+                        "citations": True
+                    }
                 }
-            }
+            ]
         }
     }

@@ -1,0 +1,153 @@
+"""
+Collection management response schemas
+"""
+from typing import Optional, Dict, Any, List
+from pydantic import BaseModel, Field
+
+
+class CollectionInfo(BaseModel):
+    """Information about a collection"""
+    name: str = Field(..., description="Collection name")
+    scope: str = Field(..., description="Collection scope (private/shared)")
+    description: Optional[str] = Field(None, description="Collection description")
+    document_count: int = Field(0, description="Number of documents in collection")
+    chunk_count: int = Field(0, description="Number of chunks in collection")
+    created_at: str = Field(..., description="Creation timestamp (ISO format)")
+    updated_at: Optional[str] = Field(None, description="Last update timestamp (ISO format)")
+    size_bytes: int = Field(0, description="Total storage size in bytes")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Custom metadata")
+
+    # Collection technical info
+    milvus_collection_name: str = Field(..., description="Milvus collection name")
+    minio_prefix: str = Field(..., description="MinIO storage prefix")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "name": "legal-research",
+                    "scope": "private",
+                    "description": "Legal research documents",
+                    "document_count": 15,
+                    "chunk_count": 320,
+                    "created_at": "2025-10-09T10:30:00Z",
+                    "updated_at": "2025-10-09T14:20:00Z",
+                    "size_bytes": 5242880,
+                    "metadata": {"category": "legal"},
+                    "milvus_collection_name": "17d0faab_0830_4007_8ed6_73cfd049505b_col_legal_research_chunks_1536",
+                    "minio_prefix": "users/17d0faab-0830-4007-8ed6-73cfd049505b/collections/legal-research/docs/"
+                }
+            ]
+        }
+    }
+
+
+class CreateCollectionResponse(BaseModel):
+    """Response after creating a collection"""
+    message: str = Field(..., description="Success message")
+    collection: CollectionInfo = Field(..., description="Created collection information")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "message": "Collection 'legal-research' created successfully",
+                    "collection": {
+                        "name": "legal-research",
+                        "scope": "private",
+                        "description": "Legal research documents",
+                        "document_count": 0,
+                        "chunk_count": 0,
+                        "created_at": "2025-10-09T10:30:00Z",
+                        "size_bytes": 0,
+                        "milvus_collection_name": "17d0faab_0830_4007_8ed6_73cfd049505b_col_legal_research_chunks_1536",
+                        "minio_prefix": "users/17d0faab-0830-4007-8ed6-73cfd049505b/collections/legal-research/docs/"
+                    }
+                }
+            ]
+        }
+    }
+
+
+class ListCollectionsResponse(BaseModel):
+    """Response for listing collections"""
+    total_count: int = Field(..., description="Total number of collections")
+    collections: List[CollectionInfo] = Field(..., description="List of collections")
+    scope_filter: Optional[str] = Field(None, description="Applied scope filter")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "total_count": 2,
+                    "collections": [
+                        {
+                            "name": "legal-research",
+                            "scope": "private",
+                            "document_count": 15,
+                            "chunk_count": 320,
+                            "created_at": "2025-10-09T10:30:00Z",
+                            "size_bytes": 5242880,
+                            "milvus_collection_name": "17d0faab_col_legal_research_chunks_1536",
+                            "minio_prefix": "users/17d0faab/collections/legal-research/docs/"
+                        }
+                    ],
+                    "scope_filter": "private"
+                }
+            ]
+        }
+    }
+
+
+class DeleteCollectionResponse(BaseModel):
+    """Response after deleting a collection"""
+    message: str = Field(..., description="Success message")
+    collection_name: str = Field(..., description="Deleted collection name")
+    scope: str = Field(..., description="Collection scope")
+    documents_deleted: int = Field(0, description="Number of documents deleted")
+    chunks_deleted: int = Field(0, description="Number of chunks deleted")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "message": "Collection 'legal-research' deleted successfully",
+                    "collection_name": "legal-research",
+                    "scope": "private",
+                    "documents_deleted": 15,
+                    "chunks_deleted": 320
+                }
+            ]
+        }
+    }
+
+
+class CollectionStatsResponse(BaseModel):
+    """Detailed collection statistics"""
+    collection: CollectionInfo = Field(..., description="Collection information")
+    statistics: Dict[str, Any] = Field(..., description="Detailed statistics")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "collection": {
+                        "name": "legal-research",
+                        "scope": "private",
+                        "document_count": 15,
+                        "chunk_count": 320,
+                        "created_at": "2025-10-09T10:30:00Z",
+                        "size_bytes": 5242880,
+                        "milvus_collection_name": "17d0faab_col_legal_research_chunks_1536",
+                        "minio_prefix": "users/17d0faab/collections/legal-research/docs/"
+                    },
+                    "statistics": {
+                        "avg_chunks_per_document": 21.3,
+                        "total_pages": 450,
+                        "last_ingested": "2025-10-09T14:20:00Z",
+                        "embedding_model": "text-embedding-3-small"
+                    }
+                }
+            ]
+        }
+    }

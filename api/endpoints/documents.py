@@ -25,10 +25,14 @@ async def list_documents(
         None,
         description="Filter by scope: 'private' (your documents), 'shared' (organization documents), or 'all' (both). Default: all accessible documents"
     ),
+    collection: Optional[str] = Query(
+        None,
+        description="Optional collection name to filter documents. If None, lists from default space."
+    ),
     user: UserContext = Depends(get_current_user)  # Only JWT token required
 ):
     """
-    List documents with multi-tenant scope filtering
+    List documents with multi-tenant scope filtering and collection filtering
 
     Requires:
     - Valid JWT token in Authorization header
@@ -39,10 +43,13 @@ async def list_documents(
       - **shared**: Only organization shared documents
       - **all**: Both private and shared documents (default)
       - If not provided, returns all accessible documents
+    - collection (optional): Filter by collection name
+      - If provided, only lists documents from that collection
+      - If None, lists from default space
     """
     try:
         logger.info(f"📋 Listing documents for user {user.user_id} (org: {user.organization_id})")
-        logger.info(f"🎯 Scope filter: {scope or 'all accessible'}")
+        logger.info(f"🎯 Scope filter: {scope or 'all accessible'}, Collection: {collection or 'default'}")
 
         # Determine which collections to query
         target_collections = []
@@ -53,22 +60,26 @@ async def list_documents(
                 private_scope = ScopeIdentifier(
                     organization_id=user.organization_id,
                     scope_type=DataScope.PRIVATE,
-                    user_id=user.user_id
+                    user_id=user.user_id,
+                    collection_name=collection  # Add collection filter
                 )
                 try:
-                    collection = milvus_manager.get_collection(private_scope)
-                    target_collections.append({"collection": collection, "scope_label": "private"})
+                    milvus_collection = milvus_manager.get_collection(private_scope)
+                    scope_label = f"private/{collection}" if collection else "private"
+                    target_collections.append({"collection": milvus_collection, "scope_label": scope_label})
                 except Exception as e:
                     logger.warning(f"Could not load private collection: {e}")
 
             if user.data_access.shared_data:
                 shared_scope = ScopeIdentifier(
                     organization_id=user.organization_id,
-                    scope_type=DataScope.SHARED
+                    scope_type=DataScope.SHARED,
+                    collection_name=collection  # Add collection filter
                 )
                 try:
-                    collection = milvus_manager.get_collection(shared_scope)
-                    target_collections.append({"collection": collection, "scope_label": "shared"})
+                    milvus_collection = milvus_manager.get_collection(shared_scope)
+                    scope_label = f"shared/{collection}" if collection else "shared"
+                    target_collections.append({"collection": milvus_collection, "scope_label": scope_label})
                 except Exception as e:
                     logger.warning(f"Could not load shared collection: {e}")
 
@@ -79,10 +90,12 @@ async def list_documents(
             private_scope = ScopeIdentifier(
                 organization_id=user.organization_id,
                 scope_type=DataScope.PRIVATE,
-                user_id=user.user_id
+                user_id=user.user_id,
+                collection_name=collection  # Add collection filter
             )
-            collection = milvus_manager.get_collection(private_scope)
-            target_collections.append({"collection": collection, "scope_label": "private"})
+            milvus_collection = milvus_manager.get_collection(private_scope)
+            scope_label = f"private/{collection}" if collection else "private"
+            target_collections.append({"collection": milvus_collection, "scope_label": scope_label})
 
         elif scope == DataScope.SHARED:
             if not user.data_access.shared_data:
@@ -90,10 +103,12 @@ async def list_documents(
 
             shared_scope = ScopeIdentifier(
                 organization_id=user.organization_id,
-                scope_type=DataScope.SHARED
+                scope_type=DataScope.SHARED,
+                collection_name=collection  # Add collection filter
             )
-            collection = milvus_manager.get_collection(shared_scope)
-            target_collections.append({"collection": collection, "scope_label": "shared"})
+            milvus_collection = milvus_manager.get_collection(shared_scope)
+            scope_label = f"shared/{collection}" if collection else "shared"
+            target_collections.append({"collection": milvus_collection, "scope_label": scope_label})
 
         # Query all target collections and merge results
         documents = []
@@ -181,16 +196,20 @@ async def list_documents(
 async def delete_document(
     document_id: str,
     scope: DataScope = Query(..., description="Scope of the document to delete (private or shared)"),
+    collection: Optional[str] = Query(None, description="Optional collection name. If None, deletes from default space."),
     user: UserContext = Depends(get_current_user)  # Only JWT token required
 ):
     """
-    Delete a document and all its chunks from a specific scope
+    Delete a document and all its chunks from a specific scope and collection
 
     Requires:
     - Valid JWT token in Authorization header
     - Scope must be specified (private or shared)
     - Users can delete from their PRIVATE scope
     - Only ADMIN role can delete from SHARED scope
+
+    Query Parameters:
+    - collection (optional): Collection name to delete from. If None, deletes from default space.
     """
     # Validate scope permissions
     if scope == DataScope.SHARED and user.role != "admin":
@@ -232,14 +251,16 @@ async def delete_document(
             }
         )
 
-    # Create scope identifier
+    # Create scope identifier with optional collection
     scope_id = ScopeIdentifier(
         organization_id=user.organization_id,
         scope_type=scope,
-        user_id=user.user_id if scope == DataScope.PRIVATE else None
+        user_id=user.user_id if scope == DataScope.PRIVATE else None,
+        collection_name=collection  # Add collection filter
     )
 
-    logger.info(f"🗑️  Deleting document {document_id} from {scope} scope")
+    collection_label = f" from collection '{collection}'" if collection else " from default space"
+    logger.info(f"🗑️  Deleting document {document_id} from {scope} scope{collection_label}")
     logger.info(f"👤 User: {user.user_id} (org: {user.organization_id})")
 
     try:

@@ -27,10 +27,15 @@ class ScopeIdentifier(BaseModel):
 
     This model is used to generate collection names and bucket names
     based on organization, user, and scope type.
+
+    Collections feature:
+    - collection_name=None: Default space (backward compatible)
+    - collection_name="xyz": Named collection for organized data grouping
     """
     organization_id: str = Field(..., description="Organization ID")
     scope_type: DataScope = Field(..., description="Type of data scope")
     user_id: Optional[str] = Field(None, description="User ID (required for PRIVATE scope)")
+    collection_name: Optional[str] = Field(None, description="Optional collection name for data organization")
 
     @field_validator('user_id')
     @classmethod
@@ -45,9 +50,13 @@ class ScopeIdentifier(BaseModel):
         """
         Generate Milvus collection name for this scope
 
-        Format:
-        - PRIVATE: user_{user_id}_chunks_{dimension}
-        - SHARED: org_{org_id}_shared_chunks_{dimension}
+        Format (without collection_name - default):
+        - PRIVATE: {user_id}_chunks_{dimension}
+        - SHARED: {org_id}_shared_chunks_{dimension}
+
+        Format (with collection_name):
+        - PRIVATE: {user_id}_col_{collection_name}_chunks_{dimension}
+        - SHARED: {org_id}_col_{collection_name}_chunks_{dimension}
 
         Note: UUID dashes are converted to underscores for Milvus compatibility
         (Milvus only allows letters, numbers, and underscores)
@@ -59,13 +68,23 @@ class ScopeIdentifier(BaseModel):
             Collection name string (safe for Milvus)
         """
         if self.scope_type == DataScope.PRIVATE:
-            # User ID is globally unique, no need for org_id prefix
+            # User ID is globally unique
             safe_user_id = self.user_id.replace('-', '_')
-            return f"user_{safe_user_id}_chunks_{dimension}"
+            if self.collection_name:
+                safe_collection = self.collection_name.replace('-', '_').replace(' ', '_')
+                # Prefix with "user_" to ensure it starts with a letter (Milvus requirement)
+                return f"user_{safe_user_id}_col_{safe_collection}_chunks_{dimension}"
+            # Default collection (backward compatible)
+            return f"{safe_user_id}_chunks_{dimension}"
         elif self.scope_type == DataScope.SHARED:
-            # Organization shared collection needs org_id
+            # Organization shared collection
             safe_org_id = self.organization_id.replace('-', '_')
-            return f"org_{safe_org_id}_shared_chunks_{dimension}"
+            if self.collection_name:
+                safe_collection = self.collection_name.replace('-', '_').replace(' ', '_')
+                # Prefix with "org_" to ensure it starts with a letter (Milvus requirement)
+                return f"org_{safe_org_id}_col_{safe_collection}_chunks_{dimension}"
+            # Default shared collection (backward compatible)
+            return f"{safe_org_id}_shared_chunks_{dimension}"
         else:
             raise ValueError(f"Cannot generate collection name for scope type: {self.scope_type}")
 
@@ -86,8 +105,10 @@ class ScopeIdentifier(BaseModel):
         Generate MinIO object prefix (folder path) for this scope
 
         Folder structure with org/user hierarchy:
-        - PRIVATE: users/{user_id}/{category}/
-        - SHARED: shared/{category}/
+        - PRIVATE (default): users/{user_id}/{category}/
+        - PRIVATE (collection): users/{user_id}/collections/{collection_name}/{category}/
+        - SHARED (default): shared/{category}/
+        - SHARED (collection): shared/collections/{collection_name}/{category}/
 
         Args:
             category: Storage category ("docs" or "chunks")
@@ -97,11 +118,17 @@ class ScopeIdentifier(BaseModel):
 
         Examples:
             Private docs: "users/17d0faab-0830-4007-8ed6-73cfd049505b/docs/"
+            Private collection: "users/17d0faab-0830-4007-8ed6-73cfd049505b/collections/legal-research/docs/"
             Shared chunks: "shared/chunks/"
+            Shared collection: "shared/collections/contracts/chunks/"
         """
         if self.scope_type == DataScope.PRIVATE:
+            if self.collection_name:
+                return f"users/{self.user_id}/collections/{self.collection_name}/{category}/"
             return f"users/{self.user_id}/{category}/"
         elif self.scope_type == DataScope.SHARED:
+            if self.collection_name:
+                return f"shared/collections/{self.collection_name}/{category}/"
             return f"shared/{category}/"
         else:
             raise ValueError(f"Cannot generate object prefix for scope type: {self.scope_type}")
