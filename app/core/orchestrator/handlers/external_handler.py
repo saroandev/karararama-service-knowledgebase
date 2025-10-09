@@ -15,7 +15,7 @@ class ExternalServiceHandler(BaseHandler):
     Global DB service generates answers with its own prompts.
     """
 
-    def __init__(self, source_type: SourceType, user_token: str, bucket: str):
+    def __init__(self, source_type: SourceType, user_token: str, bucket: str, options=None):
         """
         Initialize external service handler
 
@@ -23,9 +23,10 @@ class ExternalServiceHandler(BaseHandler):
             source_type: MEVZUAT or KARAR
             user_token: JWT token for authentication
             bucket: Bucket name for Global DB ("mevzuat" or "karar")
+            options: Query options for tone, citations, etc.
         """
         # No system_prompt needed - external service generates its own answer
-        super().__init__(source_type, system_prompt=None)
+        super().__init__(source_type, system_prompt=None, options=options)
         self.user_token = user_token
         self.bucket = bucket
         self.global_db_client = get_global_db_client()
@@ -52,15 +53,16 @@ class ExternalServiceHandler(BaseHandler):
 
         try:
             icon = "📜" if self.source_type == SourceType.MEVZUAT else "⚖️"
-            self.logger.info(f"{icon} Querying Global DB service ({self.bucket})...")
+            self.logger.info(f"{icon} Querying Global DB service ({self.bucket}) with options: tone={self.options.tone}, citations={self.options.citations}...")
 
-            # Call external service
+            # Call external service with options
             external_response = await self.global_db_client.search_public(
                 question=question,
                 user_token=self.user_token,
                 top_k=top_k,
                 min_relevance_score=min_relevance_score,
-                bucket=self.bucket
+                bucket=self.bucket,
+                options=self.options
             )
 
             processing_time = time.time() - start_time

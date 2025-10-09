@@ -1,12 +1,15 @@
 """Base handler interface for search operations"""
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from dataclasses import dataclass
 from enum import Enum
 import logging
 from openai import OpenAI
 from app.config import settings
+
+if TYPE_CHECKING:
+    from schemas.api.requests.query import QueryOptions
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +57,21 @@ class HandlerResult:
 class BaseHandler(ABC):
     """Abstract base class for all search handlers"""
 
-    def __init__(self, source_type: SourceType, system_prompt: Optional[str] = None):
+    def __init__(
+        self,
+        source_type: SourceType,
+        system_prompt: Optional[str] = None,
+        options: Optional['QueryOptions'] = None
+    ):
         self.source_type = source_type
         self.system_prompt = system_prompt
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+
+        # Set default options if not provided
+        if options is None:
+            from schemas.api.requests.query import QueryOptions
+            options = QueryOptions()
+        self.options = options
 
     @abstractmethod
     async def search(
@@ -107,6 +121,32 @@ class BaseHandler(ABC):
             processing_time=processing_time
         )
 
+    def _apply_tone_to_prompt(self, base_prompt: str) -> str:
+        """
+        Apply tone modification to system prompt based on query options
+
+        Args:
+            base_prompt: Original system prompt
+
+        Returns:
+            Modified prompt with tone instructions
+        """
+        if not base_prompt:
+            return base_prompt
+
+        # Tone modifiers for different communication styles
+        tone_modifiers = {
+            "resmi": "\n\nDİL TONU: Resmi ve profesyonel bir dil kullan. Saygılı ve kurumsal bir üslup benimse.",
+            "samimi": "\n\nDİL TONU: Samimi ve sıcak bir dil kullan. Doğal ve arkadaşça bir üslup benimse.",
+            "teknik": "\n\nDİL TONU: Teknik terimler kullan. Detaylı ve hassas açıklamalar yap. Uzmanlara hitap eder gibi yaz.",
+            "basit": "\n\nDİL TONU: Basit ve herkesin anlayabileceği bir dil kullan. Teknik terimleri açıkla, sade ifadeler tercih et."
+        }
+
+        # Get modifier for current tone (default to resmi if not found)
+        modifier = tone_modifiers.get(self.options.tone, "")
+
+        return base_prompt + modifier
+
     async def _generate_answer(
         self,
         question: str,
@@ -137,22 +177,31 @@ class BaseHandler(ABC):
             context_parts = []
             for i, result in enumerate(search_results[:max_sources]):
                 page_info = f"Sayfa {result.page_number}" if result.page_number else ""
-                context_parts.append(
-                    f"[Kaynak {i+1} {page_info}]: {result.text}"
-                )
+
+                # Include citations based on options
+                if self.options.citations:
+                    context_parts.append(
+                        f"[Kaynak {i+1} {page_info}]: {result.text}"
+                    )
+                else:
+                    # No citation markers, just the text
+                    context_parts.append(result.text)
 
             context = "\n\n".join(context_parts)
 
+            # Apply tone modification to system prompt
+            final_prompt = self._apply_tone_to_prompt(self.system_prompt)
+
             # Generate answer with OpenAI
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
-            self.logger.info(f"🤖 Generating answer for {self.source_type} with {len(search_results)} sources...")
+            self.logger.info(f"🤖 Generating answer for {self.source_type} with {len(search_results)} sources (tone={self.options.tone}, citations={self.options.citations})...")
 
             chat_response = client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
                 messages=[
                     {
                         "role": "system",
-                        "content": self.system_prompt
+                        "content": final_prompt
                     },
                     {
                         "role": "user",

@@ -48,6 +48,14 @@ The system follows a modular architecture with clear separation of concerns:
     - `content_analyzer.py`: Content quality analysis
     - `type_detector.py`: Document type detection
     - `metadata_extractor.py`: Metadata extraction
+  - `app/core/orchestrator/`: Multi-source query orchestration (NEW)
+    - `orchestrator.py`: Main orchestrator coordinating parallel searches
+    - `aggregator.py`: Result aggregation and LLM answer generation
+    - `handlers/`: Source-specific search handlers
+      - `base.py`: Base handler interface
+      - `milvus_handler.py`: Handles PRIVATE/SHARED Milvus collections
+      - `external_handler.py`: Handles MEVZUAT/KARAR external services
+    - `prompts.py`: LLM prompts for answer generation
   - `app/core/auth.py`: JWT authentication and permission checking
   - `app/core/exceptions.py`: Custom auth exceptions
   - `app/services/auth_service.py`: Auth service client for usage tracking
@@ -113,12 +121,21 @@ org-696e4ef0-9470-4425-ba80-43d94a48a4c1/
 - `pdf-bucket`: Old PDF storage
 
 ### Processing Pipeline
+
+**Ingestion Flow:**
 1. PDF ingestion → Text extraction (PyMuPDF)
 2. Document validation → Quality checks, type detection, metadata extraction
 3. Text chunking → Multiple strategies (token, semantic, document, hybrid)
 4. Embedding generation → OpenAI or local models
-5. Vector storage → Milvus collection
-6. Query processing → Semantic search + reranking + GPT generation
+5. Vector storage → Milvus scope-specific collection
+6. Object storage → MinIO with org/user folder isolation
+
+**Query Flow (Orchestrated Multi-Source):**
+1. Query request → Orchestrator analyzes requested sources
+2. Handler creation → Parallel handlers for each source type (Milvus, external services)
+3. Parallel execution → All handlers search simultaneously
+4. Result aggregation → Combines results from all sources
+5. LLM generation → GPT generates unified answer with source attribution
 
 ## Authentication & Authorization
 
@@ -144,10 +161,16 @@ JWT tokens decode to a UserContext containing:
 - `data_access`: Access flags for own_data and shared_data
 
 ### Data Scope System
-The system implements three data scopes:
+The system implements five data scopes for queries:
 - **PRIVATE**: User's personal documents (accessible only by owner)
 - **SHARED**: Organization-wide documents (accessible by all org members)
-- **ALL**: Query across both private and shared (based on access permissions)
+- **ALL**: Query across both private and shared (expands to PRIVATE + SHARED)
+- **MEVZUAT**: Public Turkish legislation (external service, requires separate permissions)
+- **KARAR**: Public court decisions (external service, requires separate permissions)
+
+**Ingestion only supports:** PRIVATE and SHARED scopes (via IngestScope enum)
+
+**Query Orchestrator:** Automatically routes queries to appropriate handlers based on requested scopes, executing searches in parallel and aggregating results.
 
 See `auth-integration.md` for comprehensive integration guide.
 
@@ -257,10 +280,10 @@ The system implements organization-based multi-tenancy with data isolation:
 ```
 Organization (org_id)
   ├── Shared Scope (org-wide documents)
-  │   └── Collection: rag_chunks_{org_id}_shared
+  │   └── Collection: org_{org_id}_shared_chunks_1536
   └── Private Scopes (per-user documents)
-      ├── User 1: rag_chunks_{org_id}_private_{user1_id}
-      ├── User 2: rag_chunks_{org_id}_private_{user2_id}
+      ├── User 1: user_{user1_id}_chunks_1536
+      ├── User 2: user_{user2_id}_chunks_1536
       └── ...
 ```
 
@@ -280,23 +303,69 @@ private_scope = ScopeIdentifier(
     scope_type=DataScope.PRIVATE,
     user_id=user.user_id
 )
+# Collection name: user_{user_id}_chunks_1536
+# Bucket: org-{org_id}
+# Prefix: users/{user_id}/docs/
 
 # Create scope identifier for shared collection
 shared_scope = ScopeIdentifier(
     organization_id=user.organization_id,
     scope_type=DataScope.SHARED
 )
+# Collection name: org_{org_id}_shared_chunks_1536
+# Bucket: org-{org_id}
+# Prefix: shared/docs/
 
 # Get scoped collection
 collection = milvus_manager.get_collection(scope_id)
+```
+
+### Query Orchestration Architecture
+
+The system uses an **orchestrator pattern** for handling multi-source queries:
+
+**Components:**
+1. **QueryOrchestrator** (`app/core/orchestrator/orchestrator.py`)
+   - Analyzes requested sources from query
+   - Creates appropriate handlers for each source type
+   - Executes handlers in parallel using asyncio.gather()
+   - Coordinates result aggregation
+
+2. **Search Handlers** (`app/core/orchestrator/handlers/`)
+   - **MilvusSearchHandler**: Searches PRIVATE/SHARED Milvus collections
+   - **ExternalServiceHandler**: Queries external services (MEVZUAT, KARAR)
+   - Each handler returns HandlerResult with sources and metadata
+
+3. **ResultAggregator** (`app/core/orchestrator/aggregator.py`)
+   - Combines results from all handlers
+   - Deduplicates and ranks sources by relevance
+   - Generates unified LLM answer citing all sources
+   - Tracks which sources contributed to the answer
+
+**Flow Example:**
+```python
+# Query with multiple sources
+request = QueryRequest(
+    question="What is the legal definition?",
+    sources=[DataScope.PRIVATE, DataScope.MEVZUAT],
+    top_k=5
+)
+
+# Orchestrator creates 2 handlers:
+# 1. MilvusSearchHandler for PRIVATE collection
+# 2. ExternalServiceHandler for MEVZUAT service
+
+# Both execute in parallel
+# Results aggregated and unified answer generated
 ```
 
 ### Milvus Collection Schema
 The system uses **scope-based collections** for multi-tenant isolation:
 
 **Collection Naming Pattern:**
-- Private: `rag_chunks_{org_id}_private_{user_id}`
-- Shared: `rag_chunks_{org_id}_shared`
+- Private: `user_{user_id}_chunks_1536` (user ID is globally unique)
+- Shared: `org_{org_id}_shared_chunks_1536`
+- UUID dashes are converted to underscores for Milvus compatibility
 
 **Collection Fields:**
 - `id`: Primary key (VARCHAR)
@@ -331,11 +400,13 @@ All endpoints except `/health` require JWT authentication.
   - Query params: `scope` (private/shared) determines where document is stored
   - Returns: document_id and processing statistics
   - Logs usage to auth service
-- `POST /query`: Query the knowledge base
+- `POST /query`: Query the knowledge base (orchestrated multi-source)
   - Requires: `research:query` permission
-  - Body: `{"question": "...", "top_k": 5, "use_reranker": false, "scope": "all"}`
-  - Query params: `scope` (private/shared/all) determines which collections to search
-  - Returns: answer with sources and scores (filtered by min_relevance_score)
+  - Body: `{"question": "...", "top_k": 5, "sources": ["private", "shared", "mevzuat"]}`
+  - Sources: Array of DataScope values (private, shared, all, mevzuat, karar)
+  - "all" expands to both "private" and "shared"
+  - Returns: unified answer with sources from all requested scopes
+  - Uses QueryOrchestrator to execute parallel searches across sources
   - Logs usage to auth service
 - `GET /documents`: List all documents with metadata
   - Query params: `scope` (private/shared/all) filters documents by scope
@@ -407,12 +478,21 @@ LOG_LEVEL=INFO
 ### Making API Changes
 1. Add/modify endpoints in `api/endpoints/`
 2. Update core services in `api/core/` if needed
-3. Add schemas in `schemas/api/`
+3. Add schemas in `schemas/api/requests/` and `schemas/api/responses/`
 4. Add corresponding tests in `tests/unit/` and `tests/integration/`
 5. Run `pytest -m unit` before committing
 6. For protected endpoints, use `Depends(require_permission("resource", "action"))`
 7. For scope-aware endpoints, accept `scope: DataScope` query parameter
 8. Use `milvus_manager.get_collection(scope_id)` to get scoped collections
+
+### Working with Query Orchestrator
+- Query endpoint uses `QueryOrchestrator` to handle multi-source searches
+- To add new source types:
+  1. Add to `DataScope` enum in `schemas/api/requests/scope.py`
+  2. Create handler in `app/core/orchestrator/handlers/`
+  3. Update `orchestrator._create_handlers()` to instantiate new handler
+- Handlers execute in parallel automatically
+- Results are aggregated by `ResultAggregator`
 
 ### Working with Storage
 - MinIO operations are in `app/core/storage/client.py`
@@ -564,7 +644,10 @@ pytest --cov=app --cov-report=html:test_output/htmlcov
 - All endpoints (except `/health`) require valid JWT token
 - Permissions use format: `resource:action` (e.g., "research:query", "research:ingest")
 - **Multi-tenant isolation**: Each organization has separate Milvus collections (private and shared)
-- **Scope parameter**: Most endpoints accept `scope` query param (private/shared/all)
+- **Collection naming**: Private uses `user_{user_id}_chunks_1536`, Shared uses `org_{org_id}_shared_chunks_1536`
+- **Scope parameter**: Ingest accepts `scope` (private/shared), Query accepts `sources` array
+- **Multi-source queries**: Query orchestrator handles parallel searches across multiple sources
+- **External services**: MEVZUAT and KARAR are external public data sources requiring separate permissions
 - **Role-based deletion**: Only admins can delete from shared scope
 - **Query filtering**: Sources are filtered by relevance score (configurable via DEFAULT_MIN_RELEVANCE_SCORE)
-- The current branch is `feature/auth` - main branch for PRs is typically `main` or `master`
+- The current branch is `feature/prompt_eng` - main branch for PRs is typically `main` or `master`

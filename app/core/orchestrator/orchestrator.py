@@ -9,7 +9,7 @@ from app.core.orchestrator.handlers.base import BaseHandler, SourceType
 from app.core.orchestrator.handlers.milvus_handler import MilvusSearchHandler
 from app.core.orchestrator.handlers.external_handler import ExternalServiceHandler
 from app.core.orchestrator.aggregator import ResultAggregator
-from schemas.api.requests.query import QueryRequest
+from schemas.api.requests.query import QueryRequest, QueryOptions
 from schemas.api.requests.scope import DataScope
 from schemas.api.responses.query import QueryResponse
 from app.core.auth import UserContext
@@ -55,12 +55,16 @@ class QueryOrchestrator:
             logger.info(f"📝 Question: {request.question}")
             logger.info(f"🔍 Requested sources: {[s.value for s in request.sources]}")
 
+            # Set default options if not provided
+            options = request.options or QueryOptions()
+            logger.info(f"⚙️ Query options: tone={options.tone}, citations={options.citations}, lang={options.lang}")
+
             # 1. Expand ALL to PRIVATE + SHARED
             expanded_sources = self._expand_sources(request.sources)
             logger.info(f"📋 Expanded sources: {[s.value for s in expanded_sources]}")
 
-            # 2. Create handlers for each source type
-            handlers = self._create_handlers(expanded_sources, user, user_token)
+            # 2. Create handlers for each source type with options
+            handlers = self._create_handlers(expanded_sources, user, user_token, options)
 
             if not handlers:
                 logger.warning("⚠️ No handlers created - no accessible sources")
@@ -143,16 +147,23 @@ class QueryOrchestrator:
         self,
         sources: List[DataScope],
         user: UserContext,
-        user_token: str
+        user_token: str,
+        options: QueryOptions
     ) -> List[BaseHandler]:
-        """Create handlers for requested sources"""
+        """Create handlers for requested sources with query options"""
         handlers = []
 
         # Group Milvus sources (PRIVATE, SHARED)
         milvus_sources = [s for s in sources if s in [DataScope.PRIVATE, DataScope.SHARED]]
         if milvus_sources:
             logger.info(f"📦 Creating Milvus handler for: {[s.value for s in milvus_sources]}")
-            handlers.append(MilvusSearchHandler(user=user, scopes=milvus_sources))
+            handlers.append(
+                MilvusSearchHandler(
+                    user=user,
+                    scopes=milvus_sources,
+                    options=options
+                )
+            )
 
         # Create handler for MEVZUAT
         if DataScope.MEVZUAT in sources:
@@ -161,7 +172,8 @@ class QueryOrchestrator:
                 ExternalServiceHandler(
                     source_type=SourceType.MEVZUAT,
                     user_token=user_token,
-                    bucket="mevzuat"
+                    bucket="mevzuat",
+                    options=options
                 )
             )
 
@@ -172,7 +184,8 @@ class QueryOrchestrator:
                 ExternalServiceHandler(
                     source_type=SourceType.KARAR,
                     user_token=user_token,
-                    bucket="karar"
+                    bucket="karar",
+                    options=options
                 )
             )
 

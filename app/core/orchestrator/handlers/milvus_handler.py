@@ -16,13 +16,14 @@ from app.core.auth import UserContext
 class MilvusSearchHandler(BaseHandler):
     """Handler for searching in Milvus collections (PRIVATE and SHARED)"""
 
-    def __init__(self, user: UserContext, scopes: List[DataScope]):
+    def __init__(self, user: UserContext, scopes: List[DataScope], options=None):
         """
         Initialize Milvus handler
 
         Args:
             user: User context with permissions
             scopes: List of scopes to search (PRIVATE, SHARED, or both)
+            options: Query options for tone, citations, etc.
         """
         # Use the first scope as source_type (or "private" if multiple)
         source_type = SourceType.PRIVATE if DataScope.PRIVATE in scopes else SourceType.SHARED
@@ -35,7 +36,7 @@ class MilvusSearchHandler(BaseHandler):
         else:
             system_prompt = PromptTemplate.PRIVATE_SCOPE  # Default
 
-        super().__init__(source_type, system_prompt=system_prompt)
+        super().__init__(source_type, system_prompt=system_prompt, options=options)
 
         self.user = user
         self.scopes = scopes

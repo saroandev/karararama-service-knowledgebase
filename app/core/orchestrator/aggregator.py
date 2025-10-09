@@ -7,7 +7,7 @@ from openai import OpenAI
 
 from app.core.orchestrator.handlers.base import HandlerResult, SearchResult, SourceType
 from app.core.orchestrator.prompts import PromptTemplate
-from schemas.api.requests.query import QueryRequest
+from schemas.api.requests.query import QueryRequest, QueryOptions
 from schemas.api.responses.query import QueryResponse, QuerySource
 from app.config import settings
 from app.core.storage import storage
@@ -63,6 +63,9 @@ class ResultAggregator:
             if not all_results and not has_any_answer:
                 return self._create_empty_response(request, user, processing_time)
 
+            # Get options (default if not provided)
+            options = request.options or QueryOptions()
+
             # 3. Convert to QuerySource objects and filter by relevance
             high_confidence_sources = []
             low_confidence_sources = []
@@ -78,9 +81,14 @@ class ResultAggregator:
 
                     # Add to context (limited by max_sources_in_context)
                     if len(high_confidence_sources) <= request.max_sources_in_context:
-                        context_parts.append(
-                            f"[Kaynak {len(high_confidence_sources)} - Sayfa {result.page_number}]: {result.text}"
-                        )
+                        # Include citations based on options
+                        if options.citations:
+                            context_parts.append(
+                                f"[Kaynak {len(high_confidence_sources)} - Sayfa {result.page_number}]: {result.text}"
+                            )
+                        else:
+                            # No citation markers
+                            context_parts.append(result.text)
                 else:
                     # Low confidence source
                     if request.include_low_confidence_sources:
@@ -110,13 +118,21 @@ class ResultAggregator:
                 f"Retrieved: {len(all_results)} | "
                 f"High confidence: {len(high_confidence_sources)} | "
                 f"Low confidence: {len(low_confidence_sources)} | "
-                f"Threshold: {request.min_relevance_score}"
+                f"Threshold: {request.min_relevance_score} | "
+                f"Citations: {options.citations}"
             )
 
-            # 7. Return response
+            # 7. Apply citations control to response
+            # If citations=false, return empty sources array (user wants clean answer only)
+            final_sources = high_confidence_sources if options.citations else []
+            final_low_confidence = low_confidence_sources if (options.citations and request.include_low_confidence_sources) else None
+
+            logger.info(f"📋 Returning {len(final_sources)} sources (citations={options.citations})")
+
+            # 8. Return response
             return QueryResponse(
                 answer=answer,
-                sources=high_confidence_sources,
+                sources=final_sources,
                 processing_time=processing_time,
                 model_used=model_used,
                 tokens_used=tokens_used,
@@ -124,7 +140,7 @@ class ResultAggregator:
                 total_sources_retrieved=len(all_results),
                 sources_after_filtering=len(high_confidence_sources),
                 min_score_applied=request.min_relevance_score,
-                low_confidence_sources=low_confidence_sources if request.include_low_confidence_sources else None
+                low_confidence_sources=final_low_confidence
             )
 
         except Exception as e:
@@ -211,9 +227,13 @@ class ResultAggregator:
 
         # Strategy 2: Multiple sources - synthesize answers
         if len(handler_answers) > 1:
+            # Get options for synthesis
+            options = request.options or QueryOptions()
+
             answer, tokens_used = await self._synthesize_answers(
                 answers=handler_answers,
-                question=request.question
+                question=request.question,
+                options=options
             )
             model_used = f"{settings.OPENAI_MODEL} (meta-synthesis)"
             logger.info(f"✅ Synthesized answer from {len(handler_answers)} sources")
@@ -229,7 +249,8 @@ class ResultAggregator:
     async def _synthesize_answers(
         self,
         answers: Dict[str, str],
-        question: str
+        question: str,
+        options: QueryOptions
     ) -> tuple[str, int]:
         """
         Synthesize multiple scope-specific answers into a comprehensive meta-answer
@@ -237,6 +258,7 @@ class ResultAggregator:
         Args:
             answers: Dict mapping source_type to generated answer
             question: Original user question
+            options: Query options for tone, citations, etc.
 
         Returns:
             (synthesized_answer, tokens_used)
@@ -264,6 +286,19 @@ class ResultAggregator:
         combined_answers = "\n\n---\n\n".join(combined_text)
 
         try:
+            # Apply tone modification to synthesis prompt
+            synthesis_prompt = PromptTemplate.META_SYNTHESIS
+
+            # Add tone modifier if not default (resmi)
+            if options.tone != "resmi":
+                tone_modifiers = {
+                    "samimi": "\n\nDİL TONU: Samimi ve sıcak bir dil kullan.",
+                    "teknik": "\n\nDİL TONU: Teknik terimler kullan, detaylı açıkla.",
+                    "basit": "\n\nDİL TONU: Basit ve anlaşılır bir dil kullan."
+                }
+                modifier = tone_modifiers.get(options.tone, "")
+                synthesis_prompt += modifier
+
             # Generate meta-synthesis with OpenAI
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
@@ -272,7 +307,7 @@ class ResultAggregator:
                 messages=[
                     {
                         "role": "system",
-                        "content": PromptTemplate.META_SYNTHESIS
+                        "content": synthesis_prompt
                     },
                     {
                         "role": "user",

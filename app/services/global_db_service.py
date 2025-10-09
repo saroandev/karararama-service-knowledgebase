@@ -1,10 +1,13 @@
 """Global DB service client for public data queries"""
 
 import httpx
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
 import asyncio
 from app.config.settings import settings
 import logging
+
+if TYPE_CHECKING:
+    from schemas.api.requests.query import QueryOptions
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +26,8 @@ class GlobalDBServiceClient:
         user_token: str,
         top_k: int = 5,
         min_relevance_score: float = 0.7,
-        bucket: Optional[str] = None
+        bucket: Optional[str] = None,
+        options: Optional['QueryOptions'] = None
     ) -> Dict[str, Any]:
         """
         Search public documents via Global DB service
@@ -34,6 +38,7 @@ class GlobalDBServiceClient:
             top_k: Number of results to retrieve
             min_relevance_score: Minimum relevance score
             bucket: Bucket name (defaults to 'mevzuat')
+            options: Query options (tone, citations, lang, stream)
 
         Returns:
             Response from Global DB service with answer and sources
@@ -43,6 +48,7 @@ class GlobalDBServiceClient:
         """
         bucket = bucket or self.default_bucket
 
+        # Build base payload
         payload = {
             "question": question,
             "bucket": bucket,
@@ -51,6 +57,15 @@ class GlobalDBServiceClient:
             "include_sources": True,
             "generate_answer": True
         }
+
+        # Add options if provided
+        if options:
+            payload["options"] = {
+                "tone": options.tone,
+                "lang": options.lang,
+                "citations": options.citations,
+                "stream": options.stream
+            }
 
         headers = {
             "Authorization": f"Bearer {user_token}",
@@ -62,7 +77,9 @@ class GlobalDBServiceClient:
 
         for attempt in range(max_retries):
             try:
-                logger.info(f"🌍 Calling Global DB service (attempt {attempt + 1}): bucket={bucket}, question={question[:50]}...")
+                # Log request with options info
+                options_str = f", options=(tone={options.tone}, citations={options.citations})" if options else ""
+                logger.info(f"🌍 Calling Global DB service (attempt {attempt + 1}): bucket={bucket}{options_str}, question={question[:50]}...")
 
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     response = await client.post(

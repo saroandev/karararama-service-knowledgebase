@@ -1,9 +1,44 @@
 """
 Query request schemas
 """
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel, Field
 from schemas.api.requests.scope import DataScope
+
+
+class QueryOptions(BaseModel):
+    """Query behavior options for controlling LLM response generation"""
+
+    tone: str = Field(
+        default="resmi",
+        description="LLM response tone: resmi (formal), samimi (friendly), teknik (technical), basit (simple)"
+    )
+
+    lang: str = Field(
+        default="tr",
+        description="Response language code: tr (Turkish), en (English)"
+    )
+
+    citations: bool = Field(
+        default=True,
+        description="Include source citations in format [Kaynak 1], [Kaynak 2]"
+    )
+
+    stream: bool = Field(
+        default=False,
+        description="Enable streaming response (SSE) - future feature"
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "tone": "resmi",
+                "lang": "tr",
+                "citations": True,
+                "stream": False
+            }
+        }
+    }
 
 
 class QueryRequest(BaseModel):
@@ -37,6 +72,12 @@ class QueryRequest(BaseModel):
         description="Maximum number of high-confidence sources to include in LLM context"
     )
 
+    # Query behavior options
+    options: Optional[QueryOptions] = Field(
+        default=None,
+        description="Query behavior options (tone, language, citations, streaming)"
+    )
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -46,7 +87,13 @@ class QueryRequest(BaseModel):
                 "use_reranker": True,
                 "min_relevance_score": 0.7,
                 "include_low_confidence_sources": False,
-                "max_sources_in_context": 5
+                "max_sources_in_context": 5,
+                "options": {
+                    "tone": "resmi",
+                    "lang": "tr",
+                    "citations": True,
+                    "stream": False
+                }
             }
         }
     }

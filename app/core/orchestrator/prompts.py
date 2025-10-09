@@ -4,6 +4,14 @@
 class PromptTemplate:
     """System prompts for different data scopes"""
 
+    # Tone modifiers that can be appended to any prompt
+    TONE_MODIFIERS = {
+        "resmi": "\n\nDİL TONU: Resmi ve profesyonel bir dil kullan. Saygılı ve kurumsal bir üslup benimse.",
+        "samimi": "\n\nDİL TONU: Samimi ve sıcak bir dil kullan. Doğal ve arkadaşça bir üslup benimse.",
+        "teknik": "\n\nDİL TONU: Teknik terimler kullan. Detaylı ve hassas açıklamalar yap. Uzmanlara hitap eder gibi yaz.",
+        "basit": "\n\nDİL TONU: Basit ve herkesin anlayabileceği bir dil kullan. Teknik terimleri açıkla, sade ifadeler tercih et."
+    }
+
     PRIVATE_SCOPE = """Sen kullanıcının kişisel belge asistanısın.
 
 GÖREVİN:
@@ -120,15 +128,16 @@ CEVAP FORMATI:
 • Hangi kaynağın daha güncel/resmi olduğunu belirt"""
 
     @classmethod
-    def get_prompt_for_scope(cls, scope_type: str) -> str:
+    def get_prompt_for_scope(cls, scope_type: str, tone: str = "resmi") -> str:
         """
-        Get appropriate prompt template for given scope
+        Get appropriate prompt template for given scope with optional tone modification
 
         Args:
             scope_type: 'private', 'shared', 'mevzuat', or 'karar'
+            tone: 'resmi', 'samimi', 'teknik', or 'basit' (default: 'resmi')
 
         Returns:
-            System prompt string
+            System prompt string with tone modifier appended
         """
         prompt_map = {
             "private": cls.PRIVATE_SCOPE,
@@ -137,4 +146,11 @@ CEVAP FORMATI:
             "karar": cls.KARAR_SCOPE,
         }
 
-        return prompt_map.get(scope_type, cls.PRIVATE_SCOPE)
+        base_prompt = prompt_map.get(scope_type, cls.PRIVATE_SCOPE)
+
+        # Add tone modifier if specified and different from default
+        if tone and tone != "resmi":
+            tone_modifier = cls.TONE_MODIFIERS.get(tone, "")
+            return base_prompt + tone_modifier
+
+        return base_prompt
