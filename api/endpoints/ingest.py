@@ -37,6 +37,9 @@ from app.services.auth_service import get_auth_service_client
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# Import collection metadata updater
+from api.endpoints.collections import update_collection_metadata
+
 
 @router.post("/ingest", response_model=Union[SuccessfulIngestResponse, ExistingDocumentResponse, FailedIngestResponse])
 @retry_with_backoff(max_retries=3)
@@ -172,10 +175,12 @@ async def ingest_document(
             logger.info(f"[INGEST] Calling upload_pdf_to_raw_documents for {document_id}")
 
             # Prepare enhanced metadata with validation results
+            document_size_bytes = len(pdf_data)
             upload_metadata = {
                 "document_id": document_id,
                 "file_hash": file_hash,
                 "original_filename": file.filename,
+                "document_size_bytes": document_size_bytes,
                 "document_type": validation_result.document_type,
                 "validation_status": validation_result.status,
                 "validation_timestamp": validation_result.validation_timestamp.isoformat()
@@ -261,6 +266,7 @@ async def ingest_document(
                 "document_title": document_title,
                 "file_hash": file_hash,
                 "created_at": int(current_time.timestamp() * 1000),
+                "document_size_bytes": document_size_bytes,
                 "embedding_model": settings.EMBEDDING_MODEL,
                 "embedding_dimension": len(embeddings[i]) if i < len(embeddings) else 1536,
                 "embedding_size_bytes": len(embeddings[i]) * 4 if i < len(embeddings) else 1536 * 4,
@@ -270,8 +276,11 @@ async def ingest_document(
                 "organization_id": user.organization_id,
                 "user_id": user.user_id if data_scope == DataScope.PRIVATE else None,
                 "scope_type": data_scope.value,
-                "uploaded_by": user.user_id
+                "uploaded_by": user.user_id,
+                "uploaded_by_email": user.email
             }
+            if collection_name:
+                meta["collection_name"] = collection_name
             combined_metadata.append(meta)
 
         # Save chunks to MinIO
@@ -306,6 +315,13 @@ async def ingest_document(
 
         collection.insert(data)
         collection.load()  # Reload for immediate search
+
+        # Update collection metadata if using a named collection
+        if collection_name:
+            try:
+                update_collection_metadata(scope_id)
+            except Exception as meta_error:
+                logger.warning(f"Failed to update collection metadata: {meta_error}")
 
         processing_time = (datetime.datetime.now() - start_time).total_seconds()
 
@@ -534,6 +550,7 @@ async def batch_ingest_documents(
                 raise ValueError("No valid chunks created from document")
 
             # Upload to MinIO
+            document_size_bytes = len(pdf_data)
             try:
                 storage.upload_pdf_to_raw_documents(
                     document_id=document_id,
@@ -542,7 +559,8 @@ async def batch_ingest_documents(
                     metadata={
                         "document_id": document_id,
                         "file_hash": file_hash,
-                        "original_filename": file.filename
+                        "original_filename": file.filename,
+                        "document_size_bytes": document_size_bytes
                     },
                     scope=scope_id
                 )
@@ -566,6 +584,7 @@ async def batch_ingest_documents(
                     "document_title": document_title,
                     "file_hash": file_hash,
                     "created_at": int(current_time.timestamp() * 1000),
+                    "document_size_bytes": document_size_bytes,
                     "embedding_model": settings.EMBEDDING_MODEL,
                     "embedding_dimension": len(embeddings[i]) if i < len(embeddings) else 1536,
                     "embedding_size_bytes": len(embeddings[i]) * 4 if i < len(embeddings) else 1536 * 4,  # float32 = 4 bytes
@@ -573,8 +592,11 @@ async def batch_ingest_documents(
                     "organization_id": user.organization_id,
                     "user_id": user.user_id if data_scope == DataScope.PRIVATE else None,
                     "scope_type": data_scope.value,
-                    "uploaded_by": user.user_id
+                    "uploaded_by": user.user_id,
+                    "uploaded_by_email": user.email
                 }
+                if collection_name:
+                    meta["collection_name"] = collection_name
                 combined_metadata.append(meta)
 
             data = [
@@ -634,6 +656,13 @@ async def batch_ingest_documents(
             ))
 
     total_processing_time = (datetime.datetime.now() - start_time).total_seconds()
+
+    # Update collection metadata after batch ingest (if using a named collection)
+    if collection_name and successful > 0:
+        try:
+            update_collection_metadata(scope_id)
+        except Exception as meta_error:
+            logger.warning(f"Failed to update collection metadata after batch ingest: {meta_error}")
 
     return BatchIngestResponse(
         total_files=len(files),

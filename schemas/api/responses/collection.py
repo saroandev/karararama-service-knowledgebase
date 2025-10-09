@@ -13,8 +13,11 @@ class CollectionInfo(BaseModel):
     document_count: int = Field(0, description="Number of documents in collection")
     chunk_count: int = Field(0, description="Number of chunks in collection")
     created_at: str = Field(..., description="Creation timestamp (ISO format)")
+    created_by: str = Field(..., description="User ID who created the collection")
+    created_by_email: Optional[str] = Field(None, description="Email of the creator")
     updated_at: Optional[str] = Field(None, description="Last update timestamp (ISO format)")
     size_bytes: int = Field(0, description="Total storage size in bytes")
+    size_mb: float = Field(0.0, description="Total storage size in megabytes")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Custom metadata")
 
     # Collection technical info
@@ -31,8 +34,11 @@ class CollectionInfo(BaseModel):
                     "document_count": 15,
                     "chunk_count": 320,
                     "created_at": "2025-10-09T10:30:00Z",
+                    "created_by": "17d0faab-0830-4007-8ed6-73cfd049505b",
+                    "created_by_email": "user@example.com",
                     "updated_at": "2025-10-09T14:20:00Z",
                     "size_bytes": 5242880,
+                    "size_mb": 5.0,
                     "metadata": {"category": "legal"},
                     "milvus_collection_name": "17d0faab_0830_4007_8ed6_73cfd049505b_col_legal_research_chunks_1536",
                     "minio_prefix": "users/17d0faab-0830-4007-8ed6-73cfd049505b/collections/legal-research/docs/"
@@ -59,7 +65,11 @@ class CreateCollectionResponse(BaseModel):
                         "document_count": 0,
                         "chunk_count": 0,
                         "created_at": "2025-10-09T10:30:00Z",
+                        "created_by": "17d0faab-0830-4007-8ed6-73cfd049505b",
+                        "created_by_email": "user@example.com",
+                        "updated_at": None,
                         "size_bytes": 0,
+                        "size_mb": 0.0,
                         "milvus_collection_name": "17d0faab_0830_4007_8ed6_73cfd049505b_col_legal_research_chunks_1536",
                         "minio_prefix": "users/17d0faab-0830-4007-8ed6-73cfd049505b/collections/legal-research/docs/"
                     }
@@ -87,7 +97,11 @@ class ListCollectionsResponse(BaseModel):
                             "document_count": 15,
                             "chunk_count": 320,
                             "created_at": "2025-10-09T10:30:00Z",
+                            "created_by": "17d0faab-0830-4007-8ed6-73cfd049505b",
+                            "created_by_email": "user@example.com",
+                            "updated_at": "2025-10-09T14:20:00Z",
                             "size_bytes": 5242880,
+                            "size_mb": 5.0,
                             "milvus_collection_name": "17d0faab_col_legal_research_chunks_1536",
                             "minio_prefix": "users/17d0faab/collections/legal-research/docs/"
                         }
@@ -137,7 +151,11 @@ class CollectionStatsResponse(BaseModel):
                         "document_count": 15,
                         "chunk_count": 320,
                         "created_at": "2025-10-09T10:30:00Z",
+                        "created_by": "17d0faab-0830-4007-8ed6-73cfd049505b",
+                        "created_by_email": "user@example.com",
+                        "updated_at": "2025-10-09T14:20:00Z",
                         "size_bytes": 5242880,
+                        "size_mb": 5.0,
                         "milvus_collection_name": "17d0faab_col_legal_research_chunks_1536",
                         "minio_prefix": "users/17d0faab/collections/legal-research/docs/"
                     },

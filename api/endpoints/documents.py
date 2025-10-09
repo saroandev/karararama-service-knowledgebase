@@ -139,12 +139,20 @@ async def list_documents(
                 doc_title = meta_dict.get('document_title', 'Unknown')
                 file_hash = meta_dict.get('file_hash', '')
                 created_at = meta_dict.get('created_at', 0)
+                document_size_bytes = meta_dict.get('document_size_bytes', 0)
+                document_type = meta_dict.get('document_type', 'PDF')
+                uploaded_by = meta_dict.get('uploaded_by', '')
+                uploaded_by_email = meta_dict.get('uploaded_by_email', '')
+                collection_name_meta = meta_dict.get('collection_name', None)
 
                 # Convert timestamp to ISO format if exists
                 if created_at:
                     created_at_str = datetime.datetime.fromtimestamp(created_at / 1000).isoformat()
                 else:
                     created_at_str = datetime.datetime.now().isoformat()
+
+                # Calculate size in MB
+                size_mb = round(document_size_bytes / (1024 * 1024), 2) if document_size_bytes > 0 else 0.0
 
                 # Count chunks for this document in this collection
                 chunk_count = len(collection.query(
@@ -165,8 +173,15 @@ async def list_documents(
                     chunks_count=chunk_count,
                     created_at=created_at_str,
                     file_hash=file_hash,
+                    size_bytes=document_size_bytes,
+                    size_mb=size_mb,
+                    document_type=document_type,
+                    uploaded_by=uploaded_by,
+                    uploaded_by_email=uploaded_by_email,
+                    collection_name=collection_name_meta,
                     url=document_url,
-                    scope=scope_label  # Add scope info
+                    scope=scope_label,  # Add scope info
+                    metadata=meta_dict
                 ))
 
         # Report usage to auth service (list operation)

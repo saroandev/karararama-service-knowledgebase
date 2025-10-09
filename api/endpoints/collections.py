@@ -18,6 +18,7 @@ from schemas.api.responses.collection import (
     DeleteCollectionResponse,
     CollectionInfo
 )
+from schemas.api.responses.document import DocumentInfo
 from api.core.milvus_manager import milvus_manager
 from app.core.auth import UserContext, get_current_user
 from app.core.storage import storage
@@ -26,6 +27,100 @@ from pymilvus import utility
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def update_collection_metadata(scope_id: ScopeIdentifier):
+    """
+    Update collection metadata statistics in MinIO after document ingestion
+
+    This function recalculates and updates:
+    - document_count: Number of unique documents
+    - chunk_count: Total number of chunks
+    - size_bytes: Total storage size
+    - last_updated: Timestamp of last update
+
+    Args:
+        scope_id: Scope identifier with collection name
+
+    Note: Silently fails if collection metadata doesn't exist (for backward compatibility)
+    """
+    try:
+        minio_prefix = scope_id.get_object_prefix("docs")
+        metadata_path = f"{minio_prefix}_collection_metadata.json"
+        bucket = scope_id.get_bucket_name()
+        client = storage.client_manager.get_client()
+
+        # Check if metadata file exists
+        try:
+            response = client.get_object(bucket, metadata_path)
+            import json
+            collection_meta = json.loads(response.read().decode('utf-8'))
+        except Exception:
+            # Metadata file doesn't exist (default space or collection not created via API)
+            logger.debug(f"Collection metadata not found at {metadata_path}, skipping update")
+            return
+
+        # Get collection from Milvus
+        milvus_collection_name = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
+        if not utility.has_collection(milvus_collection_name):
+            logger.warning(f"Milvus collection {milvus_collection_name} not found, skipping metadata update")
+            return
+
+        collection = milvus_manager.get_collection(scope_id)
+
+        # Calculate current statistics
+        try:
+            stats = collection.query(
+                expr="id != ''",
+                output_fields=["id", "document_id", "metadata"],
+                limit=16384  # Max limit
+            )
+
+            chunk_count = len(stats)
+            document_ids = set(item["document_id"] for item in stats)
+            document_count = len(document_ids)
+
+            # Calculate size from metadata
+            size_bytes = 0
+            for item in stats:
+                meta = item.get("metadata", {})
+                doc_size = meta.get("document_size_bytes", 0) if isinstance(meta, dict) else 0
+                size_bytes += doc_size
+
+            # Divide by chunk count to get approximate document size (since each chunk has the same document_size_bytes)
+            size_bytes = size_bytes // max(chunk_count, 1) * document_count if chunk_count > 0 else 0
+
+        except Exception as e:
+            logger.warning(f"Could not calculate collection stats: {e}")
+            return
+
+        # Update statistics in metadata
+        current_time = datetime.datetime.now().isoformat()
+        collection_meta["statistics"] = {
+            "document_count": document_count,
+            "chunk_count": chunk_count,
+            "size_bytes": size_bytes,
+            "last_updated": current_time
+        }
+
+        # Write updated metadata back to MinIO
+        import json
+        import io
+        metadata_json = json.dumps(collection_meta, ensure_ascii=False, indent=2).encode('utf-8')
+
+        client.put_object(
+            bucket,
+            metadata_path,
+            io.BytesIO(metadata_json),
+            len(metadata_json),
+            content_type="application/json"
+        )
+
+        logger.info(f"✅ Updated collection metadata: {document_count} docs, {chunk_count} chunks, {size_bytes} bytes")
+
+    except Exception as e:
+        # Don't fail the ingest if metadata update fails
+        logger.warning(f"Failed to update collection metadata: {e}")
 
 
 def _check_collection_permission(user: UserContext, scope: IngestScope, operation: str):
@@ -113,6 +208,9 @@ def _get_collection_info(
     metadata = None
     description = None
     created_at = datetime.datetime.now().isoformat()
+    created_by = user.user_id  # Default to current user
+    created_by_email = user.email  # Default to current user email
+    updated_at = None
 
     try:
         # Check for collection metadata file
@@ -127,10 +225,19 @@ def _get_collection_info(
         description = collection_meta.get("description")
         metadata = collection_meta.get("metadata")
         created_at = collection_meta.get("created_at", created_at)
+        created_by = collection_meta.get("created_by", user.user_id)
+        created_by_email = collection_meta.get("created_by_email", user.email)
+
+        # Get last_updated from statistics if available
+        stats = collection_meta.get("statistics", {})
+        updated_at = stats.get("last_updated")
 
     except Exception:
         # No metadata file exists yet
         pass
+
+    # Calculate size in MB
+    size_mb = round(size_bytes / (1024 * 1024), 2) if size_bytes > 0 else 0.0
 
     return CollectionInfo(
         name=collection_name,
@@ -139,7 +246,11 @@ def _get_collection_info(
         document_count=document_count,
         chunk_count=chunk_count,
         created_at=created_at,
+        created_by=created_by,
+        created_by_email=created_by_email,
+        updated_at=updated_at,
         size_bytes=size_bytes,
+        size_mb=size_mb,
         metadata=metadata,
         milvus_collection_name=milvus_collection_name,
         minio_prefix=minio_prefix
@@ -192,14 +303,22 @@ async def create_collection(
         logger.info(f"Created Milvus collection: {collection_name}")
 
         # Save metadata to MinIO
+        current_time = datetime.datetime.now().isoformat()
         metadata_content = {
             "collection_name": request.name,
             "scope": request.scope.value,
             "description": request.description,
             "metadata": request.metadata,
-            "created_at": datetime.datetime.now().isoformat(),
+            "created_at": current_time,
             "created_by": user.user_id,
-            "organization_id": user.organization_id
+            "created_by_email": user.email,
+            "organization_id": user.organization_id,
+            "statistics": {
+                "document_count": 0,
+                "chunk_count": 0,
+                "size_bytes": 0,
+                "last_updated": current_time
+            }
         }
 
         import json
@@ -451,4 +570,145 @@ async def delete_collection(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to delete collection: {str(e)}"
+        )
+
+
+@router.get("/collections/{collection_name}/documents", response_model=List[DocumentInfo])
+async def list_collection_documents(
+    collection_name: str,
+    scope: IngestScope = Query(..., description="Collection scope: 'private' or 'shared'"),
+    user: UserContext = Depends(get_current_user)
+):
+    """
+    List all documents in a specific collection with full metadata
+
+    Returns comprehensive document information including:
+    - Document ID, title, and hash
+    - File size (bytes and MB)
+    - Document type (PDF, DOCX, etc.)
+    - Upload timestamp and uploader information
+    - Chunk count
+
+    Requires:
+    - Valid JWT token
+    - Access to the specified scope (private or shared)
+    """
+    logger.info(f"Listing documents in collection '{collection_name}' ({scope.value} scope)")
+
+    # Convert scope
+    data_scope = DataScope(scope.value)
+
+    # Create scope identifier
+    scope_id = ScopeIdentifier(
+        organization_id=user.organization_id,
+        scope_type=data_scope,
+        user_id=user.user_id if scope == IngestScope.PRIVATE else None,
+        collection_name=collection_name
+    )
+
+    # Check access
+    if data_scope == DataScope.PRIVATE and not user.data_access.own_data:
+        raise HTTPException(status_code=403, detail="No access to private collections")
+
+    if data_scope == DataScope.SHARED and not user.data_access.shared_data:
+        raise HTTPException(status_code=403, detail="No access to shared collections")
+
+    # Check if collection exists in Milvus
+    milvus_collection_name = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
+    if not utility.has_collection(milvus_collection_name):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Collection '{collection_name}' not found in {scope.value} scope"
+        )
+
+    # Get collection from Milvus
+    collection = milvus_manager.get_collection(scope_id)
+
+    # Query all chunks to get document information
+    try:
+        # Query with metadata fields
+        results = collection.query(
+            expr="id != ''",
+            output_fields=["document_id", "metadata"],
+            limit=16384  # Max limit
+        )
+
+        # Group by document_id and extract metadata
+        documents_dict = {}
+        for result in results:
+            doc_id = result["document_id"]
+            if doc_id not in documents_dict:
+                meta = result.get("metadata", {})
+                documents_dict[doc_id] = {
+                    "document_id": doc_id,
+                    "title": meta.get("document_title", "Unknown"),
+                    "file_hash": meta.get("file_hash", ""),
+                    "created_at_ts": meta.get("created_at", 0),
+                    "document_size_bytes": meta.get("document_size_bytes", 0),
+                    "document_type": meta.get("document_type", "PDF"),
+                    "uploaded_by": meta.get("uploaded_by", ""),
+                    "uploaded_by_email": meta.get("uploaded_by_email", ""),
+                    "chunks_count": 1
+                }
+            else:
+                documents_dict[doc_id]["chunks_count"] += 1
+
+        # Convert to DocumentInfo list
+        documents: List[DocumentInfo] = []
+        for doc_id, doc_data in documents_dict.items():
+            # Convert timestamp to ISO format
+            created_at = datetime.datetime.fromtimestamp(doc_data["created_at_ts"] / 1000).isoformat() if doc_data["created_at_ts"] else datetime.datetime.now().isoformat()
+
+            # Calculate size in MB
+            size_bytes = doc_data["document_size_bytes"]
+            size_mb = round(size_bytes / (1024 * 1024), 2) if size_bytes > 0 else 0.0
+
+            # Generate presigned URL for document download
+            url = None
+            try:
+                client = storage.client_manager.get_client()
+                bucket = scope_id.get_bucket_name()
+                # Document path format: users/{user_id}/collections/{collection_name}/docs/{doc_id}/{filename}.pdf
+                # We need to find the actual filename
+                doc_prefix = f"{scope_id.get_object_prefix('docs')}{doc_id}/"
+                objects = list(client.list_objects(bucket, prefix=doc_prefix))
+                if objects:
+                    # Get the first PDF file
+                    for obj in objects:
+                        if obj.object_name.endswith('.pdf'):
+                            url = client.presigned_get_object(bucket, obj.object_name, expires=datetime.timedelta(hours=1))
+                            break
+            except Exception as e:
+                logger.warning(f"Could not generate presigned URL for {doc_id}: {e}")
+
+            documents.append(DocumentInfo(
+                document_id=doc_id,
+                title=doc_data["title"],
+                chunks_count=doc_data["chunks_count"],
+                created_at=created_at,
+                file_hash=doc_data["file_hash"],
+                size_bytes=size_bytes,
+                size_mb=size_mb,
+                document_type=doc_data["document_type"],
+                uploaded_by=doc_data["uploaded_by"],
+                uploaded_by_email=doc_data["uploaded_by_email"],
+                collection_name=collection_name,
+                url=url,
+                scope=scope.value,
+                metadata=None
+            ))
+
+        # Sort by created_at descending
+        documents.sort(key=lambda x: x.created_at, reverse=True)
+
+        logger.info(f"Found {len(documents)} documents in collection '{collection_name}'")
+        return documents
+
+    except Exception as e:
+        logger.error(f"Failed to list documents in collection: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list documents: {str(e)}"
         )
