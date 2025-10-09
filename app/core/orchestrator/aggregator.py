@@ -292,9 +292,9 @@ class ResultAggregator:
             # Add tone modifier if not default (resmi)
             if options.tone != "resmi":
                 tone_modifiers = {
-                    "samimi": "\n\nDİL TONU: Samimi ve sıcak bir dil kullan.",
-                    "teknik": "\n\nDİL TONU: Teknik terimler kullan, detaylı açıkla.",
-                    "basit": "\n\nDİL TONU: Basit ve anlaşılır bir dil kullan."
+                    "samimi": "\n\nYou are a friendly assistant that provides casual and approachable answers based on provided sources. Use a conversational and warm tone.\n\nTONE: Use CASUAL and FRIENDLY language. Be conversational, warm, and approachable as if talking to a friend.",
+                    "teknik": "\n\nYou are a legal-technical expert that provides detailed, accurate, and terminology-rich answers based on provided legal sources. Use field-specific terminology, cite definitions precisely, and include analytical explanations when relevant.\n\nTONE: Use TECHNICAL and DETAILED language. Include specific legal or regulatory terms, cite definitions when necessary, and provide methodical, data-supported reasoning.",
+                    "öğretici": "\n\nYou are an instructive legal assistant that explains legal concepts in a clear, accessible, and educational tone. Your goal is to help the reader understand the reasoning behind the legal provisions and their practical implications.\n\nTONE: Use INSTRUCTIVE and EXPLANATORY language. Explain the reasoning behind rules, give examples, and guide the user toward understanding without oversimplifying the legal meaning."
                 }
                 modifier = tone_modifiers.get(options.tone, "")
                 synthesis_prompt += modifier

@@ -11,7 +11,7 @@ class QueryOptions(BaseModel):
 
     tone: str = Field(
         default="resmi",
-        description="LLM response tone: resmi (formal), samimi (friendly), teknik (technical), basit (simple)"
+        description="LLM response tone: resmi (formal), samimi (friendly), teknik (technical), öğretici (instructive)"
     )
 
     lang: str = Field(
