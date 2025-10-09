@@ -147,6 +147,30 @@ class BaseHandler(ABC):
 
         return base_prompt + modifier
 
+    def _apply_language_to_prompt(self, base_prompt: str) -> str:
+        """
+        Apply language instruction to system prompt based on query options
+
+        Args:
+            base_prompt: Original system prompt (possibly with tone)
+
+        Returns:
+            Modified prompt with language instructions
+        """
+        if not base_prompt:
+            return base_prompt
+
+        # Language instructions - make it VERY strong
+        language_modifiers = {
+            "tr": "\n\n⚠️ ÇOK ÖNEMLİ - DİL: Tüm yanıtını MUTLAKA TÜRKÇE olarak ver. Her cümleyi, her kelimeyi Türkçe yaz. İngilizce kelime kullanma.",
+            "eng": "\n\n⚠️ CRITICAL - LANGUAGE: You MUST respond ENTIRELY in ENGLISH. Every sentence, every word must be in English. Do NOT use Turkish words."
+        }
+
+        # Get language modifier (default to tr if not found)
+        modifier = language_modifiers.get(self.options.lang, language_modifiers["tr"])
+
+        return base_prompt + modifier
+
     async def _generate_answer(
         self,
         question: str,
@@ -189,12 +213,29 @@ class BaseHandler(ABC):
 
             context = "\n\n".join(context_parts)
 
-            # Apply tone modification to system prompt
-            final_prompt = self._apply_tone_to_prompt(self.system_prompt)
+            # Apply tone and language modifications to system prompt
+            prompt_with_tone = self._apply_tone_to_prompt(self.system_prompt)
+            final_prompt = self._apply_language_to_prompt(prompt_with_tone)
 
             # Generate answer with OpenAI
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
-            self.logger.info(f"🤖 Generating answer for {self.source_type} with {len(search_results)} sources (tone={self.options.tone}, citations={self.options.citations})...")
+            self.logger.info(f"🤖 Generating answer for {self.source_type} with {len(search_results)} sources (tone={self.options.tone}, lang={self.options.lang}, citations={self.options.citations})...")
+
+            # Prepare user message based on language
+            if self.options.lang == "eng":
+                user_message = f"""Source Documents:
+{context}
+
+Question: {question}
+
+Please answer this question based on the source documents above and indicate which source(s) you used."""
+            else:
+                user_message = f"""Kaynak Belgeler:
+{context}
+
+Soru: {question}
+
+Lütfen bu soruya kaynak belgelere dayanarak cevap ver ve hangi kaynak(lardan) bilgi aldığını belirt."""
 
             chat_response = client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
@@ -205,12 +246,7 @@ class BaseHandler(ABC):
                     },
                     {
                         "role": "user",
-                        "content": f"""Kaynak Belgeler:
-{context}
-
-Soru: {question}
-
-Lütfen bu soruya kaynak belgelere dayanarak cevap ver ve hangi kaynak(lardan) bilgi aldığını belirt."""
+                        "content": user_message
                     }
                 ],
                 max_tokens=500,

@@ -299,6 +299,32 @@ class ResultAggregator:
                 modifier = tone_modifiers.get(options.tone, "")
                 synthesis_prompt += modifier
 
+            # Add language instruction - make it VERY strong
+            language_modifiers = {
+                "tr": "\n\n⚠️ ÇOK ÖNEMLİ - DİL: Tüm yanıtını MUTLAKA TÜRKÇE olarak ver. Her cümleyi, her kelimeyi Türkçe yaz. İngilizce kelime kullanma.",
+                "eng": "\n\n⚠️ CRITICAL - LANGUAGE: You MUST respond ENTIRELY in ENGLISH. Every sentence, every word must be in English. Do NOT use Turkish words."
+            }
+            lang_modifier = language_modifiers.get(options.lang, language_modifiers["tr"])
+            synthesis_prompt += lang_modifier
+
+            # Prepare user message based on language
+            if options.lang == "eng":
+                user_message = f"""Answers from different sources:
+
+{combined_answers}
+
+Question: {question}
+
+Combine, compare and create a comprehensive response from these answers."""
+            else:
+                user_message = f"""Farklı kaynaklardan gelen cevaplar:
+
+{combined_answers}
+
+Soru: {question}
+
+Bu cevapları birleştir, karşılaştır ve kapsamlı bir yanıt oluştur."""
+
             # Generate meta-synthesis with OpenAI
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
@@ -311,13 +337,7 @@ class ResultAggregator:
                     },
                     {
                         "role": "user",
-                        "content": f"""Farklı kaynaklardan gelen cevaplar:
-
-{combined_answers}
-
-Soru: {question}
-
-Bu cevapları birleştir, karşılaştır ve kapsamlı bir yanıt oluştur."""
+                        "content": user_message
                     }
                 ],
                 max_tokens=700,

@@ -16,7 +16,7 @@ class QueryOptions(BaseModel):
 
     lang: str = Field(
         default="tr",
-        description="Response language code: tr (Turkish), en (English)"
+        description="Response language code: tr (Turkish), eng (English)"
     )
 
     citations: bool = Field(
@@ -31,12 +31,20 @@ class QueryOptions(BaseModel):
 
     model_config = {
         "json_schema_extra": {
-            "example": {
-                "tone": "resmi",
-                "lang": "tr",
-                "citations": True,
-                "stream": False
-            }
+            "examples": [
+                {
+                    "tone": "resmi",
+                    "lang": "tr",
+                    "citations": True,
+                    "stream": False
+                },
+                {
+                    "tone": "resmi",
+                    "lang": "eng",
+                    "citations": True,
+                    "stream": False
+                }
+            ]
         }
     }
 
@@ -90,7 +98,7 @@ class QueryRequest(BaseModel):
                 "max_sources_in_context": 5,
                 "options": {
                     "tone": "resmi",
-                    "lang": "tr",
+                    "lang": "tr",  # or "eng" for English
                     "citations": True,
                     "stream": False
                 }
