@@ -12,7 +12,7 @@ class CreateCollectionRequest(BaseModel):
         ...,
         min_length=1,
         max_length=50,
-        description="Collection name (alphanumeric, hyphens, underscores only)"
+        description="Collection name (supports Turkish characters, spaces, and special characters)"
     )
     scope: IngestScope = Field(
         ...,
@@ -31,16 +31,39 @@ class CreateCollectionRequest(BaseModel):
     @field_validator('name')
     @classmethod
     def validate_name(cls, v):
-        """Validate collection name format"""
+        """
+        Validate collection name format
+
+        Accepts:
+        - Unicode letters (including Turkish: ş, ğ, ı, ö, ü, ç)
+        - Numbers
+        - Spaces
+        - Common special characters: - _ . , ( ) [ ]
+        """
         import re
-        if not re.match(r'^[a-zA-Z0-9_-]+$', v):
+
+        # Strip leading/trailing whitespace
+        v = v.strip()
+
+        # Check if empty after stripping
+        if not v:
+            raise ValueError("Collection name cannot be empty")
+
+        # Allow Unicode letters, numbers, spaces, and common special characters
+        # \w includes [a-zA-Z0-9_] plus Unicode letters
+        if not re.match(r'^[\w\s\-.,()[\]]+$', v, re.UNICODE):
             raise ValueError(
-                "Collection name must contain only alphanumeric characters, hyphens, and underscores"
+                "Collection name can contain letters (including Turkish), numbers, spaces, "
+                "and these special characters: - _ . , ( ) [ ]"
             )
-        # Reserved names
-        if v.lower() in ['default', 'admin', 'system', 'shared', 'private']:
+
+        # Reserved names (case-insensitive check)
+        normalized_lower = v.lower()
+        reserved = ['default', 'admin', 'system', 'shared', 'private', 'all']
+        if normalized_lower in reserved:
             raise ValueError(f"'{v}' is a reserved name and cannot be used")
-        return v.lower()  # Normalize to lowercase
+
+        return v  # Keep original case and format
 
     model_config = {
         "json_schema_extra": {

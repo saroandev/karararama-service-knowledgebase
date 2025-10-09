@@ -46,6 +46,52 @@ class ScopeIdentifier(BaseModel):
             raise ValueError("user_id is required for PRIVATE scope")
         return v
 
+    @staticmethod
+    def _sanitize_collection_name(name: str) -> str:
+        """
+        Sanitize collection name for Milvus compatibility
+
+        Converts:
+        - Turkish characters to ASCII equivalents (ş->s, ğ->g, etc.)
+        - Spaces and special characters to underscores
+        - Uppercase to lowercase
+        - Multiple underscores to single
+
+        Args:
+            name: Original collection name (can contain Turkish chars, spaces, etc.)
+
+        Returns:
+            Milvus-safe collection name
+        """
+        # Turkish character mapping
+        turkish_map = {
+            'ş': 's', 'Ş': 's',
+            'ğ': 'g', 'Ğ': 'g',
+            'ı': 'i', 'İ': 'i',
+            'ö': 'o', 'Ö': 'o',
+            'ü': 'u', 'Ü': 'u',
+            'ç': 'c', 'Ç': 'c'
+        }
+
+        # Convert Turkish characters
+        sanitized = ''.join(turkish_map.get(c, c) for c in name)
+
+        # Convert to lowercase
+        sanitized = sanitized.lower()
+
+        # Replace spaces and special characters with underscores
+        # Keep only alphanumeric and underscores
+        import re
+        sanitized = re.sub(r'[^a-z0-9_]', '_', sanitized)
+
+        # Replace multiple underscores with single
+        sanitized = re.sub(r'_+', '_', sanitized)
+
+        # Remove leading/trailing underscores
+        sanitized = sanitized.strip('_')
+
+        return sanitized
+
     def get_collection_name(self, dimension: int = 1536) -> str:
         """
         Generate Milvus collection name for this scope
@@ -71,7 +117,8 @@ class ScopeIdentifier(BaseModel):
             # User ID is globally unique
             safe_user_id = self.user_id.replace('-', '_')
             if self.collection_name:
-                safe_collection = self.collection_name.replace('-', '_').replace(' ', '_')
+                # Sanitize collection name (Turkish chars, spaces, special chars -> safe)
+                safe_collection = self._sanitize_collection_name(self.collection_name)
                 # Prefix with "user_" to ensure it starts with a letter (Milvus requirement)
                 return f"user_{safe_user_id}_col_{safe_collection}_chunks_{dimension}"
             # Default collection (backward compatible)
@@ -80,7 +127,8 @@ class ScopeIdentifier(BaseModel):
             # Organization shared collection
             safe_org_id = self.organization_id.replace('-', '_')
             if self.collection_name:
-                safe_collection = self.collection_name.replace('-', '_').replace(' ', '_')
+                # Sanitize collection name (Turkish chars, spaces, special chars -> safe)
+                safe_collection = self._sanitize_collection_name(self.collection_name)
                 # Prefix with "org_" to ensure it starts with a letter (Milvus requirement)
                 return f"org_{safe_org_id}_col_{safe_collection}_chunks_{dimension}"
             # Default shared collection (backward compatible)
