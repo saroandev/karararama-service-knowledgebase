@@ -43,13 +43,20 @@ async def list_documents(
       - **shared**: Only organization shared documents
       - **all**: Both private and shared documents (default)
       - If not provided, returns all accessible documents
-    - collection (optional): Filter by collection name
-      - If provided, only lists documents from that collection
-      - If None, lists from default space
+    - collection (REQUIRED): Collection name to list documents from
+      - **Must be specified** - if None, returns empty list
+      - This behavior matches the query endpoint where collections must be explicitly specified
+      - Example: "sozlesmeler", "kanunlar"
     """
     try:
         logger.info(f"📋 Listing documents for user {user.user_id} (org: {user.organization_id})")
-        logger.info(f"🎯 Scope filter: {scope or 'all accessible'}, Collection: {collection or 'default'}")
+        logger.info(f"🎯 Scope filter: {scope or 'all accessible'}, Collection: {collection or 'none (will return empty)'}")
+
+        # NEW BEHAVIOR: If no collection specified, return empty list
+        # This matches the query endpoint behavior where collections must be explicitly specified
+        if collection is None:
+            logger.info("⚠️ No collection specified - returning empty list (collections must be explicitly specified)")
+            return []
 
         # Determine which collections to query
         target_collections = []

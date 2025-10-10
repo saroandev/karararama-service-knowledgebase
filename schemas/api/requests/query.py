@@ -2,8 +2,51 @@
 Query request schemas
 """
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from schemas.api.requests.scope import DataScope
+
+
+class CollectionFilter(BaseModel):
+    """
+    Collection filter with scope specification
+
+    Allows fine-grained control over which collections to search in which scopes.
+    Example: Search "sozlesmeler" collection only in private scope,
+             but "kanunlar" collection in both private and shared scopes.
+    """
+    name: str = Field(..., description="Collection name (case-sensitive, Turkish characters supported)")
+    scopes: List[DataScope] = Field(
+        ...,
+        description="Scopes to search this collection in. Only 'private' and 'shared' are allowed for collections."
+    )
+
+    @field_validator('scopes')
+    @classmethod
+    def validate_scopes(cls, v):
+        """Validate that scopes only contain PRIVATE or SHARED"""
+        allowed_scopes = {DataScope.PRIVATE, DataScope.SHARED}
+        for scope in v:
+            if scope not in allowed_scopes:
+                raise ValueError(
+                    f"Collection scopes can only be 'private' or 'shared'. "
+                    f"Got: '{scope.value}'. Use 'sources' parameter for external data sources like 'mevzuat' or 'karar'."
+                )
+        return v
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "name": "sozlesmeler",
+                    "scopes": ["private", "shared"]
+                },
+                {
+                    "name": "kanunlar",
+                    "scopes": ["private"]
+                }
+            ]
+        }
+    }
 
 
 class QueryOptions(BaseModel):
@@ -59,10 +102,15 @@ class QueryRequest(BaseModel):
         description="List of data sources to search: 'private' (your documents), 'shared' (organization documents), 'mevzuat' (legislation), 'karar' (court decisions)"
     )
 
-    # Collection filtering (optional)
-    collections: Optional[List[str]] = Field(
+    # Collection filtering (optional) - NEW: scope-aware collection filtering
+    collections: Optional[List[CollectionFilter]] = Field(
         default=None,
-        description="Optional list of collection names to search within. If None, searches all collections in specified sources. Only applies to 'private' and 'shared' sources."
+        description=(
+            "Optional collection filters with scope specification. "
+            "If None, NO collections are searched (empty result for Milvus). "
+            "Each filter specifies which collection to search in which scopes (private/shared). "
+            "Example: [{'name': 'sozlesmeler', 'scopes': ['private', 'shared']}, {'name': 'kanunlar', 'scopes': ['private']}]"
+        )
     )
 
     top_k: int = Field(default=5, ge=1, le=20, description="Maximum number of sources to retrieve from vector DB")
@@ -113,7 +161,10 @@ class QueryRequest(BaseModel):
                 {
                     "question": "What are the key legal principles?",
                     "sources": ["private", "shared"],
-                    "collections": ["legal-research", "contracts"],
+                    "collections": [
+                        {"name": "legal-research", "scopes": ["private", "shared"]},
+                        {"name": "contracts", "scopes": ["private"]}
+                    ],
                     "top_k": 5,
                     "use_reranker": True,
                     "options": {

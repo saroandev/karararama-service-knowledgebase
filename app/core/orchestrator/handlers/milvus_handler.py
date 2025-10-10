@@ -2,12 +2,13 @@
 
 import time
 import json
-from typing import List
+from typing import List, Optional
 from fastapi import HTTPException
 
 from app.core.orchestrator.handlers.base import BaseHandler, HandlerResult, SearchResult, SourceType
 from app.core.orchestrator.prompts import PromptTemplate
 from schemas.api.requests.scope import DataScope, ScopeIdentifier
+from schemas.api.requests.query import CollectionFilter
 from api.core.milvus_manager import milvus_manager
 from api.core.embeddings import embedding_service
 from app.core.auth import UserContext
@@ -16,14 +17,14 @@ from app.core.auth import UserContext
 class MilvusSearchHandler(BaseHandler):
     """Handler for searching in Milvus collections (PRIVATE and SHARED)"""
 
-    def __init__(self, user: UserContext, scopes: List[DataScope], collection_names: List[str] = None, options=None):
+    def __init__(self, user: UserContext, scopes: List[DataScope], collection_filters: Optional[List[CollectionFilter]] = None, options=None):
         """
         Initialize Milvus handler
 
         Args:
             user: User context with permissions
             scopes: List of scopes to search (PRIVATE, SHARED, or both)
-            collection_names: Optional list of collection names to filter (None = all collections)
+            collection_filters: Optional list of collection filters with scope specification (None = no collections searched)
             options: Query options for tone, citations, etc.
         """
         # Use the first scope as source_type (or "private" if multiple)
@@ -41,7 +42,7 @@ class MilvusSearchHandler(BaseHandler):
 
         self.user = user
         self.scopes = scopes
-        self.collection_names = collection_names  # Filter for specific collections
+        self.collection_filters = collection_filters  # Scope-aware collection filters
         self.collections = []
 
     async def search(
@@ -134,95 +135,78 @@ class MilvusSearchHandler(BaseHandler):
 
     def _get_target_collections(self):
         """
-        Get Milvus collections based on user permissions and requested scopes
+        Get Milvus collections based on collection filters and user permissions
 
-        If collection_names is provided, only those collections are searched.
-        If collection_names is None, all collections in the scope are searched (including default).
+        NEW BEHAVIOR:
+        - If collection_filters is None or empty → NO collections are searched (empty result)
+        - Each CollectionFilter specifies which collection to search in which scopes
+        - Example: {"name": "sozlesmeler", "scopes": ["private", "shared"]}
+          → Searches both user_id_col_sozlesmeler_chunks_1536 AND org_id_col_sozlesmeler_chunks_1536
         """
-        for scope in self.scopes:
-            if scope == DataScope.PRIVATE:
-                # Check access permission
-                if not self.user.data_access.own_data:
-                    self.logger.warning(f"User {self.user.user_id} doesn't have own_data access")
-                    continue
+        # Guard clause: If no collection filters specified, don't search any collections
+        if not self.collection_filters:
+            self.logger.info("⚠️ No collection filters specified - skipping Milvus search (will return empty results)")
+            return
 
-                # Determine which collections to search
-                if self.collection_names:
-                    # Search specific named collections only
-                    for collection_name in self.collection_names:
-                        private_scope = ScopeIdentifier(
-                            organization_id=self.user.organization_id,
-                            scope_type=DataScope.PRIVATE,
-                            user_id=self.user.user_id,
-                            collection_name=collection_name
-                        )
-                        try:
-                            collection = milvus_manager.get_collection(private_scope)
-                            self.collections.append({
-                                "collection": collection,
-                                "scope_label": f"private/{collection_name}"
-                            })
-                            self.logger.info(f"✅ Added PRIVATE collection: {collection.name} ({collection_name})")
-                        except Exception as e:
-                            self.logger.warning(f"Could not load private collection '{collection_name}': {e}")
-                else:
-                    # Search default collection (backward compatible)
+        self.logger.info(f"🔍 {len(self.collection_filters)} adet koleksiyon işleniyor")
+
+        # Process each collection filter
+        for collection_filter in self.collection_filters:
+            collection_name = collection_filter.name
+            filter_scopes = collection_filter.scopes
+
+            self.logger.info(f"📦 Collection '{collection_name}' - requested scopes: {[s.value for s in filter_scopes]}")
+
+            # Search in each scope specified by the filter
+            for scope in filter_scopes:
+                if scope == DataScope.PRIVATE:
+                    # Check access permission
+                    if not self.user.data_access.own_data:
+                        self.logger.warning(f"❌ User {self.user.user_id} doesn't have own_data access - skipping private/{collection_name}")
+                        continue
+
+                    # Create scope identifier for private collection
                     private_scope = ScopeIdentifier(
                         organization_id=self.user.organization_id,
                         scope_type=DataScope.PRIVATE,
                         user_id=self.user.user_id,
-                        collection_name=None  # Default collection
+                        collection_name=collection_name
                     )
+
                     try:
                         collection = milvus_manager.get_collection(private_scope)
                         self.collections.append({
                             "collection": collection,
-                            "scope_label": "private"
+                            "scope_label": f"private/{collection_name}"
                         })
-                        self.logger.info(f"✅ Added PRIVATE default collection: {collection.name}")
+                        self.logger.info(f"✅ Added PRIVATE collection: {collection.name} (display: private/{collection_name})")
                     except Exception as e:
-                        self.logger.warning(f"Could not load private default collection: {e}")
+                        self.logger.warning(f"⚠️ Could not load private collection '{collection_name}': {e}")
 
-            elif scope == DataScope.SHARED:
-                # Check access permission
-                if not self.user.data_access.shared_data:
-                    self.logger.warning(f"User {self.user.user_id} doesn't have shared_data access")
-                    continue
+                elif scope == DataScope.SHARED:
+                    # Check access permission
+                    if not self.user.data_access.shared_data:
+                        self.logger.warning(f"❌ User {self.user.user_id} doesn't have shared_data access - skipping shared/{collection_name}")
+                        continue
 
-                # Determine which collections to search
-                if self.collection_names:
-                    # Search specific named collections only
-                    for collection_name in self.collection_names:
-                        shared_scope = ScopeIdentifier(
-                            organization_id=self.user.organization_id,
-                            scope_type=DataScope.SHARED,
-                            collection_name=collection_name
-                        )
-                        try:
-                            collection = milvus_manager.get_collection(shared_scope)
-                            self.collections.append({
-                                "collection": collection,
-                                "scope_label": f"shared/{collection_name}"
-                            })
-                            self.logger.info(f"✅ Added SHARED collection: {collection.name} ({collection_name})")
-                        except Exception as e:
-                            self.logger.warning(f"Could not load shared collection '{collection_name}': {e}")
-                else:
-                    # Search default collection (backward compatible)
+                    # Create scope identifier for shared collection
                     shared_scope = ScopeIdentifier(
                         organization_id=self.user.organization_id,
                         scope_type=DataScope.SHARED,
-                        collection_name=None  # Default collection
+                        collection_name=collection_name
                     )
+
                     try:
                         collection = milvus_manager.get_collection(shared_scope)
                         self.collections.append({
                             "collection": collection,
-                            "scope_label": "shared"
+                            "scope_label": f"shared/{collection_name}"
                         })
-                        self.logger.info(f"✅ Added SHARED default collection: {collection.name}")
+                        self.logger.info(f"✅ Added SHARED collection: {collection.name} (display: shared/{collection_name})")
                     except Exception as e:
-                        self.logger.warning(f"Could not load shared default collection: {e}")
+                        self.logger.warning(f"⚠️ Could not load shared collection '{collection_name}': {e}")
+
+        self.logger.info(f"📊 Total collections to search: {len(self.collections)}")
 
     def _convert_milvus_result(self, result, scope_label: str) -> SearchResult:
         """Convert Milvus search result to SearchResult object"""

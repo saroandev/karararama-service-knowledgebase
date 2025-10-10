@@ -1,0 +1,15 @@
+INFO:     Will watch for changes in these directories: ['/Users/ugur/Desktop/Onedocs-RAG-Project']
+INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+INFO:     Started reloader process [95231] using WatchFiles
+INFO:     Started server process [95260]
+INFO:     Waiting for application startup.
+2025-10-10 14:56:21,415 - api.main - INFO - Starting RAG API server...
+2025-10-10 14:56:21,415 - api.main - INFO - All endpoints are ready at http://0.0.0.0:8080
+2025-10-10 14:56:21,415 - api.main - INFO - API documentation available at http://0.0.0.0:8080/docs
+INFO:     Application startup complete.
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+2025-10-10 14:57:28,550 - api.main - INFO - Shutting down RAG API server...
+INFO:     Application shutdown complete.
+INFO:     Finished server process [95260]
+INFO:     Stopping reloader process [95231]
