@@ -3,6 +3,7 @@ Collection management response schemas
 """
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
+from enum import Enum
 
 
 class CollectionInfo(BaseModel):
@@ -165,6 +166,62 @@ class CollectionStatsResponse(BaseModel):
                         "last_ingested": "2025-10-09T14:20:00Z",
                         "embedding_model": "text-embedding-3-small"
                     }
+                }
+            ]
+        }
+    }
+
+
+class CollectionSearchResult(BaseModel):
+    """Single search result from collection query"""
+    score: float = Field(..., description="Relevance score (0-1, cosine similarity)")
+    document_id: str = Field(..., description="Document identifier")
+    text: str = Field(..., description="Chunk text content")
+    source_type: str = Field(..., description="Source type (private/shared)")
+    chunk_index: int = Field(0, description="Chunk index in document")
+    page_number: int = Field(0, description="Page number in document")
+    document_title: str = Field("Unknown", description="Document title")
+    collection_name: str = Field(..., description="Collection name where result was found")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
+
+
+class CollectionQueryResponse(BaseModel):
+    """Response from collection query endpoint"""
+    results: List[CollectionSearchResult] = Field(
+        ...,
+        description="Search results from all queried collections"
+    )
+    generated_answer: Optional[str] = Field(
+        None,
+        description="Generated answer based on retrieved results"
+    )
+    success: bool = Field(..., description="Whether the query succeeded")
+    processing_time: float = Field(..., description="Processing time in seconds")
+    collections_searched: int = Field(..., description="Number of collections searched")
+    total_results: int = Field(..., description="Total number of results found")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "results": [
+                        {
+                            "score": 0.89,
+                            "document_id": "doc_abc123",
+                            "text": "Sözleşme fesih koşulları...",
+                            "source_type": "private",
+                            "chunk_index": 5,
+                            "page_number": 12,
+                            "document_title": "İş Sözleşmesi Örneği",
+                            "collection_name": "sozlesmeler",
+                            "metadata": {"created_at": "2025-01-10"}
+                        }
+                    ],
+                    "generated_answer": "Sözleşme fesih koşulları şunlardır: ...",
+                    "success": True,
+                    "processing_time": 1.25,
+                    "collections_searched": 2,
+                    "total_results": 5
                 }
             ]
         }

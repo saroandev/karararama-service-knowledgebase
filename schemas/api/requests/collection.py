@@ -1,9 +1,10 @@
 """
 Collection management request schemas
 """
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, field_validator
 from schemas.api.requests.scope import IngestScope
+from schemas.api.requests.query import CollectionFilter, QueryOptions
 
 
 class CreateCollectionRequest(BaseModel):
@@ -105,6 +106,47 @@ class UpdateCollectionRequest(BaseModel):
                 {
                     "description": "Updated legal research collection",
                     "metadata": {"last_review": "2025-10-09"}
+                }
+            ]
+        }
+    }
+
+
+class CollectionQueryRequest(BaseModel):
+    """Request schema for querying collections"""
+    question: str = Field(..., description="Question to search for in collections")
+    collections: List[CollectionFilter] = Field(
+        ...,
+        description="List of collections to search with their scopes"
+    )
+    top_k: int = Field(default=5, ge=1, le=20, description="Maximum number of results per collection")
+    min_relevance_score: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Minimum relevance score threshold"
+    )
+    options: Optional[QueryOptions] = Field(
+        default=None,
+        description="Query options for tone, language, citations"
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "question": "Sözleşme fesih koşulları nelerdir?",
+                    "collections": [
+                        {"name": "sozlesmeler", "scopes": ["private", "shared"]},
+                        {"name": "kanunlar", "scopes": ["private"]}
+                    ],
+                    "top_k": 5,
+                    "min_relevance_score": 0.7,
+                    "options": {
+                        "tone": "resmi",
+                        "lang": "tr",
+                        "citations": True
+                    }
                 }
             ]
         }

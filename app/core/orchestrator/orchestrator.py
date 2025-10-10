@@ -6,7 +6,7 @@ import time
 from typing import List
 
 from app.core.orchestrator.handlers.base import BaseHandler, SourceType
-from app.core.orchestrator.handlers.milvus_handler import MilvusSearchHandler
+from app.core.orchestrator.handlers.collection_handler import CollectionServiceHandler
 from app.core.orchestrator.handlers.external_handler import ExternalServiceHandler
 from app.core.orchestrator.aggregator import ResultAggregator
 from schemas.api.requests.query import QueryRequest, QueryOptions
@@ -172,18 +172,12 @@ class QueryOrchestrator:
 
         # 1. Create handler for COLLECTIONS (if specified)
         if collection_filters:
-            # Extract unique scopes from collections
-            collection_scopes = set()
-            for cf in collection_filters:
-                collection_scopes.update(cf.scopes)
-
-            logger.info(f"🗂️ Creating Milvus handler for COLLECTIONS: {len(collection_filters)} collection(s) in scopes {[s.value for s in collection_scopes]}")
+            logger.info(f"🗂️ Creating Collection handler: {len(collection_filters)} collection(s)")
 
             handlers.append(
-                MilvusSearchHandler(
-                    user=user,
-                    scopes=list(collection_scopes),
-                    collection_filters=collection_filters,
+                CollectionServiceHandler(
+                    collections=collection_filters,
+                    user_token=user_token,
                     options=options
                 )
             )

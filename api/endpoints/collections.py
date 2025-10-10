@@ -7,19 +7,24 @@ Collections are namespaces within a scope (private/shared) for better organizati
 
 import logging
 import datetime
+import time
+import json
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Depends, Query
 
-from schemas.api.requests.collection import CreateCollectionRequest, UpdateCollectionRequest
+from schemas.api.requests.collection import CreateCollectionRequest, UpdateCollectionRequest, CollectionQueryRequest
 from schemas.api.requests.scope import DataScope, IngestScope, ScopeIdentifier
 from schemas.api.responses.collection import (
     CreateCollectionResponse,
     ListCollectionsResponse,
     DeleteCollectionResponse,
-    CollectionInfo
+    CollectionInfo,
+    CollectionQueryResponse,
+    CollectionSearchResult
 )
 from schemas.api.responses.document import DocumentInfo
 from api.core.milvus_manager import milvus_manager
+from api.core.embeddings import embedding_service
 from app.core.auth import UserContext, get_current_user
 from app.core.storage import storage
 from app.config import settings
