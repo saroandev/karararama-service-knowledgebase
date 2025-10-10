@@ -98,8 +98,8 @@ class QueryRequest(BaseModel):
 
     # Multi-source selection parameter
     sources: List[DataScope] = Field(
-        default=[DataScope.PRIVATE, DataScope.SHARED],
-        description="List of data sources to search: 'private' (your documents), 'shared' (organization documents), 'mevzuat' (legislation), 'karar' (court decisions)"
+        default=[],
+        description="List of data sources to search: 'private' (your documents), 'shared' (organization documents), 'mevzuat' (legislation), 'karar' (court decisions). If empty, no search is performed."
     )
 
     # Collection filtering (optional) - NEW: scope-aware collection filtering

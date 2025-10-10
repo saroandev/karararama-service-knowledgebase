@@ -138,16 +138,63 @@ class MilvusSearchHandler(BaseHandler):
         Get Milvus collections based on collection filters and user permissions
 
         NEW BEHAVIOR:
-        - If collection_filters is None or empty → NO collections are searched (empty result)
-        - Each CollectionFilter specifies which collection to search in which scopes
+        - If collection_filters is None → Search DEFAULT SPACES (backward compatible)
+        - If collection_filters is specified → Search NAMED COLLECTIONS
         - Example: {"name": "sozlesmeler", "scopes": ["private", "shared"]}
           → Searches both user_id_col_sozlesmeler_chunks_1536 AND org_id_col_sozlesmeler_chunks_1536
         """
-        # Guard clause: If no collection filters specified, don't search any collections
+        # Case 1: No collection filters → Search DEFAULT SPACES
         if not self.collection_filters:
-            self.logger.info("⚠️ No collection filters specified - skipping Milvus search (will return empty results)")
+            self.logger.info("📦 Collection filters yok - DEFAULT space'lerde arama yapılacak")
+
+            for scope in self.scopes:
+                if scope == DataScope.PRIVATE:
+                    if not self.user.data_access.own_data:
+                        self.logger.warning(f"❌ User {self.user.user_id} doesn't have own_data access")
+                        continue
+
+                    private_scope = ScopeIdentifier(
+                        organization_id=self.user.organization_id,
+                        scope_type=DataScope.PRIVATE,
+                        user_id=self.user.user_id,
+                        collection_name=None  # Default space
+                    )
+
+                    try:
+                        collection = milvus_manager.get_collection(private_scope, auto_create=False)
+                        self.collections.append({
+                            "collection": collection,
+                            "scope_label": "private"
+                        })
+                        self.logger.info(f"✅ Private DEFAULT space bulundu: {collection.name}")
+                    except Exception as e:
+                        self.logger.warning(f"⚠️ Private default space bulunamadı: {e}")
+
+                elif scope == DataScope.SHARED:
+                    if not self.user.data_access.shared_data:
+                        self.logger.warning(f"❌ User {self.user.user_id} doesn't have shared_data access")
+                        continue
+
+                    shared_scope = ScopeIdentifier(
+                        organization_id=self.user.organization_id,
+                        scope_type=DataScope.SHARED,
+                        collection_name=None  # Default space
+                    )
+
+                    try:
+                        collection = milvus_manager.get_collection(shared_scope, auto_create=False)
+                        self.collections.append({
+                            "collection": collection,
+                            "scope_label": "shared"
+                        })
+                        self.logger.info(f"✅ Shared DEFAULT space bulundu: {collection.name}")
+                    except Exception as e:
+                        self.logger.warning(f"⚠️ Shared default space bulunamadı: {e}")
+
+            self.logger.info(f"📊 Toplam {len(self.collections)} default space'te arama yapılacak")
             return
 
+        # Case 2: Collection filters specified → Search NAMED COLLECTIONS
         self.logger.info(f"🔍 {len(self.collection_filters)} adet koleksiyon işleniyor")
 
         # Process each collection filter
@@ -155,7 +202,7 @@ class MilvusSearchHandler(BaseHandler):
             collection_name = collection_filter.name
             filter_scopes = collection_filter.scopes
 
-            self.logger.info(f"📦 Collection '{collection_name}' - requested scopes: {[s.value for s in filter_scopes]}")
+            self.logger.info(f"📦 '{collection_name}' koleksiyonu - aranacak scope'lar: {[s.value for s in filter_scopes]}")
 
             # Search in each scope specified by the filter
             for scope in filter_scopes:
@@ -174,14 +221,18 @@ class MilvusSearchHandler(BaseHandler):
                     )
 
                     try:
-                        collection = milvus_manager.get_collection(private_scope)
+                        collection = milvus_manager.get_collection(private_scope, auto_create=False)
                         self.collections.append({
                             "collection": collection,
                             "scope_label": f"private/{collection_name}"
                         })
-                        self.logger.info(f"✅ Added PRIVATE collection: {collection.name} (display: private/{collection_name})")
+                        self.logger.info(f"✅ '{collection_name}' private koleksiyonu bulundu ve aranacak: {collection.name}")
                     except Exception as e:
-                        self.logger.warning(f"⚠️ Could not load private collection '{collection_name}': {e}")
+                        error_msg = f"'{collection_name}' private koleksiyonu bulunamadı"
+                        if "does not exist" in str(e).lower() or "not exist" in str(e).lower():
+                            self.logger.warning(f"⚠️ {error_msg} (koleksiyon oluşturulmamış olabilir)")
+                        else:
+                            self.logger.warning(f"⚠️ {error_msg}: {str(e)}")
 
                 elif scope == DataScope.SHARED:
                     # Check access permission
@@ -197,16 +248,20 @@ class MilvusSearchHandler(BaseHandler):
                     )
 
                     try:
-                        collection = milvus_manager.get_collection(shared_scope)
+                        collection = milvus_manager.get_collection(shared_scope, auto_create=False)
                         self.collections.append({
                             "collection": collection,
                             "scope_label": f"shared/{collection_name}"
                         })
-                        self.logger.info(f"✅ Added SHARED collection: {collection.name} (display: shared/{collection_name})")
+                        self.logger.info(f"✅ '{collection_name}' shared koleksiyonu bulundu ve aranacak: {collection.name}")
                     except Exception as e:
-                        self.logger.warning(f"⚠️ Could not load shared collection '{collection_name}': {e}")
+                        error_msg = f"'{collection_name}' shared koleksiyonu bulunamadı"
+                        if "does not exist" in str(e).lower() or "not exist" in str(e).lower():
+                            self.logger.warning(f"⚠️ {error_msg} (koleksiyon oluşturulmamış olabilir)")
+                        else:
+                            self.logger.warning(f"⚠️ {error_msg}: {str(e)}")
 
-        self.logger.info(f"📊 Total collections to search: {len(self.collections)}")
+        self.logger.info(f"📊 Toplam {len(self.collections)} koleksiyonda arama yapılacak")
 
     def _convert_milvus_result(self, result, scope_label: str) -> SearchResult:
         """Convert Milvus search result to SearchResult object"""

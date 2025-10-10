@@ -45,15 +45,19 @@ class MilvusConnectionManager:
                 raise
         return connections
 
-    def get_collection(self, scope: Optional[ScopeIdentifier] = None) -> Collection:
+    def get_collection(self, scope: Optional[ScopeIdentifier] = None, auto_create: bool = True) -> Collection:
         """
         Get Milvus collection for the specified scope
 
         Args:
             scope: ScopeIdentifier for multi-tenant (if None, uses legacy MILVUS_COLLECTION)
+            auto_create: If True, creates collection if it doesn't exist. If False, raises exception.
 
         Returns:
             Collection instance
+
+        Raises:
+            Exception: If collection doesn't exist and auto_create is False
         """
         # Legacy mode: no scope provided, use settings
         if scope is None:
@@ -68,10 +72,14 @@ class MilvusConnectionManager:
         try:
             self.get_connection()
 
-            # Check if collection exists, create if not
+            # Check if collection exists
             if not utility.has_collection(collection_name):
-                logger.warning(f"Collection {collection_name} does not exist, creating...")
-                self._create_collection(collection_name)
+                if auto_create:
+                    logger.warning(f"Collection {collection_name} does not exist, creating...")
+                    self._create_collection(collection_name)
+                else:
+                    # Collection doesn't exist and auto-create is disabled
+                    raise Exception(f"Collection '{collection_name}' does not exist")
 
             # Load collection
             collection = Collection(collection_name)
