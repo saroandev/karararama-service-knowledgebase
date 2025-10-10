@@ -26,8 +26,8 @@ services:
         container_name: milvus-minio
         image: minio/minio:latest
         environment:
-            MINIO_ROOT_USER: minioadmin
-            MINIO_ROOT_PASSWORD: minioadmin
+            MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+            MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
             MINIO_API_REQUESTS_MAX: 10000
             MINIO_API_REQUESTS_DEADLINE: 60s
             MINIO_API_SYNC_EVENTS: "off"
@@ -62,8 +62,8 @@ services:
         environment:
             ETCD_ENDPOINTS: etcd:2379
             MINIO_ADDRESS: minio:9000
-            MINIO_ACCESS_KEY: minioadmin
-            MINIO_SECRET_KEY: minioadmin
+            MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+            MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
             MINIO_USE_SSL: false
             MINIO_BUCKET_NAME: milvus-bucket
         volumes:

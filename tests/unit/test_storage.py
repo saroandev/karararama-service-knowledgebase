@@ -374,8 +374,8 @@ class TestStorageSingleton:
     def test_storage_singleton_creation(self, mock_storage_class, mock_settings):
         """Test storage singleton is created with correct settings"""
         mock_settings.MINIO_ENDPOINT = "test:9000"
-        mock_settings.MINIO_ACCESS_KEY = "testkey"
-        mock_settings.MINIO_SECRET_KEY = "testsecret"
+        mock_settings.MINIO_ROOT_USER = "testkey"
+        mock_settings.MINIO_ROOT_PASSWORD = "testsecret"
         mock_settings.MINIO_SECURE = True
         
         mock_instance = MagicMock()

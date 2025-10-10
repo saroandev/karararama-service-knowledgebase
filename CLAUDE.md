@@ -429,8 +429,8 @@ MILVUS_COLLECTION=rag_chunks
 
 # MinIO Configuration
 MINIO_ENDPOINT=localhost:9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin
+MINIO_ROOT_USER=minioadmin
+MINIO_ROOT_PASSWORD=minioadmin
 MINIO_BUCKET_DOCS=raw-pdfs
 MINIO_BUCKET_CHUNKS=chunks
 MINIO_SECURE=false

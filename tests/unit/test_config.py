@@ -20,8 +20,8 @@ class TestSettings:
         assert config.MILVUS_COLLECTION == "rag_chunks"
         
         assert config.MINIO_ENDPOINT == "localhost:9000"
-        assert config.MINIO_ACCESS_KEY == "minioadmin"
-        assert config.MINIO_SECRET_KEY == "minioadmin"
+        assert config.MINIO_ROOT_USER == "minioadmin"
+        assert config.MINIO_ROOT_PASSWORD == "minioadmin"
         assert config.MINIO_SECURE is False
         assert config.MINIO_BUCKET_DOCS == "rag-docs"
         assert config.MINIO_BUCKET_CHUNKS == "rag-chunks"
@@ -117,8 +117,8 @@ class TestSettings:
         
         # MinIO attributes
         assert hasattr(config, "MINIO_ENDPOINT")
-        assert hasattr(config, "MINIO_ACCESS_KEY")
-        assert hasattr(config, "MINIO_SECRET_KEY")
+        assert hasattr(config, "MINIO_ROOT_USER")
+        assert hasattr(config, "MINIO_ROOT_PASSWORD")
         assert hasattr(config, "MINIO_SECURE")
         assert hasattr(config, "MINIO_BUCKET_DOCS")
         assert hasattr(config, "MINIO_BUCKET_CHUNKS")
@@ -141,8 +141,8 @@ class TestSettings:
         assert isinstance(config.MILVUS_COLLECTION, str)
         
         assert isinstance(config.MINIO_ENDPOINT, str)
-        assert isinstance(config.MINIO_ACCESS_KEY, str)
-        assert isinstance(config.MINIO_SECRET_KEY, str)
+        assert isinstance(config.MINIO_ROOT_USER, str)
+        assert isinstance(config.MINIO_ROOT_PASSWORD, str)
         assert isinstance(config.MINIO_SECURE, bool)
         assert isinstance(config.MINIO_BUCKET_DOCS, str)
         assert isinstance(config.MINIO_BUCKET_CHUNKS, str)

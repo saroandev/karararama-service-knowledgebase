@@ -11,8 +11,8 @@ class ApplicationConfig(BaseSettings):
 
     # MinIO Configuration
     minio_endpoint: str = Field(default="localhost:9000", env="MINIO_ENDPOINT")
-    minio_access_key: str = Field(default="minioadmin", env="MINIO_ACCESS_KEY")
-    minio_secret_key: str = Field(default="minioadmin", env="MINIO_SECRET_KEY")
+    minio_root_user: str = Field(default="minioadmin", env="MINIO_ROOT_USER")
+    minio_root_password: str = Field(default="minioadmin", env="MINIO_ROOT_PASSWORD")
     minio_secure: bool = Field(default=False, env="MINIO_SECURE")
     minio_bucket_docs: str = Field(default="raw-documents", env="MINIO_BUCKET_DOCS")
     minio_bucket_chunks: str = Field(default="rag-chunks", env="MINIO_BUCKET_CHUNKS")
