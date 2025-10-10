@@ -145,7 +145,11 @@ class QueryRequest(BaseModel):
             "examples": [
                 {
                     "question": "İcra ve İflas Kanunu nedir?",
-                    "sources": ["private", "mevzuat"],
+                    "sources": ["mevzuat"],
+                    "collections": [
+                        {"name": "sozlesmeler", "scopes": ["private", "shared"]},
+                        {"name": "kanunlar", "scopes": ["private"]}
+                    ],
                     "top_k": 5,
                     "use_reranker": True,
                     "min_relevance_score": 0.7,
@@ -156,21 +160,6 @@ class QueryRequest(BaseModel):
                         "lang": "tr",
                         "citations": True,
                         "stream": False
-                    }
-                },
-                {
-                    "question": "What are the key legal principles?",
-                    "sources": ["private", "shared"],
-                    "collections": [
-                        {"name": "legal-research", "scopes": ["private", "shared"]},
-                        {"name": "contracts", "scopes": ["private"]}
-                    ],
-                    "top_k": 5,
-                    "use_reranker": True,
-                    "options": {
-                        "tone": "resmi",
-                        "lang": "eng",
-                        "citations": True
                     }
                 }
             ]
