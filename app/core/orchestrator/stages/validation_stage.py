@@ -69,17 +69,16 @@ class ValidationStage(PipelineStage):
                 filename=context.filename
             )
 
-            # Get document validator (singleton from factory)
-            validator = get_document_validator()
-
-            # Note: We're NOT passing milvus_manager here for duplicate check
-            # Duplicate check will be handled by IndexingStage when it tries to insert
-            # This keeps validation stage isolated from database dependencies
-            validation_result = await validator.validate(
-                file=upload_file,
-                milvus_manager=None,  # No duplicate check in validation stage
-                scope=None
-            )
+            # Get document validator (use context manager properly)
+            async with get_document_validator() as validator:
+                # Note: We're NOT passing milvus_manager here for duplicate check
+                # Duplicate check will be handled by IndexingStage when it tries to insert
+                # This keeps validation stage isolated from database dependencies
+                validation_result = await validator.validate(
+                    file=upload_file,
+                    milvus_manager=None,  # No duplicate check in validation stage
+                    scope=None
+                )
 
             # Store validation result in context
             context.validation_result = validation_result
@@ -91,12 +90,16 @@ class ValidationStage(PipelineStage):
             if validation_result.status == ValidationStatus.INVALID:
                 # Document is invalid, stop pipeline
                 error_msg = "; ".join(validation_result.errors) if validation_result.errors else "Unknown validation error"
+
+                # Extract status safely
+                status_value = validation_result.status.value if hasattr(validation_result.status, 'value') else validation_result.status
+
                 return StageResult(
                     success=False,
                     stage_name=self.name,
                     error=f"Document validation failed: {error_msg}",
                     metadata={
-                        "validation_status": validation_result.status.value,
+                        "validation_status": status_value,
                         "error_count": len(validation_result.errors),
                         "warning_count": len(validation_result.warnings)
                     }
@@ -104,12 +107,16 @@ class ValidationStage(PipelineStage):
 
             # Success (VALID or WARNING)
             status_emoji = "⚠️" if validation_result.status == ValidationStatus.WARNING else "✅"
+
+            # Extract status safely
+            status_value = validation_result.status.value if hasattr(validation_result.status, 'value') else validation_result.status
+
             return StageResult(
                 success=True,
                 stage_name=self.name,
                 message=f"{status_emoji} Document validated: {validation_result.document_type} ({validation_result.file_size} bytes)",
                 metadata={
-                    "validation_status": validation_result.status.value,
+                    "validation_status": status_value,
                     "document_type": validation_result.document_type,
                     "page_count": validation_result.metadata.page_count if validation_result.metadata else 0,
                     "warning_count": len(validation_result.warnings),
@@ -169,7 +176,9 @@ class ValidationStage(PipelineStage):
         summary = validation_result.get_summary()
 
         self.logger.info(f"📊 Validation Summary:")
-        self.logger.info(f"   Status: {validation_result.status.value}")
+        # status is already a string (or has .value if it's enum)
+        status_str = validation_result.status.value if hasattr(validation_result.status, 'value') else validation_result.status
+        self.logger.info(f"   Status: {status_str}")
         self.logger.info(f"   Document Type: {validation_result.document_type}")
         self.logger.info(f"   Checks: {summary['checks_passed']}/{summary['checks_total']} passed")
 

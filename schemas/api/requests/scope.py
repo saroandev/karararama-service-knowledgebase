@@ -121,8 +121,8 @@ class ScopeIdentifier(BaseModel):
                 safe_collection = self._sanitize_collection_name(self.collection_name)
                 # Prefix with "user_" to ensure it starts with a letter (Milvus requirement)
                 return f"user_{safe_user_id}_col_{safe_collection}_chunks_{dimension}"
-            # Default collection (backward compatible)
-            return f"{safe_user_id}_chunks_{dimension}"
+            # Default collection - also prefix with "user_" for consistency
+            return f"user_{safe_user_id}_chunks_{dimension}"
         elif self.scope_type == DataScope.SHARED:
             # Organization shared collection
             safe_org_id = self.organization_id.replace('-', '_')
@@ -131,8 +131,8 @@ class ScopeIdentifier(BaseModel):
                 safe_collection = self._sanitize_collection_name(self.collection_name)
                 # Prefix with "org_" to ensure it starts with a letter (Milvus requirement)
                 return f"org_{safe_org_id}_col_{safe_collection}_chunks_{dimension}"
-            # Default shared collection (backward compatible)
-            return f"{safe_org_id}_shared_chunks_{dimension}"
+            # Default shared collection - prefix with "org_" for consistency (was missing!)
+            return f"org_{safe_org_id}_shared_chunks_{dimension}"
         else:
             raise ValueError(f"Cannot generate collection name for scope type: {self.scope_type}")
 

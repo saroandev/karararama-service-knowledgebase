@@ -142,6 +142,14 @@ class PipelineContext:
         Returns:
             Dictionary with pipeline execution summary
         """
+        # Get validation status safely (might be string or enum)
+        validation_status = None
+        if self.validation_result:
+            if hasattr(self.validation_result.status, 'value'):
+                validation_status = self.validation_result.status.value
+            else:
+                validation_status = self.validation_result.status
+
         return {
             "document_id": self.document_id,
             "filename": self.filename,
@@ -153,6 +161,6 @@ class PipelineContext:
             "pages_processed": len(self.pages) if self.pages else 0,
             "error": self.error,
             "error_stage": self.error_stage,
-            "validation_status": self.validation_result.status.value if self.validation_result else None,
+            "validation_status": validation_status,
             "stats": self.stats
         }

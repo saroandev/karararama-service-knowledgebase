@@ -156,7 +156,15 @@ async def ingest_document(
         # Handle pipeline result
         if not result.success:
             # Check if document already exists (validation stage returned EXISTS status)
-            if context.validation_result and context.validation_result.status == ValidationStatus.EXISTS:
+            # Status might be string or enum, so check both
+            status_is_exists = False
+            if context.validation_result:
+                if hasattr(context.validation_result.status, 'value'):
+                    status_is_exists = (context.validation_result.status == ValidationStatus.EXISTS)
+                else:
+                    status_is_exists = (context.validation_result.status == 'exists' or context.validation_result.status == ValidationStatus.EXISTS.value)
+
+            if status_is_exists:
                 # Document already exists
                 document_title = file.filename.replace('.pdf', '')
                 if context.validation_result.existing_metadata:
@@ -255,6 +263,14 @@ async def ingest_document(
             if duration_key in context.stats:
                 stage_timings[stage_name] = context.stats[duration_key]
 
+        # Extract validation status safely (might be string or enum)
+        validation_status = None
+        if context.validation_result:
+            if hasattr(context.validation_result.status, 'value'):
+                validation_status = context.validation_result.status.value
+            else:
+                validation_status = context.validation_result.status
+
         return SuccessfulIngestResponse(
             document_id=document_id,
             document_title=document_title,
@@ -271,7 +287,7 @@ async def ingest_document(
             ),
             uploaded_at=datetime.datetime.now().isoformat(),
             # NEW FIELDS
-            validation_status=context.validation_result.status.value if context.validation_result else None,
+            validation_status=validation_status,
             validation_warnings=context.validation_result.warnings if context.validation_result else None,
             document_type=context.validation_result.document_type if context.validation_result else None,
             page_count=context.validation_result.metadata.page_count if (context.validation_result and context.validation_result.metadata) else None,
