@@ -12,6 +12,7 @@ from app.core.orchestrator.stages.base import PipelineStage, StageResult
 from app.core.orchestrator.pipeline_context import PipelineContext
 from app.core.validation import get_document_validator
 from schemas.validation.validation_result import ValidationStatus
+from api.core.milvus_manager import milvus_manager
 
 
 class ValidationStage(PipelineStage):
@@ -71,13 +72,11 @@ class ValidationStage(PipelineStage):
 
             # Get document validator (use context manager properly)
             async with get_document_validator() as validator:
-                # Note: We're NOT passing milvus_manager here for duplicate check
-                # Duplicate check will be handled by IndexingStage when it tries to insert
-                # This keeps validation stage isolated from database dependencies
+                # Pass milvus_manager and scope for duplicate detection
                 validation_result = await validator.validate(
                     file=upload_file,
-                    milvus_manager=None,  # No duplicate check in validation stage
-                    scope=None
+                    milvus_manager=milvus_manager,  # Enable duplicate check
+                    scope=context.scope_identifier  # Pass scope for collection lookup
                 )
 
             # Store validation result in context
@@ -102,6 +101,25 @@ class ValidationStage(PipelineStage):
                         "validation_status": status_value,
                         "error_count": len(validation_result.errors),
                         "warning_count": len(validation_result.warnings)
+                    }
+                )
+
+            if validation_result.status == ValidationStatus.EXISTS:
+                # Document already exists, stop pipeline
+                # The endpoint will handle creating ExistingDocumentResponse
+                self.logger.warning(f"⚠️  Document already exists: {context.document_id}")
+
+                # Extract status safely
+                status_value = validation_result.status.value if hasattr(validation_result.status, 'value') else validation_result.status
+
+                return StageResult(
+                    success=False,
+                    stage_name=self.name,
+                    message="Document already exists in database",
+                    metadata={
+                        "validation_status": status_value,
+                        "existing_chunks_count": validation_result.existing_chunks_count,
+                        "existing_metadata": validation_result.existing_metadata
                     }
                 )
 
