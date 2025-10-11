@@ -64,9 +64,10 @@ class AuthServiceClient:
 
                     if response.status_code == 200:
                         result = response.json()
+                        # tokens_used now represents document count for ingest
                         logger.info(
                             f"✅ Usage consumed: user={user_id}, "
-                            f"service={service_type}, tokens={tokens_used}"
+                            f"service={service_type}, documents={tokens_used}"
                         )
                         return result
 

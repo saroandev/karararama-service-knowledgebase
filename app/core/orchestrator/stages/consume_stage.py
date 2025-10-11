@@ -65,24 +65,28 @@ class ConsumeStage(PipelineStage):
             )
 
         try:
-            # Calculate tokens used (from embeddings dimension)
-            total_embedding_tokens = sum(
-                len(emb) for emb in context.embeddings
-            ) if context.embeddings else 0
+            # Calculate usage metrics
+            # tokens_used = document count (always 1 per ingestion)
+            documents_uploaded = 1
 
-            # Prepare metadata
+            # Calculate document size in MB
+            size_mb = round(len(context.file_data) / (1024 * 1024), 2) if context.file_data else 0
+
+            # Prepare metadata with size information
             usage_metadata = self._prepare_usage_metadata(context)
+            usage_metadata["size_mb"] = size_mb
+            usage_metadata["documents_uploaded"] = documents_uploaded
 
             # Get auth service client
             auth_client = get_auth_service_client()
 
             # Report usage to auth service
-            self.logger.info(f"📡 Calling auth service: user={context.user.user_id}, tokens={total_embedding_tokens}")
+            self.logger.info(f"📡 Calling auth service: user={context.user.user_id}, documents={documents_uploaded}, size={size_mb}MB")
 
             usage_result = await auth_client.consume_usage(
                 user_id=context.user.user_id,
                 service_type="rag_ingest",
-                tokens_used=total_embedding_tokens,
+                tokens_used=documents_uploaded,  # 1 document = 1 token
                 processing_time=context.get_total_duration(),
                 metadata=usage_metadata
             )
@@ -91,11 +95,12 @@ class ConsumeStage(PipelineStage):
             context.usage_result = usage_result
 
             # Log consumption details
-            self._log_consumption_details(usage_result, total_embedding_tokens)
+            self._log_consumption_details(usage_result, documents_uploaded, size_mb)
 
             # Update context stats
             context.stats['usage_reported'] = True
-            context.stats['tokens_consumed'] = total_embedding_tokens
+            context.stats['documents_uploaded'] = documents_uploaded
+            context.stats['size_mb'] = size_mb
             if usage_result.get("remaining_credits") is not None:
                 context.stats['remaining_credits'] = usage_result.get("remaining_credits")
 
@@ -103,9 +108,10 @@ class ConsumeStage(PipelineStage):
             return StageResult(
                 success=True,
                 stage_name=self.name,
-                message=f"✅ Usage reported: {total_embedding_tokens} tokens consumed",
+                message=f"✅ Usage reported: {documents_uploaded} document(s), {size_mb} MB",
                 metadata={
-                    "tokens_consumed": total_embedding_tokens,
+                    "documents_uploaded": documents_uploaded,
+                    "size_mb": size_mb,
                     "remaining_credits": usage_result.get("remaining_credits"),
                     "auth_service_response": usage_result.get("success", True)
                 }
@@ -190,16 +196,18 @@ class ConsumeStage(PipelineStage):
 
         return metadata
 
-    def _log_consumption_details(self, usage_result: Dict[str, Any], tokens_consumed: int) -> None:
+    def _log_consumption_details(self, usage_result: Dict[str, Any], documents_uploaded: int, size_mb: float) -> None:
         """
         Log detailed usage consumption information
 
         Args:
             usage_result: Response from auth service
-            tokens_consumed: Number of tokens consumed
+            documents_uploaded: Number of documents uploaded (always 1)
+            size_mb: Document size in megabytes
         """
         self.logger.info(f"📊 Usage Consumption Details:")
-        self.logger.info(f"   Tokens Consumed: {tokens_consumed:,}")
+        self.logger.info(f"   Documents Uploaded: {documents_uploaded}")
+        self.logger.info(f"   Document Size: {size_mb} MB")
 
         if usage_result.get("remaining_credits") is not None:
             self.logger.info(f"   Remaining Credits: {usage_result.get('remaining_credits'):,}")

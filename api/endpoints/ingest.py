@@ -215,13 +215,13 @@ async def ingest_document(
         if context.usage_result and context.usage_result.get("remaining_credits") is not None:
             remaining_credits = context.usage_result.get("remaining_credits")
 
-        # Calculate tokens used (from ConsumeStage stats or embeddings)
-        total_embedding_tokens = context.stats.get('tokens_consumed', 0)
-        if total_embedding_tokens == 0:
-            # Fallback: calculate from embeddings if ConsumeStage didn't run
-            total_embedding_tokens = sum(
-                len(emb) for emb in context.embeddings
-            ) if context.embeddings else 0
+        # Get usage info from ConsumeStage
+        # tokens_used now represents document count (1 per upload)
+        documents_uploaded = context.stats.get('documents_uploaded', 1)
+
+        # For backward compatibility with response schema, keep tokens_used field
+        # but it now represents document count instead of embedding dimensions
+        total_embedding_tokens = documents_uploaded
 
         # Prepare detailed response with new fields
         document_title = file.filename.replace('.pdf', '')
