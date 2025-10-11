@@ -69,7 +69,11 @@ class EmbeddingStage(PipelineStage):
             # This will use OpenAI API by default (text-embedding-3-small)
             self.logger.info(f"📡 Calling embedding API for {len(chunk_texts)} chunks...")
 
-            embeddings = default_embedding_generator.embed_documents(chunk_texts)
+            # Use generate_embeddings_batch for efficient batch processing
+            embeddings = default_embedding_generator.generate_embeddings_batch(
+                texts=chunk_texts,
+                show_progress=True
+            )
 
             # Validate embeddings
             if not embeddings or len(embeddings) != len(chunk_texts):

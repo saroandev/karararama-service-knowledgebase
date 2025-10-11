@@ -222,7 +222,9 @@ class StorageStage(PipelineStage):
         # Add validation metadata if available
         if context.validation_result:
             metadata["document_type"] = context.validation_result.document_type
-            metadata["validation_status"] = context.validation_result.status.value
+            # Extract status safely (might be string or enum)
+            status_value = context.validation_result.status.value if hasattr(context.validation_result.status, 'value') else context.validation_result.status
+            metadata["validation_status"] = status_value
             metadata["validation_timestamp"] = context.validation_result.validation_timestamp.isoformat()
 
             # Add extracted metadata
