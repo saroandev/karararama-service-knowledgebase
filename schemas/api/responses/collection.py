@@ -4,6 +4,7 @@ Collection management response schemas
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 from enum import Enum
+from schemas.api.requests.query import QueryOptions
 
 
 class CollectionInfo(BaseModel):
@@ -199,6 +200,10 @@ class CollectionQueryResponse(BaseModel):
     processing_time: float = Field(..., description="Processing time in seconds")
     collections_searched: int = Field(..., description="Number of collections searched")
     total_results: int = Field(..., description="Total number of results found")
+    options_used: Optional[QueryOptions] = Field(
+        None,
+        description="Query options that were applied (tone, lang, citations)"
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -217,11 +222,17 @@ class CollectionQueryResponse(BaseModel):
                             "metadata": {"created_at": "2025-01-10"}
                         }
                     ],
-                    "generated_answer": "Sözleşme fesih koşulları şunlardır: ...",
+                    "generated_answer": "Collection belgelerinize göre, sözleşme fesih koşulları şunlardır: ...",
                     "success": True,
                     "processing_time": 1.25,
                     "collections_searched": 2,
-                    "total_results": 5
+                    "total_results": 5,
+                    "options_used": {
+                        "tone": "resmi",
+                        "lang": "tr",
+                        "citations": True,
+                        "stream": False
+                    }
                 }
             ]
         }

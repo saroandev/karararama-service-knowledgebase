@@ -172,6 +172,10 @@ async def query_collections(
     logger.info(f"📝 Question: {request.question}")
     logger.info(f"📦 Collections: {[f'{c.name}({c.scopes})' for c in request.collections]}")
 
+    # Log query options
+    options = request.options or QueryOptions()
+    logger.info(f"⚙️ Query options: tone={options.tone}, citations={options.citations}, lang={options.lang}")
+
     try:
         # 1. Generate query embedding
         logger.info("Generating embedding for question...")
@@ -253,7 +257,8 @@ async def query_collections(
                 success=True,
                 processing_time=processing_time,
                 collections_searched=0,
-                total_results=0
+                total_results=0,
+                options_used=options
             )
 
         logger.info(f"📊 Searching in {len(collections_to_search)} collection(s)")
@@ -344,7 +349,8 @@ async def query_collections(
             success=True,
             processing_time=processing_time,
             collections_searched=len(collections_to_search),
-            total_results=len(all_results)
+            total_results=len(all_results),
+            options_used=options
         )
 
     except Exception as e:
