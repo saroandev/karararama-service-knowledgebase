@@ -76,9 +76,10 @@ class DocumentStorage(BaseStorage):
         logger.info(f"[UPLOAD_START] Filename: {filename}, Size: {len(file_data)} bytes")
 
         try:
-            # Use shared client with proper connection management
-            client = self.client_manager.get_client()
-            logger.info(f"[CLIENT_READY] Using MinIO client for upload")
+            # Use fresh client to avoid connection pool exhaustion and deadlock
+            # Fresh client creates new connection pool per upload
+            client = self.client_manager.create_fresh_client()
+            logger.info(f"[CLIENT_READY] Using fresh MinIO client for upload (avoids deadlock)")
 
             # Determine bucket and prefix based on scope
             if scope:
