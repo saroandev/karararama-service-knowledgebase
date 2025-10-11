@@ -22,7 +22,7 @@ class PipelineContext:
     Shared context passed through all ingest pipeline stages
 
     This context maintains state as document flows through:
-    Validation → Parsing → Chunking → Embedding → Indexing → Storage
+    Validation → Parsing → Chunking → Embedding → Indexing → Storage → Consume
 
     Each stage populates its output fields and subsequent stages read from previous outputs.
     """
@@ -53,6 +53,9 @@ class PipelineContext:
 
     # Stage 6: Storage (MinIO)
     storage_paths: Optional[Dict[str, str]] = None
+
+    # Stage 7: Usage Consumption (Auth Service)
+    usage_result: Optional[Dict[str, Any]] = None
 
     # ========== METADATA & TRACKING ==========
 

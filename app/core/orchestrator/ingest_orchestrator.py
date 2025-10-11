@@ -15,6 +15,7 @@ from app.core.orchestrator.stages.chunking_stage import ChunkingStage
 from app.core.orchestrator.stages.embedding_stage import EmbeddingStage
 from app.core.orchestrator.stages.indexing_stage import IndexingStage
 from app.core.orchestrator.stages.storage_stage import StorageStage
+from app.core.orchestrator.stages.consume_stage import ConsumeStage
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,7 @@ class IngestOrchestrator:
     4. EmbeddingStage: Generate embeddings
     5. IndexingStage: Insert into Milvus
     6. StorageStage: Upload to MinIO
+    7. ConsumeStage: Report usage to auth service
 
     Each stage is isolated and can be modified independently.
     If any stage fails, completed stages are rolled back.
@@ -69,7 +71,8 @@ class IngestOrchestrator:
             ChunkingStage(),
             EmbeddingStage(),
             IndexingStage(),
-            StorageStage()
+            StorageStage(),
+            ConsumeStage()
         ]
 
         self.logger.info(f"🎭 IngestOrchestrator initialized with {len(self.stages)} stages")

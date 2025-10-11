@@ -26,7 +26,6 @@ from app.core.orchestrator.pipeline_context import PipelineContext
 # Import utilities
 from app.config import settings
 from app.core.auth import UserContext, get_current_user
-from app.services.auth_service import get_auth_service_client
 from api.utils.error_handler import get_user_friendly_error_message, log_error_with_context
 
 # Import collection metadata updater
@@ -72,6 +71,7 @@ async def ingest_document(
     4. EmbeddingStage: Generate embeddings
     5. IndexingStage: Insert into Milvus
     6. StorageStage: Upload to MinIO
+    7. ConsumeStage: Report usage to auth service
     """
     start_time = datetime.datetime.now()
 
@@ -209,35 +209,19 @@ async def ingest_document(
             except Exception as meta_error:
                 logger.warning(f"Failed to update collection metadata: {meta_error}")
 
-        # Calculate tokens used (estimate from embeddings)
-        total_embedding_tokens = sum(
-            len(emb) for emb in context.embeddings
-        ) if context.embeddings else 0
-
-        # Report usage to auth service
-        auth_client = get_auth_service_client()
+        # Get remaining credits from usage result (ConsumeStage output)
+        # Fallback to user's current credits if usage tracking failed
         remaining_credits = user.remaining_credits
+        if context.usage_result and context.usage_result.get("remaining_credits") is not None:
+            remaining_credits = context.usage_result.get("remaining_credits")
 
-        try:
-            usage_result = await auth_client.consume_usage(
-                user_id=user.user_id,
-                service_type="rag_ingest",
-                tokens_used=total_embedding_tokens,
-                processing_time=result.processing_time,
-                metadata={
-                    "filename": file.filename,
-                    "chunks_created": result.chunks_created,
-                    "pages_count": len(context.pages) if context.pages else 0,
-                    "file_size_bytes": len(file_data),
-                    "document_type": context.validation_result.document_type if context.validation_result else "unknown"
-                }
-            )
-
-            if usage_result.get("remaining_credits") is not None:
-                remaining_credits = usage_result.get("remaining_credits")
-
-        except Exception as e:
-            logger.warning(f"Failed to report usage to auth service: {str(e)}")
+        # Calculate tokens used (from ConsumeStage stats or embeddings)
+        total_embedding_tokens = context.stats.get('tokens_consumed', 0)
+        if total_embedding_tokens == 0:
+            # Fallback: calculate from embeddings if ConsumeStage didn't run
+            total_embedding_tokens = sum(
+                len(emb) for emb in context.embeddings
+            ) if context.embeddings else 0
 
         # Prepare detailed response with new fields
         document_title = file.filename.replace('.pdf', '')
