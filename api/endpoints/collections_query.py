@@ -13,14 +13,139 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from schemas.api.requests.collection import CollectionQueryRequest
 from schemas.api.requests.scope import DataScope, ScopeIdentifier
+from schemas.api.requests.query import QueryOptions
 from schemas.api.responses.collection import CollectionQueryResponse, CollectionSearchResult
 from api.core.milvus_manager import milvus_manager
 from api.core.embeddings import embedding_service
 from app.core.auth import UserContext, get_current_user
+from app.core.orchestrator.prompts import PromptTemplate
 from app.config import settings
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _generate_collection_answer(
+    results: List[CollectionSearchResult],
+    question: str,
+    options: QueryOptions
+) -> tuple[str, int]:
+    """
+    Generate answer from collection search results using LLM
+
+    Args:
+        results: Search results from collections
+        question: User's question
+        options: Query options (tone, lang, citations)
+
+    Returns:
+        (generated_answer, tokens_used)
+    """
+    if not results:
+        if options.lang == "eng":
+            return "No relevant information found in the specified collections.", 0
+        return "Belirtilen collection'larda ilgili bilgi bulunamadı.", 0
+
+    try:
+        # Build context from results with citations
+        context_parts = []
+        for i, result in enumerate(results, 1):
+            if options.citations:
+                context_parts.append(
+                    f"[Kaynak {i} - Sayfa {result.page_number} - {result.collection_name}]: {result.text}"
+                )
+            else:
+                context_parts.append(result.text)
+
+        context = "\n\n".join(context_parts)
+
+        # Get collection-specific prompt (use "private" as base for collections)
+        # Collections are user-specific organizational units
+        base_prompt = """Sen kullanıcının collection doküman asistanısın.
+
+GÖREVİN:
+• Collection'lardaki belgelerden faydalanarak soruları cevaplamak
+• Yanıtlarını "Collection belgelerinize göre..." şeklinde başlat
+• Türkçe dilbilgisi kurallarına uygun, akıcı bir dille yazmak
+• Her zaman kaynak numaralarını belirtmek (Örn: [Kaynak 1], [Kaynak 2])
+
+CEVAP FORMATI:
+1. "Collection belgelerinize göre," ile başla
+2. Soruya doğrudan ve özlü cevap ver
+3. Gerekirse madde madde açıkla
+4. Her bilgi için kaynak numarasını ve collection adını belirt
+
+ÖNEMLI:
+• Sadece verilen kaynaklardaki bilgileri kullan
+• Collection adlarını belirtmeyi unutma
+• Belirsizlik varsa bunu belirt"""
+
+        # Add tone modifier if specified
+        if options.tone != "resmi":
+            tone_modifier = PromptTemplate.TONE_MODIFIERS.get(options.tone, "")
+            base_prompt += tone_modifier
+
+        # Add strong language instruction
+        language_modifiers = {
+            "tr": "\n\n⚠️ ÇOK ÖNEMLİ - DİL: Tüm yanıtını MUTLAKA TÜRKÇE olarak ver. Her cümleyi, her kelimeyi Türkçe yaz. İngilizce kelime kullanma.",
+            "eng": "\n\n⚠️ CRITICAL - LANGUAGE: You MUST respond ENTIRELY in ENGLISH. Every sentence, every word must be in English. Do NOT use Turkish words."
+        }
+        lang_modifier = language_modifiers.get(options.lang, language_modifiers["tr"])
+        base_prompt += lang_modifier
+
+        # Prepare user message based on language
+        if options.lang == "eng":
+            user_message = f"""Context from collections:
+
+{context}
+
+Question: {question}
+
+Provide a comprehensive answer based on the sources above."""
+        else:
+            user_message = f"""Collection'lardan gelen bilgiler:
+
+{context}
+
+Soru: {question}
+
+Yukarıdaki kaynaklara dayanarak kapsamlı bir yanıt ver."""
+
+        # Call OpenAI API
+        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+
+        chat_response = client.chat.completions.create(
+            model=settings.OPENAI_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": base_prompt
+                },
+                {
+                    "role": "user",
+                    "content": user_message
+                }
+            ],
+            max_tokens=700,
+            temperature=0.7
+        )
+
+        answer = chat_response.choices[0].message.content
+        tokens_used = chat_response.usage.total_tokens if hasattr(chat_response, 'usage') else 0
+
+        logger.info(f"✅ Generated answer using {settings.OPENAI_MODEL} ({tokens_used} tokens)")
+        return answer, tokens_used
+
+    except Exception as e:
+        logger.error(f"❌ Failed to generate answer: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+
+        # Return fallback message
+        if options.lang == "eng":
+            return "An error occurred while generating the answer. Please try again.", 0
+        return "Cevap üretilirken bir hata oluştu. Lütfen tekrar deneyin.", 0
 
 
 @router.post("/collections/query", response_model=CollectionQueryResponse)
@@ -191,12 +316,24 @@ async def query_collections(
         all_results.sort(key=lambda x: x.score, reverse=True)
         all_results = all_results[:request.top_k]
 
-        # 5. Generate answer (optional - based on options)
+        # 5. Generate answer with LLM
         generated_answer = None
-        if all_results and request.options:
-            # TODO: Implement answer generation using options (tone, lang, citations)
-            # For now, skip answer generation to keep endpoint simple
-            pass
+        tokens_used = 0
+
+        if all_results:
+            # Get options (use defaults if not provided)
+            options = request.options or QueryOptions()
+
+            logger.info(f"🤖 Generating answer with options: tone={options.tone}, lang={options.lang}, citations={options.citations}")
+
+            # Generate answer using LLM
+            generated_answer, tokens_used = _generate_collection_answer(
+                results=all_results,
+                question=request.question,
+                options=options
+            )
+
+            logger.info(f"✅ Answer generated: {len(generated_answer)} chars, {tokens_used} tokens")
 
         processing_time = time.time() - start_time
         logger.info(f"✅ Collection query completed in {processing_time:.2f}s - {len(all_results)} results")
