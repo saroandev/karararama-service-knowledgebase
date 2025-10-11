@@ -27,11 +27,29 @@ class BaseIngestResponse(BaseModel):
 
 # Successful document ingestion
 class SuccessfulIngestResponse(BaseIngestResponse):
-    """Response for successful document ingestion"""
+    """Response for successful document ingestion with detailed pipeline statistics"""
     success: bool = Field(default=True, description="Success status")
     chunks_created: int = Field(..., description="Number of chunks created")
     tokens_used: int = Field(default=0, description="Total tokens consumed")
     remaining_credits: int = Field(default=0, description="User's remaining credits")
+
+    # NEW: Validation results
+    validation_status: Optional[str] = Field(None, description="Document validation status (valid/warning)")
+    validation_warnings: Optional[List[str]] = Field(None, description="Validation warnings if any")
+    document_type: Optional[str] = Field(None, description="Detected document type (e.g., PDF, legal)")
+    page_count: Optional[int] = Field(None, description="Number of pages in document")
+
+    # NEW: Chunking statistics
+    chunking_stats: Optional[dict] = Field(
+        None,
+        description="Detailed chunking statistics (method, avg_tokens, overlap, etc.)"
+    )
+
+    # NEW: Pipeline stage timings (optional, for debugging)
+    stage_timings: Optional[dict] = Field(
+        None,
+        description="Execution time for each pipeline stage in seconds"
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -48,7 +66,26 @@ class SuccessfulIngestResponse(BaseIngestResponse):
                 },
                 "uploaded_at": "2025-10-07T12:47:42.660Z",
                 "success": True,
-                "chunks_created": 10
+                "chunks_created": 10,
+                "validation_status": "valid",
+                "validation_warnings": [],
+                "document_type": "pdf",
+                "page_count": 5,
+                "chunking_stats": {
+                    "method": "token-based",
+                    "chunk_size_target": 512,
+                    "chunk_overlap": 50,
+                    "avg_tokens_per_chunk": 487,
+                    "avg_chars_per_chunk": 1948
+                },
+                "stage_timings": {
+                    "validation": 0.3,
+                    "parsing": 0.5,
+                    "chunking": 0.2,
+                    "embedding": 1.2,
+                    "indexing": 0.2,
+                    "storage": 0.1
+                }
             }
         }
         }
