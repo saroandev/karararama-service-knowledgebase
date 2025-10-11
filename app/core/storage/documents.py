@@ -13,7 +13,6 @@ from app.core.storage.base import BaseStorage
 from app.core.storage.client import MinIOClientManager
 from app.core.storage.cache import StorageCache
 from app.core.storage.utils import (
-    sanitize_filename,
     generate_document_id,
     prepare_metadata,
     get_cache_key
@@ -95,9 +94,9 @@ class DocumentStorage(BaseStorage):
                 object_prefix = ""
                 logger.info(f"[LEGACY_MODE] Using legacy bucket: {raw_bucket}")
 
-            # Sanitize filename for safe storage
-            sanitized_filename = sanitize_filename(filename)
-            pdf_object_name = f"{object_prefix}{document_id}/{sanitized_filename}"
+            # Use generic filename to avoid deadlock issues with long/special filenames
+            # Original filename is preserved in metadata JSON
+            pdf_object_name = f"{object_prefix}{document_id}/file.pdf"
 
             # Upload PDF - direct upload with proper stream handling
             file_size = len(file_data)
