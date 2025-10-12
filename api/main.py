@@ -84,7 +84,7 @@ app.add_exception_handler(QuotaExceededError, quota_exceeded_error_handler)
 
 # Include routers
 app.include_router(health.router, tags=["Health"])
-app.include_router(query.router, tags=["Query"])
+app.include_router(query.router, tags=["Chat"])
 app.include_router(documents.router, tags=["Documents"])
 app.include_router(ingest.router, tags=["Ingest"])
 app.include_router(collections.router, tags=["Collections"])

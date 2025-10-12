@@ -138,7 +138,7 @@ class TestAPIEndpoints:
         mock_query_engine_class.return_value = mock_engine
         
         response = client.post(
-            "/query",
+            "/chat/process",
             json={"question": "What is this document about?"}
         )
         
@@ -151,13 +151,13 @@ class TestAPIEndpoints:
 
     def test_query_endpoint_missing_question(self, client):
         """Test query endpoint without question"""
-        response = client.post("/query", json={})
+        response = client.post("/chat/process", json={})
         
         assert response.status_code == 422  # Validation error
 
     def test_query_endpoint_empty_question(self, client):
         """Test query endpoint with empty question"""
-        response = client.post("/query", json={"question": ""})
+        response = client.post("/chat/process", json={"question": ""})
         
         assert response.status_code == 400
         data = response.json()
@@ -175,7 +175,7 @@ class TestAPIEndpoints:
         mock_query_engine_class.return_value = mock_engine
         
         response = client.post(
-            "/query",
+            "/chat/process",
             json={"question": "What is this about?"}
         )
         
@@ -367,7 +367,7 @@ class TestAPIPerformance:
         
         start_time = time.time()
         response = client.post(
-            "/query",
+            "/chat/process",
             json={"question": "Quick test question?"}
         )
         end_time = time.time()
@@ -437,7 +437,7 @@ class TestAPIErrorHandling:
         special_chars_query = "What about émojis 🚀 and spëcial characters?"
         
         response = client.post(
-            "/query",
+            "/chat/process",
             json={"question": special_chars_query}
         )
         

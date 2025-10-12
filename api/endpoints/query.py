@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.post("/query", response_model=QueryResponse)
+@router.post("/chat/process", response_model=QueryResponse)
 @retry_with_backoff(max_retries=3)
 async def query_documents(
     request: QueryRequest,
