@@ -31,12 +31,14 @@ async def health_check() -> HealthResponse:
         collections_count=milvus_health.get("collections_count", 0)
     )
 
-    # Check MinIO health
+    # Check MinIO health (general connection test)
     try:
-        bucket_exists = storage.client.bucket_exists(settings.MINIO_BUCKET_DOCS)
+        # Test connection by listing buckets (works for multi-tenant org-based structure)
+        buckets = storage.client_manager.get_client().list_buckets()
+        bucket_count = len(buckets)
         minio_status = MinioStatus(
             status="connected",
-            message=f"Connected to bucket '{settings.MINIO_BUCKET_DOCS}'"
+            message=f"Connected to MinIO (multi-tenant mode, {bucket_count} organization bucket(s) found)"
         )
     except Exception as e:
         logger.warning(f"MinIO health check failed: {str(e)}")

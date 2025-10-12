@@ -431,9 +431,10 @@ MILVUS_COLLECTION=rag_chunks
 MINIO_ENDPOINT=localhost:9000
 MINIO_ROOT_USER=minioadmin
 MINIO_ROOT_PASSWORD=minioadmin
-MINIO_BUCKET_DOCS=raw-pdfs
-MINIO_BUCKET_CHUNKS=chunks
 MINIO_SECURE=false
+# Note: Legacy bucket configs (MINIO_BUCKET_DOCS, MINIO_BUCKET_CHUNKS) are deprecated
+# System now uses multi-tenant org-based buckets: org-{organization_id}
+# Buckets are auto-created per organization with folder-based isolation
 
 # Embedding Configuration
 EMBEDDING_PROVIDER=openai

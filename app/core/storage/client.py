@@ -19,7 +19,8 @@ class MinIOClientManager:
         """Initialize MinIO client with optimized settings"""
         self._client: Optional[Minio] = None
         self._initialize_client()
-        self._ensure_buckets()
+        # Note: Buckets are now created dynamically per organization via get_bucket_for_scope()
+        # Legacy _ensure_buckets() removed - multi-tenant buckets auto-created on demand
 
     def _initialize_client(self):
         """Initialize MinIO client with custom HTTP settings"""
@@ -49,21 +50,6 @@ class MinIOClientManager:
         except Exception as e:
             logger.error(f"Failed to initialize MinIO client: {e}")
             raise
-
-    def _ensure_buckets(self):
-        """Create required buckets if they don't exist"""
-        buckets = [settings.MINIO_BUCKET_DOCS, settings.MINIO_BUCKET_CHUNKS]
-
-        for bucket in buckets:
-            try:
-                if not self._client.bucket_exists(bucket):
-                    self._client.make_bucket(bucket)
-                    logger.info(f"Created bucket: {bucket}")
-                else:
-                    logger.debug(f"Bucket already exists: {bucket}")
-            except S3Error as e:
-                logger.error(f"Error creating bucket {bucket}: {e}")
-                raise
 
     def get_client(self) -> Minio:
         """
