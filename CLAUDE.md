@@ -260,13 +260,20 @@ make clean
 # Clean Milvus collection (if script exists)
 python scripts/cleanup_milvus.py
 
-# Or manually via Python
+# Or manually via Python (example for user collection)
 python -c "
 from pymilvus import connections, utility, Collection
 connections.connect('default', host='localhost', port='19530')
-if utility.has_collection('rag_chunks'):
-    Collection('rag_chunks').drop()
-print('Collection cleared')
+
+# List all collections
+collections = utility.list_collections()
+print('Available collections:', collections)
+
+# Drop a specific user collection (example)
+collection_name = 'user_{user_id}_chunks_1536'  # Replace with actual collection
+if utility.has_collection(collection_name):
+    Collection(collection_name).drop()
+    print(f'Collection {collection_name} cleared')
 "
 ```
 
@@ -425,7 +432,8 @@ OPENAI_API_KEY=sk-...
 # Milvus Configuration
 MILVUS_HOST=localhost
 MILVUS_PORT=19530
-MILVUS_COLLECTION=rag_chunks
+# Note: MILVUS_COLLECTION is deprecated - Legacy setting for backward compatibility
+# System now uses multi-tenant scope-based collections (auto-created per user/org)
 
 # MinIO Configuration
 MINIO_ENDPOINT=localhost:9000
@@ -536,13 +544,23 @@ python -c "from pymilvus import connections; connections.connect('default', host
 # Test MinIO connection
 python -c "from minio import Minio; client = Minio('localhost:9000', access_key='minioadmin', secret_key='minioadmin', secure=False); print('Connected!')"
 
-# Check collection schema
+# Check collection schema (example with user collection)
 python -c "
-from pymilvus import connections, Collection
+from pymilvus import connections, Collection, utility
 connections.connect('default', host='localhost', port='19530')
-col = Collection('rag_chunks')
-for field in col.schema.fields:
-    print(f'{field.name}: {field.dtype.name}')
+
+# List all collections
+print('Available collections:')
+for col_name in utility.list_collections():
+    print(f'  - {col_name}')
+
+# Check schema of a specific collection (replace with actual collection name)
+collection_name = 'user_17d0faab_0830_4007_8ed6_73cfd049505b_chunks_1536'
+if utility.has_collection(collection_name):
+    col = Collection(collection_name)
+    print(f'\nSchema for {collection_name}:')
+    for field in col.schema.fields:
+        print(f'  {field.name}: {field.dtype.name}')
 "
 
 # Test authentication

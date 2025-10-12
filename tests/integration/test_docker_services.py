@@ -20,8 +20,8 @@ def test_milvus_connection():
         # Server version
         print(f"   📋 Milvus version: {utility.get_server_version()}")
         
-        # Test collection oluştur
-        collection_name = "test_rag_chunks"
+        # Test collection oluştur (generic test collection - not using legacy name)
+        collection_name = "test_collection_integration"
         
         # Eğer collection varsa sil
         if utility.has_collection(collection_name):

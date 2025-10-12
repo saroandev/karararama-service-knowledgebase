@@ -14,10 +14,10 @@ class TestSettings:
     def test_default_values(self):
         """Test default configuration values"""
         config = Settings()
-        
+
         assert config.MILVUS_HOST == "localhost"
         assert config.MILVUS_PORT == 19530
-        assert config.MILVUS_COLLECTION == "rag_chunks"
+        assert config.MILVUS_COLLECTION == "rag_chunks"  # Legacy default (backward compatibility)
         
         assert config.MINIO_ENDPOINT == "localhost:9000"
         assert config.MINIO_ROOT_USER == "minioadmin"
@@ -48,7 +48,7 @@ class TestSettings:
         
         assert config.MILVUS_HOST == "test-milvus"
         assert config.MILVUS_PORT == 19531
-        assert config.MILVUS_COLLECTION == "test_collection"
+        assert config.MILVUS_COLLECTION == "test_collection"  # Legacy setting for test
         
         assert config.MINIO_ENDPOINT == "test-minio:9001"
         assert config.MINIO_SECURE is True
@@ -112,8 +112,8 @@ class TestSettings:
         
         # Milvus attributes
         assert hasattr(config, "MILVUS_HOST")
-        assert hasattr(config, "MILVUS_PORT") 
-        assert hasattr(config, "MILVUS_COLLECTION")
+        assert hasattr(config, "MILVUS_PORT")
+        assert hasattr(config, "MILVUS_COLLECTION")  # Legacy attribute (backward compatibility)
         
         # MinIO attributes
         assert hasattr(config, "MINIO_ENDPOINT")
@@ -138,7 +138,7 @@ class TestSettings:
         
         assert isinstance(config.MILVUS_HOST, str)
         assert isinstance(config.MILVUS_PORT, int)
-        assert isinstance(config.MILVUS_COLLECTION, str)
+        assert isinstance(config.MILVUS_COLLECTION, str)  # Legacy setting
         
         assert isinstance(config.MINIO_ENDPOINT, str)
         assert isinstance(config.MINIO_ROOT_USER, str)
