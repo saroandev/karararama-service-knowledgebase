@@ -48,12 +48,21 @@ class Storage:
         """Download PDF from storage (compatibility)"""
         return self.documents.download_pdf(document_id, filename)
 
-    def delete_document(self, document_id: str) -> bool:
-        """Delete document and all related files"""
-        # Delete document files
-        doc_deleted = self.documents.delete_document(document_id)
+    def delete_document(self, document_id: str, scope: Any = None) -> bool:
+        """
+        Delete document and all related files from scope-aware storage
+
+        Args:
+            document_id: Document identifier
+            scope: ScopeIdentifier for multi-tenant storage (optional, uses legacy if None)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        # Delete document files (PDF and metadata)
+        doc_deleted = self.documents.delete_document(document_id, scope)
         # Delete chunks
-        chunks_deleted = self.chunks.delete_chunks(document_id)
+        chunks_deleted = self.chunks.delete_chunks(document_id, scope)
         return doc_deleted and chunks_deleted
 
     def list_documents(self) -> List[Dict[str, Any]]:

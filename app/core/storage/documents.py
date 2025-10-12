@@ -284,12 +284,13 @@ class DocumentStorage(BaseStorage):
             logger.error(f"Failed to generate URL for document {document_id}: {e}")
             return None
 
-    def delete_document(self, document_id: str) -> bool:
+    def delete_document(self, document_id: str, scope: Any = None) -> bool:
         """
-        Delete a document and all its related files
+        Delete a document and all its related files from scope-aware storage
 
         Args:
             document_id: Document identifier
+            scope: ScopeIdentifier for multi-tenant storage (optional, uses legacy if None)
 
         Returns:
             True if successful, False otherwise
@@ -297,10 +298,25 @@ class DocumentStorage(BaseStorage):
         try:
             client = self.client_manager.get_client()
 
-            # List all objects with document_id prefix
+            # Determine bucket and prefix based on scope
+            if scope:
+                # Scope-aware: use organization bucket + folder structure
+                bucket = scope.get_bucket_name()
+                object_prefix = scope.get_object_prefix("docs")
+                logger.info(f"[DELETE] Scope-aware: Bucket={bucket}, Prefix={object_prefix}")
+            else:
+                # Legacy: use old bucket structure
+                bucket = self.legacy_bucket
+                object_prefix = ""
+                logger.info(f"[DELETE] Legacy mode: Bucket={bucket}")
+
+            # List all objects with document_id prefix (scope-aware path)
+            full_prefix = f"{object_prefix}{document_id}/"
+            logger.info(f"[DELETE] Listing objects with prefix: {full_prefix}")
+
             objects = client.list_objects(
-                self.bucket,
-                prefix=f"{document_id}/",
+                bucket,
+                prefix=full_prefix,
                 recursive=True
             )
 
@@ -308,7 +324,8 @@ class DocumentStorage(BaseStorage):
             deleted_count = 0
             for obj in objects:
                 try:
-                    client.remove_object(self.bucket, obj.object_name)
+                    logger.info(f"[DELETE] Removing: {obj.object_name}")
+                    client.remove_object(bucket, obj.object_name)
                     deleted_count += 1
                 except Exception as e:
                     logger.error(f"Error deleting {obj.object_name}: {e}")
@@ -316,11 +333,13 @@ class DocumentStorage(BaseStorage):
             # Invalidate cache
             self.cache.invalidate(document_id)
 
-            logger.info(f"Deleted {deleted_count} objects for document {document_id}")
+            logger.info(f"[DELETE] Deleted {deleted_count} objects for document {document_id}")
             return deleted_count > 0
 
         except Exception as e:
             logger.error(f"Failed to delete document {document_id}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
     def document_exists(self, document_id: str) -> bool:

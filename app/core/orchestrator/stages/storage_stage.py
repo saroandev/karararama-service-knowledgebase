@@ -237,8 +237,8 @@ class StorageStage(PipelineStage):
         try:
             self.logger.warning(f"🔄 Rolling back MinIO storage: deleting document {context.document_id}")
 
-            # Delete document and all related files (PDF, chunks, metadata)
-            deleted = storage.delete_document(context.document_id)
+            # Delete document and all related files (PDF, chunks, metadata) with scope
+            deleted = storage.delete_document(context.document_id, context.scope_identifier)
 
             if deleted:
                 self.logger.info(f"✅ Rolled back MinIO storage for document {context.document_id}")

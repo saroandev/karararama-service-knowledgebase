@@ -350,12 +350,12 @@ async def delete_document(
                 }
             )
 
-        # Try to delete from MinIO as well
+        # Try to delete from MinIO as well (scope-aware)
         minio_deleted = False
         minio_error = None
         try:
-            storage.delete_document(document_id)
-            logger.info(f"Deleted document {document_id} from MinIO")
+            storage.delete_document(document_id, scope_id)
+            logger.info(f"Deleted document {document_id} from MinIO (scope: {scope})")
             minio_deleted = True
         except Exception as e:
             logger.warning(f"Failed to delete from MinIO: {e}")

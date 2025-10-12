@@ -194,12 +194,13 @@ class ChunkStorage(BaseChunkStorage):
             logger.error(f"Failed to get chunks for document {document_id}: {e}")
             return None
 
-    def delete_chunks(self, document_id: str) -> bool:
+    def delete_chunks(self, document_id: str, scope: Any = None) -> bool:
         """
-        Delete all chunks for a document
+        Delete all chunks for a document from scope-aware storage
 
         Args:
             document_id: Document identifier
+            scope: ScopeIdentifier for multi-tenant storage (optional, uses legacy if None)
 
         Returns:
             True if successful, False otherwise
@@ -207,10 +208,25 @@ class ChunkStorage(BaseChunkStorage):
         try:
             client = self.client_manager.get_client()
 
-            # List all objects with document_id prefix
+            # Determine bucket and prefix based on scope
+            if scope:
+                # Scope-aware: use organization bucket + folder structure
+                bucket = scope.get_bucket_name()
+                object_prefix = scope.get_object_prefix("chunks")
+                logger.info(f"[DELETE_CHUNKS] Scope-aware: Bucket={bucket}, Prefix={object_prefix}")
+            else:
+                # Legacy: use old bucket structure
+                bucket = self.legacy_bucket
+                object_prefix = ""
+                logger.info(f"[DELETE_CHUNKS] Legacy mode: Bucket={bucket}")
+
+            # List all objects with document_id prefix (scope-aware path)
+            full_prefix = f"{object_prefix}{document_id}/"
+            logger.info(f"[DELETE_CHUNKS] Listing objects with prefix: {full_prefix}")
+
             objects = client.list_objects(
-                self.bucket,
-                prefix=f"{document_id}/",
+                bucket,
+                prefix=full_prefix,
                 recursive=True
             )
 
@@ -218,7 +234,8 @@ class ChunkStorage(BaseChunkStorage):
             deleted_count = 0
             for obj in objects:
                 try:
-                    client.remove_object(self.bucket, obj.object_name)
+                    logger.info(f"[DELETE_CHUNKS] Removing: {obj.object_name}")
+                    client.remove_object(bucket, obj.object_name)
                     deleted_count += 1
                 except Exception as e:
                     logger.error(f"Error deleting chunk {obj.object_name}: {e}")
@@ -226,9 +243,11 @@ class ChunkStorage(BaseChunkStorage):
             # Invalidate cache
             self.cache.invalidate(document_id)
 
-            logger.info(f"Deleted {deleted_count} chunks for document {document_id}")
+            logger.info(f"[DELETE_CHUNKS] Deleted {deleted_count} chunks for document {document_id}")
             return True
 
         except Exception as e:
             logger.error(f"Failed to delete chunks for document {document_id}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return False
