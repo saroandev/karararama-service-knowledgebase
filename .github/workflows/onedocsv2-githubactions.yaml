@@ -2,7 +2,7 @@ name: Deploy image to Amazon ECR
 
 on:
     push:
-        branches: [main] # It can be changed to the branch you want to deploy
+        branches: [master] # It can be changed to the branch you want to deploy
 
 permissions:
     id-token: write
