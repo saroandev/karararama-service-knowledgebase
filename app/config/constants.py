@@ -71,9 +71,9 @@ LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 LOG_LEVEL = "INFO"
 
 # API Constants
-API_VERSION = "2.0.0"
-API_TITLE = "OneDocs RAG API"
-API_DESCRIPTION = "Production-ready RAG system with persistent storage"
+API_VERSION = "1.0.0"
+API_TITLE = "onedocs-service-knowledgebase"
+API_DESCRIPTION = "OneDocs Knowledge Base Service - Multi-tenant RAG system with vector search"
 API_DEFAULT_HOST = "0.0.0.0"
 API_DEFAULT_PORT = 8080
 

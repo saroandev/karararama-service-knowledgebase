@@ -60,9 +60,9 @@ async def lifespan(app: FastAPI):
 
 # Initialize FastAPI app with lifespan
 app = FastAPI(
-    title="Production RAG API",
-    description="Production-ready RAG system with persistent storage",
-    version="2.0.0",
+    title="onedocs-service-knowledgebase",
+    description="OneDocs Knowledge Base Service - Multi-tenant RAG system with vector search",
+    version="1.0.0",
     default_response_class=CustomJSONResponse,
     lifespan=lifespan
 )

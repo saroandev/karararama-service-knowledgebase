@@ -66,7 +66,7 @@ class HealthResponse(BaseModel):
                     "embedding_model": "text-embedding-3-small",
                     "embedding_dimension": 1536
                 },
-                "version": "2.0.0"
+                "version": "1.0.0"
             }
         }
     }
