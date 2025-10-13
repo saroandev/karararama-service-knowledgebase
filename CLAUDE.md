@@ -69,7 +69,6 @@ The system follows a modular architecture with clear separation of concerns:
   - Centralized schema definitions for API requests/responses
   - Validation schemas
 
-- **`streamlit-frontend/`**: Streamlit-based chat interface
 - **`tests/`**: Comprehensive test suite
   - `tests/unit/`: Unit tests
   - `tests/integration/`: Integration tests requiring Docker services
@@ -214,17 +213,6 @@ uvicorn api.main:app --host 0.0.0.0 --port 8080 --workers 4
 
 # Simple Python execution
 python -m api.main
-```
-
-### Running Streamlit Frontend
-```bash
-# Start Streamlit interface
-make streamlit
-# Or:
-streamlit run streamlit-frontend/app.py --server.port 8501
-
-# Run both API and Streamlit together
-make run-all
 ```
 
 ### Building and Testing

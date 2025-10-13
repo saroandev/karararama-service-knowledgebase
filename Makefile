@@ -23,34 +23,6 @@ run-prod: ## Run API in production mode (no auto-reload)
 run-simple: ## Run API with simple Python command
 	python -m api.main
 
-# Streamlit Commands
-streamlit: ## Run Streamlit chat interface
-	streamlit run streamlit-frontend/app.py --server.port 8501
-
-streamlit-dev: ## Run Streamlit with custom settings
-	cd streamlit-frontend && ./run.sh
-
-streamlit-prod: ## Run Streamlit in production mode
-	streamlit run streamlit-frontend/app.py \
-		--server.port 8501 \
-		--server.address 0.0.0.0 \
-		--server.headless true \
-		--theme.base "light" \
-		--server.maxUploadSize 100
-
-# Run Both API and Streamlit
-run-all: ## Run both API and Streamlit in parallel
-	@echo "Starting API server on port 8080..."
-	@uvicorn api.main:app --host 0.0.0.0 --port 8080 --reload &
-	@echo "Starting Streamlit on port 8501..."
-	@streamlit run streamlit-frontend/app.py --server.port 8501 &
-	@echo "\n✅ Services started:"
-	@echo "   API: http://localhost:8080"
-	@echo "   API Docs: http://localhost:8080/docs"
-	@echo "   Streamlit: http://localhost:8501"
-	@echo "\n⚠️  Press Ctrl+C to stop all services"
-	@wait
-
 # Docker Commands
 docker-up: ## Start all Docker services
 	docker compose -p onedocs-research up -d
