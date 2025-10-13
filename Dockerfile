@@ -24,7 +24,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY app/ ./app/
-COPY production_server.py .
+COPY api/ ./api/
+COPY schemas/ ./schemas/
 
 # Create necessary directories
 RUN mkdir -p /app/logs /app/temp
@@ -32,6 +33,7 @@ RUN mkdir -p /app/logs /app/temp
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
+ENV ENV=production
 
 # Expose port
 EXPOSE 8080
@@ -40,5 +42,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
-# Run the application
-CMD ["python", "production_server.py"]
+# Run the application in production mode with multiple workers
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "4"]
