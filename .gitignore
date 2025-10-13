@@ -118,3 +118,9 @@ minio_data/
 
 # Large PDF files (examples should be small)
 *.pdf
+
+# Documentation files
+md_files/
+
+# Claude Code settings
+.claude
