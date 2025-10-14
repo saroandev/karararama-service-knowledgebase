@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "knowledgebase-configmap"
+  namespace: preprod
+data:
+  # FastAPI
+  API_BASE_URL: "http://knowledgebase-svc:8080"
+
+  # MinIO
+  MINIO_ENDPOINT: "minio-svc.minio-preprod.svc.cluster.local:9000"
+  MINIO_SECURE: "false"
+
+  # Milvus
+  MILVUS_HOST: "milvus-svc.milvus-preprod.svc.cluster.local"
+  MILVUS_PORT: "19530"
+  MILVUS_COLLECTION: "rag_chunks_1536"
+
+  # Embeddings & Reranker
+  EMBEDDING_MODEL: "text-embedding-3-small"
+  EMBEDDING_DIMENSION: "1536"
+  EMBEDDING_BATCH_SIZE: "32"
+  RERANKER_MODEL: "BAAI/bge-reranker-v2-m3"
+
+  # LLM Provider
+  LLM_PROVIDER: "openai"
+  OPENAI_MODEL: "gpt-4o-mini"
+  OLLAMA_MODEL: "qwen2.5:7b-instruct"
+
+  # Chunking Configuration
+  CHUNKING_MODEL: "BAAI/bge-m3"
+  DEFAULT_CHUNK_SIZE: "512"
+  DEFAULT_CHUNK_OVERLAP: "50"
+  DEFAULT_CHUNKING_METHOD: "token"
+  MAX_CHUNK_SIZE: "1000"
+  MIN_CHUNK_SIZE: "100"
+  SEMANTIC_SIMILARITY_THRESHOLD: "0.7"
+
+  # JWT Authentication
+  JWT_ALGORITHM: "HS256"
+  REQUIRE_AUTH: "true"
+
+  # Auth Service Configuration
+  AUTH_SERVICE_URL: "http://auth-service-svc:8001"
+  AUTH_SERVICE_TIMEOUT: "5"
+
+  # PostgreSQL
+  POSTGRES_HOST: "postgres-svc.postgres-preprod.svc.cluster.local"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "onedocsv2-postgres-preprod-db"
+  POSTGRES_USER: "onedocsv2-postgres-preprod-user"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: "knowledgebase-secret"
+  namespace: preprod
+type: Opaque
+stringData:
+  # MinIO Credentials
+  MINIO_ROOT_USER: "miniopreprodadmin"
+  MINIO_ROOT_PASSWORD: "KI0TjUKu91Hf7ig_Vab4J"
+
+  # PostgreSQL Password
+  POSTGRES_PASSWORD: "cGFzc3_dvcmQ"
+
+  # JWT Secret
+  JWT_SECRET_KEY: "prod-secret-key-min-32-characters-long-change-me-in-production"
+
+  # OpenAI API Key (buraya production key eklenmelidir)
+  OPENAI_API_KEY: "sk-proj-PRODUCTION-KEY-HERE"
