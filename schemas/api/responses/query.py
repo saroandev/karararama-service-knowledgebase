@@ -21,6 +21,8 @@ class QuerySource(BaseModel):
 class QueryResponse(BaseModel):
     """Response model for query endpoint"""
     answer: str = Field(..., description="Generated answer")
+    role: str = Field(default="assistant", description="Message role (always 'assistant' for responses)")
+    conversation_id: str = Field(..., description="Conversation ID for maintaining chat history")
     sources: List[QuerySource] = Field(..., description="High-confidence source documents used")
     processing_time: float = Field(..., description="Processing time in seconds")
     model_used: str = Field(..., description="LLM model used for generation")
@@ -40,6 +42,8 @@ class QueryResponse(BaseModel):
         "json_schema_extra": {
             "example": {
                 "answer": "RAG stands for Retrieval-Augmented Generation...",
+                "role": "assistant",
+                "conversation_id": "conv-123e4567-e89b-12d3-a456-426614174000",
                 "sources": [
                     {
                         "document_id": "doc_123",
@@ -50,7 +54,9 @@ class QueryResponse(BaseModel):
                     }
                 ],
                 "processing_time": 1.23,
-                "model_used": "gpt-4o-mini"
+                "model_used": "gpt-4o-mini",
+                "tokens_used": 150,
+                "remaining_credits": 9850
             }
         }
     }

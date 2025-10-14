@@ -58,4 +58,11 @@ class Settings:
     ENABLE_SOURCE_FILTERING = os.getenv("ENABLE_SOURCE_FILTERING", "true").lower() == "true"
     DEFAULT_MAX_SOURCES_IN_CONTEXT = int(os.getenv("DEFAULT_MAX_SOURCES_IN_CONTEXT", "5"))
 
+    # PostgreSQL Configuration
+    POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
+    POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+    POSTGRES_DB = os.getenv("POSTGRES_DB", "rag_database")
+    POSTGRES_USER = os.getenv("POSTGRES_USER", "raguser")
+    POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "ragpassword")
+
 settings = Settings()

@@ -9,6 +9,7 @@ from app.core.orchestrator.handlers.base import BaseHandler, SourceType
 from app.core.orchestrator.handlers.collection_handler import CollectionServiceHandler
 from app.core.orchestrator.handlers.external_handler import ExternalServiceHandler
 from app.core.orchestrator.aggregator import ResultAggregator
+from app.core.conversation import conversation_manager
 from schemas.api.requests.query import QueryRequest, QueryOptions
 from schemas.api.requests.scope import DataScope
 from schemas.api.responses.query import QueryResponse
@@ -56,6 +57,20 @@ class QueryOrchestrator:
             logger.info(f"📝 Question: {request.question}")
             logger.info(f"🔍 Requested sources: {[s.value for s in request.sources]}")
 
+            # Handle conversation history
+            conversation_id = request.conversation_id or conversation_manager.create_new_conversation()
+            logger.info(f"💬 Conversation ID: {conversation_id}")
+
+            # Save user question to conversation log
+            conversation_manager.save_message(
+                conversation_id=conversation_id,
+                user_id=user.user_id,
+                organization_id=user.organization_id,
+                role="user",
+                content=request.question
+            )
+            logger.info(f"💾 Saved user question to conversation log")
+
             # Set default options if not provided
             options = request.options or QueryOptions()
             logger.info(f"⚙️ Query options: tone={options.tone}, citations={options.citations}, lang={options.lang}")
@@ -70,7 +85,7 @@ class QueryOrchestrator:
             if not handlers:
                 logger.warning("⚠️ No handlers created - falling back to LLM-only mode")
                 processing_time = time.time() - start_time
-                return await self._generate_llm_only_response(request, user, processing_time)
+                return await self._generate_llm_only_response(request, user, processing_time, conversation_id)
 
             logger.info(f"🚀 Created {len(handlers)} handlers: {[h.source_type.value for h in handlers]}")
 
@@ -111,7 +126,8 @@ class QueryOrchestrator:
                 handler_results=safe_results,
                 request=request,
                 user=user,
-                processing_time=processing_time
+                processing_time=processing_time,
+                conversation_id=conversation_id
             )
 
             logger.info(f"✅ Query orchestration completed in {processing_time:.2f}s")
@@ -212,12 +228,13 @@ class QueryOrchestrator:
         self,
         request: QueryRequest,
         user: UserContext,
-        processing_time: float
+        processing_time: float,
+        conversation_id: str
     ) -> QueryResponse:
         """
         Generate LLM-only response without RAG when no sources/collections specified
 
-        Uses OpenAI directly to answer the question based on its training data.
+        Uses OpenAI directly to answer the question based on its training data with conversation history.
         """
         from openai import OpenAI
 
@@ -239,21 +256,25 @@ class QueryOrchestrator:
                     "Herhangi bir kaynağa atıfta bulunma, sadece genel bilgini kullan."
                 )
 
+            # Get conversation history
+            conversation_history = conversation_manager.get_context_for_llm(
+                conversation_id=conversation_id,
+                user_id=user.user_id,
+                organization_id=user.organization_id,
+                max_messages=10
+            )
+            logger.info(f"📜 Retrieved {len(conversation_history)} messages from conversation history")
+
+            # Build messages: system + history + current question
+            messages = [{"role": "system", "content": system_prompt}]
+            messages.extend(conversation_history)
+
             # Call OpenAI
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
             chat_response = client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": request.question
-                    }
-                ],
+                messages=messages,
                 max_tokens=700,
                 temperature=0.7
             )
@@ -264,9 +285,22 @@ class QueryOrchestrator:
 
             logger.info(f"✅ LLM-only response generated using {model_used} ({tokens_used} tokens)")
 
+            # Save assistant answer to conversation log
+            conversation_manager.save_message(
+                conversation_id=conversation_id,
+                user_id=user.user_id,
+                organization_id=user.organization_id,
+                role="assistant",
+                content=answer,
+                sources=[],
+                tokens_used=tokens_used,
+                processing_time=processing_time
+            )
+
             # Create response
             return QueryResponse(
                 answer=answer,
+                conversation_id=conversation_id,
                 sources=[],
                 low_confidence_sources=None,
                 processing_time=processing_time,
@@ -283,4 +317,4 @@ class QueryOrchestrator:
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             # Return empty response as fallback
-            return self.aggregator._create_empty_response(request, user, processing_time)
+            return self.aggregator._create_empty_response(request, user, processing_time, conversation_id)

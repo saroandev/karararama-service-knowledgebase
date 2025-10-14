@@ -96,6 +96,12 @@ class QueryRequest(BaseModel):
     """Request model for query endpoint"""
     question: str = Field(..., description="Question to ask")
 
+    # Conversation history support
+    conversation_id: Optional[str] = Field(
+        default=None,
+        description="Optional conversation ID to maintain chat history. If not provided, a new conversation will be created."
+    )
+
     # Multi-source selection parameter
     sources: List[DataScope] = Field(
         default=[],

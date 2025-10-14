@@ -98,34 +98,63 @@ services:
         networks:
             - rag-network
 
-    # app:
-    #     container_name: rag-app
-    #     build:
-    #         context: .
-    #         dockerfile: Dockerfile
-    #     ports:
-    #         - "8080:8080"
-    #     environment:
-    #         - MINIO_ENDPOINT=minio:9000
-    #         - MINIO_ACCESS_KEY=minioadmin
-    #         - MINIO_SECRET_KEY=minioadmin
-    #         - MINIO_SECURE=false
-    #         - MILVUS_HOST=milvus
-    #         - MILVUS_PORT=19530
-    #         - PYTHONUNBUFFERED=1
-    #     env_file:
-    #         - .env
-    #     volumes:
-    #         - ./app:/app/app
-    #         - ./logs:/app/logs
-    #     depends_on:
-    #         milvus:
-    #             condition: service_healthy
-    #         minio:
-    #             condition: service_healthy
-    #     networks:
-    #         - rag-network
-    #     restart: unless-stopped
+    postgres:
+        container_name: rag-postgres
+        image: postgres:16-alpine
+        environment:
+            POSTGRES_DB: ${POSTGRES_DB:-rag_database}
+            POSTGRES_USER: ${POSTGRES_USER:-raguser}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpassword}
+            PGDATA: /var/lib/postgresql/data/pgdata
+        ports:
+            - "5431:5432"
+        volumes:
+            - postgres-data:/var/lib/postgresql/data
+            - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-raguser} -d ${POSTGRES_DB:-rag_database}"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+        networks:
+            - rag-network
+        restart: unless-stopped
+
+    app:
+        container_name: rag-app
+        build:
+            context: .
+            dockerfile: Dockerfile
+        ports:
+            - "8080:8080"
+        environment:
+            - MINIO_ENDPOINT=minio:9000
+            - MINIO_ACCESS_KEY=minioadmin
+            - MINIO_SECRET_KEY=minioadmin
+            - MINIO_SECURE=false
+            - MILVUS_HOST=milvus
+            - MILVUS_PORT=19530
+            - POSTGRES_HOST=postgres
+            - POSTGRES_PORT=5431
+            - POSTGRES_DB=rag_database
+            - POSTGRES_USER=raguser
+            - POSTGRES_PASSWORD=ragpassword
+            - PYTHONUNBUFFERED=1
+        env_file:
+            - .env
+        volumes:
+            - ./app:/app/app
+            - ./logs:/app/logs
+        depends_on:
+            milvus:
+                condition: service_healthy
+            minio:
+                condition: service_healthy
+            postgres:
+                condition: service_healthy
+        networks:
+            - rag-network
+        restart: unless-stopped
 
 networks:
     rag-network:
@@ -136,3 +165,4 @@ volumes:
     etcd-data:
     minio-data:
     milvus-data:
+    postgres-data:

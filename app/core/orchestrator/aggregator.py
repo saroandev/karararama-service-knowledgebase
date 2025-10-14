@@ -7,6 +7,7 @@ from openai import OpenAI
 
 from app.core.orchestrator.handlers.base import HandlerResult, SearchResult, SourceType
 from app.core.orchestrator.prompts import PromptTemplate
+from app.core.conversation import conversation_manager
 from schemas.api.requests.query import QueryRequest, QueryOptions
 from schemas.api.responses.query import QueryResponse, QuerySource
 from app.config import settings
@@ -28,7 +29,8 @@ class ResultAggregator:
         handler_results: List[HandlerResult],
         request: QueryRequest,
         user: UserContext,
-        processing_time: float
+        processing_time: float,
+        conversation_id: str
     ) -> QueryResponse:
         """
         Aggregate results from all handlers and generate answer
@@ -99,7 +101,9 @@ class ResultAggregator:
                 context_parts=context_parts,
                 high_confidence_sources=high_confidence_sources,
                 handler_results=handler_results,
-                request=request
+                request=request,
+                user=user,
+                conversation_id=conversation_id
             )
 
             # 5. Report usage to auth service
@@ -129,9 +133,23 @@ class ResultAggregator:
 
             logger.info(f"📋 Returning {len(final_sources)} sources (citations={options.citations})")
 
-            # 8. Return response
+            # 8. Save assistant answer to conversation log
+            conversation_manager.save_message(
+                conversation_id=conversation_id,
+                user_id=user.user_id,
+                organization_id=user.organization_id,
+                role="assistant",
+                content=answer,
+                sources=[source.dict() for source in final_sources],
+                tokens_used=tokens_used,
+                processing_time=processing_time
+            )
+            logger.info(f"💾 Saved assistant answer to conversation log")
+
+            # 9. Return response
             return QueryResponse(
                 answer=answer,
+                conversation_id=conversation_id,
                 sources=final_sources,
                 processing_time=processing_time,
                 model_used=model_used,
@@ -197,7 +215,9 @@ class ResultAggregator:
         context_parts: List[str],
         high_confidence_sources: List[QuerySource],
         handler_results: List[HandlerResult],
-        request: QueryRequest
+        request: QueryRequest,
+        user: UserContext,
+        conversation_id: str
     ) -> tuple[str, str, int]:
         """
         Generate final answer from handler-generated answers
@@ -233,7 +253,9 @@ class ResultAggregator:
             answer, tokens_used = await self._synthesize_answers(
                 answers=handler_answers,
                 question=request.question,
-                options=options
+                options=options,
+                user=user,
+                conversation_id=conversation_id
             )
             model_used = f"{settings.OPENAI_MODEL} (meta-synthesis)"
             logger.info(f"✅ Synthesized answer from {len(handler_answers)} sources")
@@ -250,7 +272,9 @@ class ResultAggregator:
         self,
         answers: Dict[str, str],
         question: str,
-        options: QueryOptions
+        options: QueryOptions,
+        user: UserContext,
+        conversation_id: str
     ) -> tuple[str, int]:
         """
         Synthesize multiple scope-specific answers into a comprehensive meta-answer
@@ -259,6 +283,8 @@ class ResultAggregator:
             answers: Dict mapping source_type to generated answer
             question: Original user question
             options: Query options for tone, citations, etc.
+            user: User context
+            conversation_id: Conversation ID for history
 
         Returns:
             (synthesized_answer, tokens_used)
@@ -325,21 +351,31 @@ Soru: {question}
 
 Bu cevapları birleştir, karşılaştır ve kapsamlı bir yanıt oluştur."""
 
+            # Get conversation history
+            conversation_history = conversation_manager.get_context_for_llm(
+                conversation_id=conversation_id,
+                user_id=user.user_id,
+                organization_id=user.organization_id,
+                max_messages=10
+            )
+            logger.info(f"📜 Retrieved {len(conversation_history)} messages from conversation history for synthesis")
+
+            # Build messages: system + history (excluding current question as it's already in user_message)
+            messages = [{"role": "system", "content": synthesis_prompt}]
+
+            # Add history except the last user message (which is the current question)
+            if conversation_history:
+                messages.extend(conversation_history[:-1])  # Exclude last message (current question)
+
+            # Add current synthesis request
+            messages.append({"role": "user", "content": user_message})
+
             # Generate meta-synthesis with OpenAI
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
             chat_response = client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": synthesis_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": user_message
-                    }
-                ],
+                messages=messages,
                 max_tokens=700,
                 temperature=0.7
             )
@@ -406,11 +442,17 @@ Bu cevapları birleştir, karşılaştır ve kapsamlı bir yanıt oluştur."""
         self,
         request: QueryRequest,
         user: UserContext,
-        processing_time: float
+        processing_time: float,
+        conversation_id: str = None
     ) -> QueryResponse:
         """Create empty response when no results found"""
+        # If no conversation_id provided, create a new one
+        if not conversation_id:
+            conversation_id = conversation_manager.create_new_conversation()
+
         return QueryResponse(
             answer="İlgili bilgi bulunamadı.",
+            conversation_id=conversation_id,
             sources=[],
             processing_time=processing_time,
             model_used=settings.OPENAI_MODEL,

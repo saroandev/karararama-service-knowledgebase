@@ -26,6 +26,11 @@ environs<=9.5.0
 # Authentication dependencies
 pyjwt==2.8.0
 
+# PostgreSQL dependencies
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+alembic==1.13.0
+
 # Testing dependencies
 pytest==7.4.3
 pytest-cov==4.1.0
