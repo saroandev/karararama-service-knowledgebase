@@ -52,7 +52,9 @@ class MilvusIndexer(AbstractIndexer):
             host: Milvus server host
             port: Milvus server port
         """
-        collection_name = collection_name or settings.MILVUS_COLLECTION
+        # DEPRECATED: MILVUS_COLLECTION has been removed
+        # This indexer is deprecated - use api/core/milvus_manager.py instead
+        collection_name = collection_name or "deprecated_milvus_indexer"
         super().__init__(collection_name)
 
         self.host = host or settings.MILVUS_HOST
