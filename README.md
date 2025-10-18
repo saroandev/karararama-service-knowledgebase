@@ -54,10 +54,12 @@ OneDocs KnowledgeBase, kuruluşlar için izole, güvenli ve ölçeklenebilir bir
 | **FastAPI** | Modern Python web framework | Latest |
 | **Milvus** | Vector database (HNSW indexing) | v2.6.1 |
 | **MinIO** | S3-compatible object storage | Latest |
+| **PostgreSQL** | Conversation history & metadata | v16-alpine |
 | **OpenAI** | Embeddings & LLM | GPT-4o-mini |
 | **Docker** | Containerization & orchestration | Latest |
 | **PyJWT** | JWT authentication | v2.8.0 |
 | **Pydantic** | Data validation | v2.5.0 |
+| **SQLAlchemy** | ORM & database pooling | v2.0.23 |
 
 ## 🚀 Hızlı Başlangıç
 
@@ -93,6 +95,13 @@ MINIO_ROOT_USER=minioadmin
 MINIO_ROOT_PASSWORD=minioadmin
 MINIO_SECURE=false
 
+# PostgreSQL Configuration (Chat History)
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5431
+POSTGRES_DB=rag_database
+POSTGRES_USER=raguser
+POSTGRES_PASSWORD=ragpassword
+
 # JWT Authentication (CRITICAL - Auth Service ile aynı olmalı)
 JWT_SECRET_KEY=dev-secret-key-min-32-characters-long-12345
 JWT_ALGORITHM=HS256
@@ -110,11 +119,14 @@ LOG_LEVEL=INFO
 
 ### 3. Docker Servislerini Başlatın
 ```bash
-# Tüm servisleri başlat (Milvus, MinIO, ETCD, Attu)
+# Tüm servisleri başlat (Milvus, MinIO, PostgreSQL, ETCD, Attu)
 docker compose up -d
 
 # Servis durumlarını kontrol et
 docker compose ps
+
+# PostgreSQL başlatıldığında conversation_log tablosu otomatik oluşturulur
+# migrations/init.sql script'i ile
 
 # Logları izle
 docker compose logs -f
@@ -264,7 +276,7 @@ Form Data:
 
 ### 🔍 Query Processing
 
-#### Akıllı Sorgulama
+#### Akıllı Sorgulama (Chat History ile)
 ```bash
 POST /chat/process
 Content-Type: application/json
@@ -272,6 +284,7 @@ Authorization: Bearer <token>
 
 {
   "question": "Hizmet sözleşmelerinde fiyat güncellemesi nasıl yapılır?",
+  "conversation_id": "conv-123e4567-e89b-12d3-a456-426614174000",  # Opsiyonel: mevcut konuşmayı sürdürmek için
   "sources": ["private", "mevzuat"],     # Opsiyonel: external sources
   "collections": [                        # Collection'ları belirtin
     {
@@ -297,6 +310,8 @@ Authorization: Bearer <token>
 ```json
 {
   "answer": "Hizmet sözleşmelerinde fiyat güncellemesi...",
+  "role": "assistant",                   # Her zaman "assistant"
+  "conversation_id": "conv-123e4567-e89b-12d3-a456-426614174000",  # Konuşma ID'si
   "sources": [
     {
       "text": "İlgili paragraf metni...",
@@ -319,9 +334,26 @@ Authorization: Bearer <token>
   "processing_time": 2.34,
   "model_used": "gpt-4o-mini",
   "tokens_used": 1250,
+  "remaining_credits": 9850,
   "total_sources_retrieved": 12,
   "sources_after_filtering": 7
 }
+```
+
+**💬 Chat History Özelliği:**
+- `conversation_id` belirtilirse mevcut konuşma devam eder
+- `conversation_id` belirtilmezse yeni bir konuşma oluşturulur
+- Her soru ve cevap PostgreSQL'de saklanır
+- Son 10 mesaj otomatik olarak LLM'e context olarak gönderilir
+- Kullanıcı "buna 10 ekle" gibi takip soruları sorabilir
+
+**Örnek Konuşma Akışı:**
+```
+Kullanıcı: "2+4 kaçtır?"
+Asistan: "6" (conversation_id: conv-abc123)
+
+Kullanıcı: "Bu sonuca 10 ekle" (conversation_id: conv-abc123)
+Asistan: "16" (önceki context'i hatırlar)
 ```
 
 **Query Orchestrator İşleyişi:**
@@ -337,6 +369,113 @@ Authorization: Bearer <token>
 - 🚫 **Collections belirtilmezse ve sources sadece external ise**: Sadece external servislerde arama
 - 🚫 **Collections belirtilmezse ve sources boş ise**: LLM-only mode (RAG yok)
 - ✅ **Collections + external sources**: Her ikisi de paralel aranır ve birleştirilir
+
+### 💬 Conversation History Management
+
+#### Konuşmaları Listele
+```bash
+GET /conversations?limit=20
+Authorization: Bearer <token>
+```
+
+**Response:**
+```json
+{
+  "conversations": [
+    {
+      "conversation_id": "conv-123e4567-e89b-12d3-a456-426614174000",
+      "message_count": 4,
+      "first_message_preview": "2+4 kaçtır?",
+      "started_at": "2025-10-14T19:00:00Z",
+      "last_message_at": "2025-10-14T19:05:30Z"
+    },
+    {
+      "conversation_id": "conv-987f6543-e21a-34b5-c678-123456789abc",
+      "message_count": 8,
+      "first_message_preview": "İcra ve İflas Kanunu nedir?",
+      "started_at": "2025-10-13T14:30:00Z",
+      "last_message_at": "2025-10-13T14:45:00Z"
+    }
+  ],
+  "total_count": 2
+}
+```
+
+#### Konuşma Detaylarını Getir
+```bash
+GET /conversations/{conversation_id}?limit=100
+Authorization: Bearer <token>
+```
+
+**Response:**
+```json
+{
+  "conversation_id": "conv-123e4567-e89b-12d3-a456-426614174000",
+  "user_id": "user-456",
+  "organization_id": "org-789",
+  "message_count": 4,
+  "messages": [
+    {
+      "message_id": "msg-1",
+      "role": "user",
+      "content": "2+4 kaçtır?",
+      "sources": [],
+      "tokens_used": 0,
+      "processing_time": 0.0,
+      "created_at": "2025-10-14T19:00:00Z"
+    },
+    {
+      "message_id": "msg-2",
+      "role": "assistant",
+      "content": "6",
+      "sources": [],
+      "tokens_used": 50,
+      "processing_time": 1.2,
+      "created_at": "2025-10-14T19:00:02Z"
+    },
+    {
+      "message_id": "msg-3",
+      "role": "user",
+      "content": "Bu sonuca 10 ekle",
+      "sources": [],
+      "tokens_used": 0,
+      "processing_time": 0.0,
+      "created_at": "2025-10-14T19:05:00Z"
+    },
+    {
+      "message_id": "msg-4",
+      "role": "assistant",
+      "content": "16",
+      "sources": [],
+      "tokens_used": 45,
+      "processing_time": 1.1,
+      "created_at": "2025-10-14T19:05:02Z"
+    }
+  ],
+  "started_at": "2025-10-14T19:00:00Z",
+  "last_message_at": "2025-10-14T19:05:02Z"
+}
+```
+
+#### Konuşmayı Sil
+```bash
+DELETE /conversations/{conversation_id}
+Authorization: Bearer <token>
+```
+
+**Response:**
+```json
+{
+  "message": "Conversation deleted successfully",
+  "conversation_id": "conv-123e4567-e89b-12d3-a456-426614174000",
+  "messages_deleted": 4
+}
+```
+
+**🔒 Güvenlik:**
+- Kullanıcılar sadece kendi konuşmalarını görebilir ve silebilir
+- Multi-tenant izolasyon otomatik olarak uygulanır
+- JWT token ile authentication zorunludur
 
 ### 📋 Document Management
 
@@ -486,6 +625,7 @@ Sistem başladıktan sonra şu arayüzlere erişebilirsiniz:
 - 📖 **API Docs**: http://localhost:8080/docs (Swagger UI)
   - Interactive API testing
   - 🔒 Authorize button ile token girebilirsiniz
+  - Yeni conversation endpoints'leri görebilirsiniz
 
 - 🗄️ **MinIO Console**: http://localhost:9001
   - Login: `minioadmin` / `minioadmin`
@@ -494,6 +634,11 @@ Sistem başladıktan sonra şu arayüzlere erişebilirsiniz:
 - 🔍 **Milvus Attu**: http://localhost:8000
   - Vector database yönetimi
   - Collection'ları ve index'leri görüntüleyin
+
+- 🐘 **PostgreSQL**: localhost:5431
+  - Database: `rag_database`
+  - User: `raguser` / Password: `ragpassword`
+  - `conversation_log` tablosu ile chat history
 
 ## 🧪 Testing
 

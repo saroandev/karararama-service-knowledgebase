@@ -296,11 +296,17 @@ async def create_collection(
 
     # Check if collection already exists
     collection_name = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
-    if utility.has_collection(collection_name):
-        raise HTTPException(
-            status_code=409,
-            detail=f"Collection '{request.name}' already exists in {request.scope} scope"
-        )
+    try:
+        if utility.has_collection(collection_name):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Collection '{request.name}' already exists in {request.scope} scope"
+            )
+    except Exception as e:
+        # If has_collection throws an error (collection doesn't exist), that's fine - we want to create it
+        if "can't find collection" not in str(e):
+            # Re-raise if it's not a "collection not found" error
+            raise
 
     try:
         # Create Milvus collection
