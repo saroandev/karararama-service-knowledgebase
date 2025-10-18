@@ -13,7 +13,8 @@ class Settings:
 
     MILVUS_HOST = os.getenv("MILVUS_HOST", "localhost")
     MILVUS_PORT = int(os.getenv("MILVUS_PORT", "19530"))
-    MILVUS_COLLECTION = os.getenv("MILVUS_COLLECTION", "rag_chunks")
+    # MILVUS_COLLECTION removed - System now uses scope-based collections only
+    # Collections are automatically named based on: user_{user_id}_chunks_{dimension} or org_{org_id}_shared_chunks_{dimension}
     MILVUS_CONNECTION_TIMEOUT = float(os.getenv("MILVUS_CONNECTION_TIMEOUT", "3.0"))
     MILVUS_MAX_RETRY = int(os.getenv("MILVUS_MAX_RETRY", "1"))
 

@@ -8,7 +8,8 @@ These values should not change during runtime.
 # Milvus Constants
 MILVUS_DEFAULT_HOST = "localhost"
 MILVUS_DEFAULT_PORT = 19530
-MILVUS_DEFAULT_COLLECTION = "rag_chunks_1536"
+# MILVUS_DEFAULT_COLLECTION removed - System now uses scope-based collections only
+# Collections are automatically named based on scope and dimension
 MILVUS_METRIC_TYPE = "COSINE"
 MILVUS_INDEX_TYPE = "HNSW"
 MILVUS_NLIST = 1024

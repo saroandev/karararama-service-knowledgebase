@@ -10,7 +10,8 @@ class MilvusSettings(BaseModel):
 
     host: str = Field(default="localhost", description="Milvus server host")
     port: int = Field(default=19530, description="Milvus server port")
-    collection_name: str = Field(default="rag_chunks", description="Collection name")
+    # collection_name removed - System now uses scope-based collections only
+    # Collections are automatically named based on scope: user_{user_id}_chunks_{dimension}
 
     # Collection settings
     dimension: int = Field(default=1536, description="Vector dimension")

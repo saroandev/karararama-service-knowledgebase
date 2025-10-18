@@ -20,7 +20,7 @@ class ApplicationConfig(BaseSettings):
     # Milvus Configuration
     milvus_host: str = Field(default="localhost", env="MILVUS_HOST")
     milvus_port: int = Field(default=19530, env="MILVUS_PORT")
-    milvus_collection: str = Field(default="rag_chunks", env="MILVUS_COLLECTION")
+    # milvus_collection removed - System now uses scope-based collections only
 
     # Embedding Configuration
     embedding_provider: str = Field(default="openai", env="EMBEDDING_PROVIDER")

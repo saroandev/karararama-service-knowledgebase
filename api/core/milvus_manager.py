@@ -45,25 +45,28 @@ class MilvusConnectionManager:
                 raise
         return connections
 
-    def get_collection(self, scope: Optional[ScopeIdentifier] = None, auto_create: bool = True) -> Collection:
+    def get_collection(self, scope: ScopeIdentifier, auto_create: bool = True) -> Collection:
         """
         Get Milvus collection for the specified scope
 
         Args:
-            scope: ScopeIdentifier for multi-tenant (if None, uses legacy MILVUS_COLLECTION)
+            scope: ScopeIdentifier for multi-tenant (REQUIRED - no legacy mode)
             auto_create: If True, creates collection if it doesn't exist. If False, raises exception.
 
         Returns:
             Collection instance
 
         Raises:
+            ValueError: If scope is None
             Exception: If collection doesn't exist and auto_create is False
         """
-        # Legacy mode: no scope provided, use settings
         if scope is None:
-            collection_name = settings.MILVUS_COLLECTION
-        else:
-            collection_name = scope.get_collection_name(dimension=settings.EMBEDDING_DIMENSION)
+            raise ValueError(
+                "Collection scope is required. Legacy MILVUS_COLLECTION mode has been removed. "
+                "Please provide a ScopeIdentifier with organization_id, scope_type, and optional collection_name."
+            )
+
+        collection_name = scope.get_collection_name(dimension=settings.EMBEDDING_DIMENSION)
 
         # Check cache
         if collection_name in self._collections:
@@ -81,13 +84,15 @@ class MilvusConnectionManager:
                     # Collection doesn't exist and auto-create is disabled
                     raise Exception(f"Collection '{collection_name}' does not exist")
 
-            # Load collection
+            # Get collection instance
             collection = Collection(collection_name)
-            collection.load()
+            # NOTE: Lazy loading - collection.load() removed to avoid MinIO deadlock
+            # Milvus will auto-load the collection on first search operation
+            # collection.load()  # ❌ Causes blocking/deadlock with multiple collections
 
             # Cache it
             self._collections[collection_name] = collection
-            logger.info(f"Loaded collection: {collection_name}")
+            logger.info(f"Retrieved collection (lazy load): {collection_name}")
 
             return collection
 

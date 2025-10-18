@@ -1,7 +1,20 @@
 """
 Milvus vector database indexer implementation
+
+DEPRECATED: This module is deprecated and should not be used.
+Use api/core/milvus_manager.py with scope-based collections instead.
+
+The MilvusIndexer class still uses legacy MILVUS_COLLECTION which has been removed.
+For new code, use MilvusConnectionManager.get_collection() with ScopeIdentifier.
 """
 import logging
+import warnings
+
+warnings.warn(
+    "MilvusIndexer is deprecated. Use api/core/milvus_manager.py with scope-based collections instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 import json
 from typing import List, Dict, Any, Optional
 from datetime import datetime
