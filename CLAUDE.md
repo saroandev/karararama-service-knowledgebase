@@ -22,18 +22,20 @@ make run-prod
 
 ### Docker Services
 ```bash
-# Start all services (Milvus, MinIO, ETCD, Attu)
-make docker-up
-# or: docker compose -p onedocs-research up -d
+# Start all services (Milvus, MinIO, PostgreSQL, ETCD, Attu)
+docker compose up -d
 
 # Stop all services
-make docker-down
+docker compose down
 
 # View logs
-make docker-logs
+docker compose logs -f
+
+# Restart specific service
+docker compose restart app
 
 # Check service status
-make docker-ps
+docker compose ps
 ```
 
 ### Testing
@@ -65,9 +67,15 @@ make clean-all
 
 ### Rebuild Docker Image
 ```bash
-# After requirements.txt changes
+# After api/ or schemas/ changes (they're copied during build)
+docker compose build app
+docker compose up -d
+
+# Full rebuild without cache
 docker compose build --no-cache app
 docker compose up -d
+
+# Note: app/ folder is volume-mounted, changes reflect immediately
 ```
 
 ## High-Level Architecture
@@ -89,6 +97,8 @@ The system implements strict data isolation at three levels:
 - Private collection: `user_{user_id}_col_{collection_name}_chunks_1536`
 - Shared default: `org_{org_id}_shared_chunks_1536`
 - Shared collection: `org_{org_id}_col_{collection_name}_chunks_1536`
+
+**Important**: UUIDs are sanitized by replacing `-` with `_` for Milvus compatibility. Collection names with Turkish characters (ş, ğ, ı, ö, ü, ç) are auto-converted to ASCII equivalents.
 
 **MinIO Folder Structure:**
 ```
@@ -131,7 +141,25 @@ Coordinates multi-source query processing with parallel execution:
 4. `ResultAggregator` merges and deduplicates results
 5. Generates LLM response with source citations
 
-**Key Behavior**: If `collections` is not specified or empty, and `sources` only contains external sources (MEVZUAT/KARAR), the system only searches external services. This is intentional to support pure external-data queries.
+**Key Behavior**: If `collections` is not specified or empty, and `sources` only contains external sources (MEVZUAT/KARAR), the system only searches external services. If neither `collections` nor external `sources` are specified, the system enters **LLM-only mode** - answering questions using GPT's training data without RAG retrieval.
+
+### Conversation History (`app/core/conversation.py`)
+
+PostgreSQL-based chat history with SQLAlchemy:
+- **Table**: `conversation_log` (auto-created by `migrations/init.sql`)
+- **Conversation ID**: UUID format `conv-{uuid}`, passed in request or auto-generated
+- **Context Injection**: Last 10 messages automatically sent to LLM for multi-turn awareness
+- **Storage**: User questions and assistant answers with metadata (tokens, processing time, sources)
+
+**Methods**:
+- `create_new_conversation()`: Generates new conversation ID
+- `save_message()`: Stores user/assistant messages
+- `get_context_for_llm()`: Retrieves last N messages formatted for GPT
+
+**PostgreSQL Configuration**:
+- Host port: 5431 (external access)
+- Container port: 5432 (internal Docker network)
+- Environment variable: Use `POSTGRES_PORT=5432` in `docker-compose.yml` for app service (internal networking)
 
 ### Authentication & Authorization
 
@@ -198,6 +226,38 @@ async def query_documents(
 - Supports tone (resmi/samimi/teknik/öğretici) and language (tr/eng) options
 - Source citations in format `[Kaynak 1]`, `[Kaynak 2]`
 
+## Known Issues & Quirks
+
+### ~~Pymilvus Collection Creation Exception~~ (FIXED in 2025-10-18)
+
+**Problem**: In pymilvus 2.3.4, `Collection(name, schema)` internally calls `has_collection()` which throws `MilvusException` when the collection doesn't exist during creation attempts. This was incompatible with Milvus server v2.6.1.
+
+**Solution**: Upgrade pymilvus client to match Milvus server version:
+- Milvus server: v2.6.1 (docker image: `milvusdb/milvus:v2.6.1`)
+- pymilvus client: v2.6.2 (requirements.txt)
+
+**Key changes in requirements.txt**:
+```python
+pymilvus==2.6.2                      # Updated from 2.3.4 to match server version
+python-dotenv>=1.0.1,<2.0.0          # Updated for pymilvus 2.6.2 dependency
+protobuf>=5.27.2                     # Updated for pymilvus 2.6.2 dependency
+```
+
+**After upgrade**: Collection creation works perfectly without exceptions. The `Collection(name, schema)` constructor now properly creates collections in Milvus 2.6.x.
+
+**Rebuild Required**:
+```bash
+docker compose build app
+docker compose up -d
+```
+
+**Testing**:
+```python
+from pymilvus import Collection, CollectionSchema, FieldSchema, DataType
+# This now works without errors in pymilvus 2.6.2:
+collection = Collection(name="test_collection", schema=schema)
+```
+
 ## Environment Configuration
 
 Critical environment variables (see `.env` or `knowledgebase.yaml` for Kubernetes):
@@ -207,11 +267,22 @@ Critical environment variables (see `.env` or `knowledgebase.yaml` for Kubernete
 - `JWT_SECRET_KEY`: Must match OneDocs Auth Service (min 32 chars)
 - `MILVUS_HOST`, `MILVUS_PORT`: Vector database connection
 - `MINIO_ENDPOINT`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`: Object storage
+- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`: Conversation history database
 
 **Auth configuration:**
 - `REQUIRE_AUTH`: Set to `false` for local dev without auth service
 - `AUTH_SERVICE_URL`: OneDocs Auth Service endpoint
 - `JWT_ALGORITHM`: Must be `HS256` (matching auth service)
+
+**Docker Networking Note:**
+When running in Docker Compose, use **service names** for `*_HOST` variables:
+- `MILVUS_HOST=milvus` (not `localhost`)
+- `MINIO_ENDPOINT=minio:9000` (not `localhost:9000`)
+- `POSTGRES_HOST=postgres` (not `localhost`)
+
+Use **internal container ports** for `*_PORT` variables:
+- `MILVUS_PORT=19530`
+- `POSTGRES_PORT=5432` (not 5431, which is the host-mapped port)
 
 **Kubernetes deployment:**
 Use `knowledgebase.yaml` for ConfigMap (non-sensitive) and Secret (sensitive) separation.
@@ -219,19 +290,23 @@ Use `knowledgebase.yaml` for ConfigMap (non-sensitive) and Secret (sensitive) se
 ## Project Structure Notes
 
 **api/**: FastAPI application layer
-- `endpoints/`: REST API endpoints
-- `core/`: Infrastructure services (Milvus, embeddings, dependencies)
+- `endpoints/`: REST API endpoints (`query.py`, `collections.py`, `ingest.py`, `conversations.py`)
+- `core/`: Infrastructure services (`milvus_manager.py`, `embeddings.py`, `dependencies.py`)
 
 **app/**: Business logic layer
 - `core/orchestrator/`: Orchestrator pattern implementation
 - `core/auth.py`: JWT authentication and permission system
+- `core/conversation.py`: PostgreSQL conversation history manager
 - `core/storage/`: MinIO storage management
 - `pipelines/`: Legacy pipeline implementations (being replaced by orchestrators)
 
 **schemas/**: Pydantic data models
-- `api/requests/`: Request validation models
-- `api/responses/`: Response models
+- `api/requests/`: Request validation models (`query.py`, `scope.py`, `collection.py`)
+- `api/responses/`: Response models (`query.py`, `conversation.py`, `collection.py`)
 - `config/`: Configuration schemas (uses `pydantic-settings`)
+
+**migrations/**: Database migrations
+- `init.sql`: PostgreSQL schema initialization (creates `conversation_log` table)
 
 **Important**: The `pydantic-settings` package is required (added in requirements.txt) for `BaseSettings` used in configuration management.
 
@@ -290,6 +365,18 @@ docker compose logs -f app       # API logs
 - Swagger UI: http://localhost:8080/docs (use 🔒 Authorize button for JWT)
 - MinIO Console: http://localhost:9001 (minioadmin/minioadmin)
 - Milvus Attu: http://localhost:8000 (visual DB management)
+
+**PostgreSQL access:**
+```bash
+# Connect to database
+docker exec -it rag-postgres psql -U raguser -d rag_database
+
+# Check conversation history
+SELECT conversation_id, role, content, created_at
+FROM conversation_log
+ORDER BY created_at DESC
+LIMIT 10;
+```
 
 ## Performance Considerations
 

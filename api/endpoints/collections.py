@@ -296,17 +296,26 @@ async def create_collection(
 
     # Check if collection already exists
     collection_name = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
+
+    # NOTE: utility.has_collection() throws MilvusException if collection doesn't exist
+    # This is a pymilvus quirk - we catch it and treat as "collection doesn't exist"
+    collection_exists = False
     try:
-        if utility.has_collection(collection_name):
-            raise HTTPException(
-                status_code=409,
-                detail=f"Collection '{request.name}' already exists in {request.scope} scope"
-            )
+        collection_exists = utility.has_collection(collection_name)
     except Exception as e:
-        # If has_collection throws an error (collection doesn't exist), that's fine - we want to create it
-        if "can't find collection" not in str(e):
-            # Re-raise if it's not a "collection not found" error
+        # If error is "can't find collection", it means collection doesn't exist (expected)
+        if "can't find collection" not in str(e) and "collection not found" not in str(e):
+            # Unexpected error - re-raise
+            logger.error(f"Unexpected error checking collection existence: {e}")
             raise
+        # Collection doesn't exist - this is what we want for creation
+        logger.debug(f"Collection {collection_name} doesn't exist (expected for new collection)")
+
+    if collection_exists:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Collection '{request.name}' already exists in {request.scope} scope"
+        )
 
     try:
         # Create Milvus collection

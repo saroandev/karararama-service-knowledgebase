@@ -76,16 +76,35 @@ class MilvusConnectionManager:
             self.get_connection()
 
             # Check if collection exists
-            if not utility.has_collection(collection_name):
+            # NOTE: utility.has_collection() throws MilvusException if collection doesn't exist
+            # This is a pymilvus quirk - we need to catch and handle it
+            collection_exists = False
+            try:
+                collection_exists = utility.has_collection(collection_name)
+            except Exception as e:
+                error_msg = str(e)
+                # "can't find collection" error means collection doesn't exist
+                if "can't find collection" in error_msg or "collection not found" in error_msg:
+                    collection_exists = False
+                else:
+                    # Some other error - re-raise
+                    raise
+
+            if collection_exists:
+                # Collection exists - just load it
+                logger.info(f"Collection {collection_name} already exists, loading...")
+                collection = Collection(collection_name)
+            else:
+                # Collection doesn't exist
                 if auto_create:
                     logger.warning(f"Collection {collection_name} does not exist, creating...")
                     self._create_collection(collection_name)
+                    # After creation, load the collection
+                    collection = Collection(collection_name)
                 else:
                     # Collection doesn't exist and auto-create is disabled
                     raise Exception(f"Collection '{collection_name}' does not exist")
 
-            # Get collection instance
-            collection = Collection(collection_name)
             # NOTE: Lazy loading - collection.load() removed to avoid MinIO deadlock
             # Milvus will auto-load the collection on first search operation
             # collection.load()  # ❌ Causes blocking/deadlock with multiple collections
@@ -112,6 +131,9 @@ class MilvusConnectionManager:
         - embedding (FLOAT_VECTOR)
         - metadata (JSON)
         """
+        logger.info(f"🔨 Creating Milvus collection: {collection_name}")
+
+        # Define schema
         fields = [
             FieldSchema(name="id", dtype=DataType.VARCHAR, is_primary=True, max_length=100),
             FieldSchema(name="document_id", dtype=DataType.VARCHAR, max_length=100),
@@ -126,7 +148,25 @@ class MilvusConnectionManager:
             description=f"Multi-tenant RAG collection: {collection_name}"
         )
 
-        collection = Collection(name=collection_name, schema=schema)
+        # Create collection
+        # NOTE: Collection() constructor internally calls has_collection() which throws exception
+        # if collection doesn't exist - this is a pymilvus quirk. We ignore that specific error.
+        try:
+            collection = Collection(name=collection_name, schema=schema)
+        except Exception as e:
+            error_msg = str(e)
+            # If it's the "can't find collection" error during creation, ignore it
+            # The collection gets created despite this error
+            if "can't find collection" in error_msg or "collection not found" in error_msg:
+                logger.debug(f"Ignoring expected pymilvus has_collection error during creation")
+                # Collection should now exist - try loading it
+                collection = Collection(name=collection_name)
+            else:
+                # Some other unexpected error
+                logger.error(f"Unexpected error creating collection: {error_msg}")
+                raise
+
+        logger.info(f"📦 Collection created: {collection_name}")
 
         # Create HNSW index on embedding field
         index_params = {
@@ -134,9 +174,9 @@ class MilvusConnectionManager:
             "metric_type": "COSINE",
             "params": {"M": 16, "efConstruction": 256}
         }
-        collection.create_index(field_name="embedding", index_params=index_params)
 
-        logger.info(f"Created collection: {collection_name} with HNSW index")
+        collection.create_index(field_name="embedding", index_params=index_params)
+        logger.info(f"✅ Successfully created collection: {collection_name} with HNSW index")
 
     def get_user_accessible_collections(self, user_context: UserContext) -> List[Collection]:
         """
