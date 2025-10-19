@@ -48,13 +48,12 @@ def create_indexer(
         return MilvusIndexer(**kwargs)
 
 
-# Create default indexer instance
-try:
-    default_indexer = create_indexer(backend="milvus")
-    logger.info("Default indexer initialized with Milvus backend")
-except Exception as e:
-    logger.error(f"Failed to initialize default indexer: {e}")
-    default_indexer = None
+# Default indexer is deprecated - use api/core/milvus_manager.py instead
+# Setting to None prevents automatic Milvus connection at API startup
+# This allows the API to start even if Milvus is not available
+# Legacy pipelines that use this should migrate to the new IngestOrchestrator pattern
+default_indexer = None
+logger.info("Default indexer set to None (use api/core/milvus_manager.py for new code)")
 
 
 # Export all classes and functions
