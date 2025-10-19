@@ -67,6 +67,9 @@ def update_collection_metadata(scope_id: ScopeIdentifier):
 
         # Get collection from Milvus
         milvus_collection_name = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
+
+        # Ensure Milvus connection exists
+        milvus_manager.get_connection()
         if not utility.has_collection(milvus_collection_name):
             logger.warning(f"Milvus collection {milvus_collection_name} not found, skipping metadata update")
             return
@@ -169,6 +172,9 @@ def _get_collection_info(
     """
     milvus_collection_name = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
     minio_prefix = scope_id.get_object_prefix("docs")
+
+    # Ensure Milvus connection exists
+    milvus_manager.get_connection()
 
     # Check if collection exists in Milvus
     if not utility.has_collection(milvus_collection_name):
@@ -297,6 +303,9 @@ async def create_collection(
     # Check if collection already exists
     collection_name = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
 
+    # Ensure Milvus connection exists
+    milvus_manager.get_connection()
+
     # NOTE: utility.has_collection() throws MilvusException if collection doesn't exist
     # This is a pymilvus quirk - we catch it and treat as "collection doesn't exist"
     collection_exists = False
@@ -421,8 +430,8 @@ async def list_collections(
     check_private = scope in [None, "all", "private"]
     check_shared = scope in [None, "all", "shared"]
 
-    # Get all Milvus collections
-    all_collections = utility.list_collections()
+    # Get all Milvus collections (automatically handles connection)
+    all_collections = milvus_manager.list_all_collections()
 
     # Filter private collections
     if check_private and user.data_access.own_data:
@@ -633,6 +642,9 @@ async def delete_collection(
     try:
         # Drop Milvus collection
         collection_name_milvus = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
+
+        # Ensure Milvus connection exists
+        milvus_manager.get_connection()
         if utility.has_collection(collection_name_milvus):
             from pymilvus import Collection
             collection = Collection(collection_name_milvus)
@@ -721,6 +733,9 @@ async def list_collection_documents(
 
     # Check if collection exists in Milvus
     milvus_collection_name = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
+
+    # Ensure Milvus connection exists
+    milvus_manager.get_connection()
     if not utility.has_collection(milvus_collection_name):
         raise HTTPException(
             status_code=404,
