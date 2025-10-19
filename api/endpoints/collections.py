@@ -363,8 +363,24 @@ async def create_collection(
 
         logger.info(f"Saved collection metadata to MinIO: {metadata_path}")
 
-        # Get collection info
-        collection_info = _get_collection_info(request.name, scope_id, user)
+        # Build CollectionInfo directly without querying Milvus
+        # New collection is empty, so all stats are 0
+        collection_info = CollectionInfo(
+            name=request.name,
+            scope=request.scope.value,
+            description=request.description,
+            document_count=0,
+            chunk_count=0,
+            created_at=current_time,
+            created_by=user.user_id,
+            created_by_email=user.email,
+            updated_at=None,
+            size_bytes=0,
+            size_mb=0.0,
+            metadata=request.metadata,
+            milvus_collection_name=collection_name,
+            minio_prefix=scope_id.get_object_prefix("docs")
+        )
 
         return CreateCollectionResponse(
             message=f"Collection '{request.name}' created successfully in {request.scope} scope",
