@@ -262,8 +262,8 @@ class QueryOrchestrator:
             return QueryResponse(
                 answer=answer,
                 conversation_id=conversation_id,
-                sources=[],
-                low_confidence_sources=None,
+                citations=[],
+                low_confidence_citations=None,
                 processing_time=processing_time,
                 model_used=f"{model_used} (LLM-only)",
                 tokens_used=tokens_used,

@@ -150,7 +150,7 @@ class ResultAggregator:
             return QueryResponse(
                 answer=answer,
                 conversation_id=conversation_id,
-                sources=final_sources,
+                citations=final_sources,
                 processing_time=processing_time,
                 model_used=model_used,
                 tokens_used=tokens_used,
@@ -158,7 +158,7 @@ class ResultAggregator:
                 total_sources_retrieved=len(all_results),
                 sources_after_filtering=len(high_confidence_sources),
                 min_score_applied=request.min_relevance_score,
-                low_confidence_sources=final_low_confidence
+                low_confidence_citations=final_low_confidence
             )
 
         except Exception as e:
@@ -451,7 +451,7 @@ Bu cevapları birleştir, karşılaştır ve kapsamlı bir yanıt oluştur."""
         return QueryResponse(
             answer="İlgili bilgi bulunamadı.",
             conversation_id=conversation_id,
-            sources=[],
+            citations=[],
             processing_time=processing_time,
             model_used=settings.OPENAI_MODEL,
             total_sources_retrieved=0,

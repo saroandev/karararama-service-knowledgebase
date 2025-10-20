@@ -23,7 +23,7 @@ class QueryResponse(BaseModel):
     answer: str = Field(..., description="Generated answer")
     role: str = Field(default="assistant", description="Message role (always 'assistant' for responses)")
     conversation_id: str = Field(..., description="Conversation ID for maintaining chat history")
-    sources: List[QuerySource] = Field(..., description="High-confidence source documents used")
+    citations: List[QuerySource] = Field(..., description="High-confidence source citations used for the answer")
     processing_time: float = Field(..., description="Processing time in seconds")
     model_used: str = Field(..., description="LLM model used for generation")
     tokens_used: int = Field(default=0, description="Total tokens consumed")
@@ -33,9 +33,9 @@ class QueryResponse(BaseModel):
     total_sources_retrieved: int = Field(default=0, description="Total sources retrieved from vector DB")
     sources_after_filtering: int = Field(default=0, description="Sources remaining after relevance filtering")
     min_score_applied: float = Field(default=0.0, description="Minimum relevance score threshold applied")
-    low_confidence_sources: Optional[List[QuerySource]] = Field(
+    low_confidence_citations: Optional[List[QuerySource]] = Field(
         default=None,
-        description="Sources below the relevance threshold (only if include_low_confidence_sources=true)"
+        description="Citations below the relevance threshold (only if include_low_confidence_sources=true)"
     )
 
     model_config = {
@@ -44,7 +44,7 @@ class QueryResponse(BaseModel):
                 "answer": "RAG stands for Retrieval-Augmented Generation...",
                 "role": "assistant",
                 "conversation_id": "conv-123e4567-e89b-12d3-a456-426614174000",
-                "sources": [
+                "citations": [
                     {
                         "document_id": "doc_123",
                         "document_title": "RAG Overview",

@@ -70,11 +70,12 @@ class ExternalServiceHandler(BaseHandler):
                 self.logger.warning(f"⚠️ Global DB (source: {self.source_path}) query failed: {error_msg}")
                 return self._create_error_result(error_msg)
 
-            # Extract answer and sources
+            # Extract answer and citations/sources
             generated_answer = external_response.get("answer", "")
-            external_sources = external_response.get("sources", [])
+            # Try citations first (new format), fallback to sources (backward compatibility)
+            external_sources = external_response.get("citations", []) or external_response.get("sources", [])
 
-            self.logger.info(f"✅ Global DB (source: {self.source_path}) returned {len(external_sources)} sources")
+            self.logger.info(f"✅ Global DB (source: {self.source_path}) returned {len(external_sources)} citations")
 
             # Convert external sources to SearchResult objects
             search_results = []
@@ -98,23 +99,52 @@ class ExternalServiceHandler(BaseHandler):
     def _convert_external_result(self, source_data: dict) -> Optional[SearchResult]:
         """Convert external service result to SearchResult object"""
         try:
+            from datetime import datetime
+
+            # Extract metadata (might be nested)
+            metadata = source_data.get("metadata", {})
+
+            # Get score (try both relevance_score and score)
+            score = source_data.get("relevance_score", source_data.get("score", 0.0))
+
+            # Get document title (try multiple field names)
+            document_title = (
+                source_data.get("document_name") or
+                metadata.get("title") or
+                metadata.get("filename") or
+                "Unknown"
+            )
+
+            # Parse created_at/upload_date (might be ISO string or timestamp)
+            created_at_raw = source_data.get("created_at", metadata.get("upload_date", 0))
+            if isinstance(created_at_raw, str):
+                # Parse ISO format string to timestamp
+                try:
+                    created_at = int(datetime.fromisoformat(created_at_raw.replace('Z', '+00:00')).timestamp())
+                except (ValueError, AttributeError):
+                    created_at = 0
+            else:
+                created_at = created_at_raw if isinstance(created_at_raw, int) else 0
+
             return SearchResult(
-                score=source_data.get("score", 0.0),
+                score=score,
                 document_id=source_data.get("document_id", "unknown"),
                 text=source_data.get("text", ""),
                 source_type=self.source_type,
                 metadata={
-                    'document_title': source_data.get("document_name", "Unknown"),
-                    'page_number': source_data.get("page_number", 0),
-                    'created_at': source_data.get("created_at", 0),
-                    'document_url': source_data.get("document_url", "")
+                    'document_title': document_title,
+                    'page_number': source_data.get("page_number", metadata.get("page_number", 0)),
+                    'created_at': created_at,
+                    'document_url': source_data.get("document_url", metadata.get("document_url", ""))
                 },
-                page_number=source_data.get("page_number", 0),
-                document_title=source_data.get("document_name", "Unknown"),
-                document_url=source_data.get("document_url", "#"),
-                created_at=source_data.get("created_at", 0)
+                page_number=source_data.get("page_number", metadata.get("page_number", 0)),
+                document_title=document_title,
+                document_url=source_data.get("document_url", metadata.get("document_url", "#")),
+                created_at=created_at
             )
 
         except Exception as e:
             self.logger.error(f"Error converting external result: {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
             return None
