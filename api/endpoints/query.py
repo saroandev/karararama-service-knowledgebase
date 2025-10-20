@@ -51,7 +51,7 @@ async def query_documents(
     """
     try:
         logger.info(f"🔍 Query from user {user.user_id} (org: {user.organization_id}): {request.question}")
-        logger.info(f"🎯 Requested sources: {[s.value for s in request.sources]}")
+        logger.info(f"🎯 Requested sources: {request.sources}")
 
         # Extract JWT token for external service authentication
         auth_header = http_request.headers.get("Authorization", "")

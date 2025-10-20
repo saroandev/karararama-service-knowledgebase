@@ -18,8 +18,7 @@ class SourceType(str, Enum):
     """Source type identifiers"""
     PRIVATE = "private"
     SHARED = "shared"
-    MEVZUAT = "mevzuat"
-    KARAR = "karar"
+    EXTERNAL = "external"  # Generic external source (Global DB)
 
 
 @dataclass

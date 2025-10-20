@@ -9,26 +9,25 @@ from app.services.global_db_service import get_global_db_client
 
 class ExternalServiceHandler(BaseHandler):
     """
-    Handler for searching external Global DB service (MEVZUAT, KARAR)
+    Handler for searching external Global DB service
 
     Note: This handler doesn't use local prompt because the external
     Global DB service generates answers with its own prompts.
     """
 
-    def __init__(self, source_type: SourceType, user_token: str, bucket: str, options=None):
+    def __init__(self, source_path: str, user_token: str, options=None):
         """
         Initialize external service handler
 
         Args:
-            source_type: MEVZUAT or KARAR
+            source_path: Source path for Global DB (e.g., "mevzuat", "karar", "reklam-kurulu-kararlari", "all")
             user_token: JWT token for authentication
-            bucket: Bucket name for Global DB ("mevzuat" or "karar")
             options: Query options for tone, citations, etc.
         """
         # No system_prompt needed - external service generates its own answer
-        super().__init__(source_type, system_prompt=None, options=options)
+        super().__init__(SourceType.EXTERNAL, system_prompt=None, options=options)
         self.user_token = user_token
-        self.bucket = bucket
+        self.source_path = source_path
         self.global_db_client = get_global_db_client()
 
     async def search(
@@ -52,8 +51,7 @@ class ExternalServiceHandler(BaseHandler):
         start_time = time.time()
 
         try:
-            icon = "📜" if self.source_type == SourceType.MEVZUAT else "⚖️"
-            self.logger.info(f"{icon} Querying Global DB service ({self.bucket}) with options: tone={self.options.tone}, citations={self.options.citations}...")
+            self.logger.info(f"🌍 Querying Global DB service (source: {self.source_path}) with options: tone={self.options.tone}, citations={self.options.citations}...")
 
             # Call external service with options
             external_response = await self.global_db_client.search_public(
@@ -61,7 +59,7 @@ class ExternalServiceHandler(BaseHandler):
                 user_token=self.user_token,
                 top_k=top_k,
                 min_relevance_score=min_relevance_score,
-                bucket=self.bucket,
+                bucket=self.source_path,  # Pass source_path as bucket parameter
                 options=self.options
             )
 
@@ -69,14 +67,14 @@ class ExternalServiceHandler(BaseHandler):
 
             if not external_response.get("success"):
                 error_msg = external_response.get("error", "Unknown error")
-                self.logger.warning(f"⚠️ Global DB ({self.bucket}) query failed: {error_msg}")
+                self.logger.warning(f"⚠️ Global DB (source: {self.source_path}) query failed: {error_msg}")
                 return self._create_error_result(error_msg)
 
             # Extract answer and sources
             generated_answer = external_response.get("answer", "")
             external_sources = external_response.get("sources", [])
 
-            self.logger.info(f"✅ Global DB ({self.bucket}) returned {len(external_sources)} sources")
+            self.logger.info(f"✅ Global DB (source: {self.source_path}) returned {len(external_sources)} sources")
 
             # Convert external sources to SearchResult objects
             search_results = []
@@ -92,7 +90,7 @@ class ExternalServiceHandler(BaseHandler):
             )
 
         except Exception as e:
-            self.logger.error(f"❌ External service ({self.bucket}) error: {str(e)}")
+            self.logger.error(f"❌ External service (source: {self.source_path}) error: {str(e)}")
             import traceback
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             return self._create_error_result(str(e))

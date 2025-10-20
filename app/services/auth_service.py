@@ -91,6 +91,14 @@ class AuthServiceClient:
                             f"Auth service error: {response.status_code}"
                         )
 
+            except httpx.ConnectError as e:
+                # Connection errors (DNS, network unreachable) - don't retry
+                logger.warning(
+                    f"⚠️ Auth service unavailable (connection error). "
+                    f"Usage tracking skipped. Check AUTH_SERVICE_URL in .env"
+                )
+                raise AuthServiceError("Auth service unavailable")
+
             except httpx.TimeoutException:
                 logger.error(f"⏱️ Auth service timeout (attempt {attempt + 1})")
                 if attempt < max_retries - 1:

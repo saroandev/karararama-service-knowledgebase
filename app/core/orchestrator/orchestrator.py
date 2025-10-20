@@ -5,13 +5,12 @@ import logging
 import time
 from typing import List
 
-from app.core.orchestrator.handlers.base import BaseHandler, SourceType
+from app.core.orchestrator.handlers.base import BaseHandler
 from app.core.orchestrator.handlers.collection_handler import CollectionServiceHandler
 from app.core.orchestrator.handlers.external_handler import ExternalServiceHandler
 from app.core.orchestrator.aggregator import ResultAggregator
 from app.core.conversation import conversation_manager
 from schemas.api.requests.query import QueryRequest, QueryOptions
-from schemas.api.requests.scope import DataScope
 from schemas.api.responses.query import QueryResponse
 from app.core.auth import UserContext
 from app.config import settings
@@ -55,7 +54,7 @@ class QueryOrchestrator:
         try:
             logger.info(f"🎯 Orchestrator: Processing query for user {user.user_id}")
             logger.info(f"📝 Question: {request.question}")
-            logger.info(f"🔍 Requested sources: {[s.value for s in request.sources]}")
+            logger.info(f"🔍 Requested sources: {request.sources}")
 
             # Handle conversation history
             conversation_id = request.conversation_id or conversation_manager.create_new_conversation()
@@ -75,12 +74,8 @@ class QueryOrchestrator:
             options = request.options or QueryOptions()
             logger.info(f"⚙️ Query options: tone={options.tone}, citations={options.citations}, lang={options.lang}")
 
-            # 1. Expand ALL to PRIVATE + SHARED
-            expanded_sources = self._expand_sources(request.sources)
-            logger.info(f"📋 Expanded sources: {[s.value for s in expanded_sources]}")
-
-            # 2. Create handlers for each source type with options and collection filters
-            handlers = self._create_handlers(expanded_sources, user, user_token, options, request.collections)
+            # Create handlers for external sources and collection filters
+            handlers = self._create_handlers(request.sources, user, user_token, options, request.collections)
 
             if not handlers:
                 logger.warning("⚠️ No handlers created - falling back to LLM-only mode")
@@ -139,30 +134,9 @@ class QueryOrchestrator:
             logger.error(f"Traceback: {traceback.format_exc()}")
             raise
 
-    def _expand_sources(self, sources: List[DataScope]) -> List[DataScope]:
-        """Expand ALL to PRIVATE and SHARED, remove duplicates"""
-        expanded = []
-
-        for source in sources:
-            if source == DataScope.ALL:
-                # Expand ALL to both PRIVATE and SHARED
-                expanded.extend([DataScope.PRIVATE, DataScope.SHARED])
-            else:
-                expanded.append(source)
-
-        # Remove duplicates while preserving order
-        seen = set()
-        unique_sources = []
-        for source in expanded:
-            if source not in seen:
-                seen.add(source)
-                unique_sources.append(source)
-
-        return unique_sources
-
     def _create_handlers(
         self,
-        sources: List[DataScope],
+        sources: List[str],
         user: UserContext,
         user_token: str,
         options: QueryOptions,
@@ -172,13 +146,13 @@ class QueryOrchestrator:
         Create handlers for requested sources and collections
 
         BEHAVIOR:
-        - sources: Only for external services (MEVZUAT, KARAR)
+        - sources: External source paths for Global DB (e.g., "mevzuat", "karar", "reklam-kurulu-kararlari", "all")
         - collections: For Milvus collection-specific search (private/shared)
         - If neither specified: LLM-only mode (no RAG)
         - Both can coexist and run in parallel
 
         Args:
-            sources: List of data sources to search (external services only)
+            sources: List of external source paths (strings)
             user: User context
             user_token: JWT token for external services
             options: Query options (tone, lang, etc.)
@@ -198,26 +172,13 @@ class QueryOrchestrator:
                 )
             )
 
-        # 2. Create handler for MEVZUAT
-        if DataScope.MEVZUAT in sources:
-            logger.info("📜 Creating MEVZUAT handler")
+        # 2. Create handlers for EXTERNAL SOURCES (Global DB)
+        for source_path in sources:
+            logger.info(f"🌍 Creating External handler for source: {source_path}")
             handlers.append(
                 ExternalServiceHandler(
-                    source_type=SourceType.MEVZUAT,
+                    source_path=source_path,
                     user_token=user_token,
-                    bucket="mevzuat",
-                    options=options
-                )
-            )
-
-        # 3. Create handler for KARAR
-        if DataScope.KARAR in sources:
-            logger.info("⚖️ Creating KARAR handler")
-            handlers.append(
-                ExternalServiceHandler(
-                    source_type=SourceType.KARAR,
-                    user_token=user_token,
-                    bucket="karar",
                     options=options
                 )
             )

@@ -51,10 +51,9 @@ class GlobalDBServiceClient:
         # Build base payload
         payload = {
             "question": question,
-            "bucket": bucket,
+            "source": bucket,  # Global DB service expects "source" field
             "top_k": top_k,
             "min_relevance_score": min_relevance_score,
-            "include_sources": True,
             "generate_answer": True
         }
 

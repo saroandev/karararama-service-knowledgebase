@@ -171,10 +171,10 @@ class ResultAggregator:
         """Convert SearchResult to QuerySource"""
 
         # Handle document URL based on source type
-        if result.source_type in [SourceType.MEVZUAT, SourceType.KARAR]:
+        if result.source_type == SourceType.EXTERNAL:
             # External source - use URL from metadata
             document_url = result.document_url
-            original_filename = result.document_title if result.document_title != 'Unknown' else f'{result.source_type.value.capitalize()} Document'
+            original_filename = result.document_title if result.document_title != 'Unknown' else 'External Document'
             doc_title = result.document_title
         else:
             # Internal source (private/shared) - generate MinIO URL
@@ -293,8 +293,7 @@ class ResultAggregator:
         source_emojis = {
             "private": "📄",
             "shared": "🏢",
-            "mevzuat": "📜",
-            "karar": "⚖️"
+            "external": "🌍"
         }
 
         combined_text = []
@@ -303,8 +302,7 @@ class ResultAggregator:
             source_label = {
                 "private": "Kişisel Belgelerinize Göre",
                 "shared": "Organizasyon Belgelerine Göre",
-                "mevzuat": "Mevzuata Göre",
-                "karar": "İçtihatlara Göre"
+                "external": "Harici Kaynaklara Göre"
             }.get(source_type, source_type.capitalize())
 
             combined_text.append(f"{emoji} {source_label}:\n{answer}")
@@ -432,9 +430,9 @@ Bu cevapları birleştir, karşılaştır ve kapsamlı bir yanıt oluştur."""
                 logger.info(f"[CONSUME] Updated remaining credits: {remaining_credits}")
 
         except Exception as e:
-            logger.error(f"[CONSUME] ❌ Failed to report usage to auth service: {str(e)}")
-            import traceback
-            logger.error(f"[CONSUME] Traceback: {traceback.format_exc()}")
+            # Don't fail the query if usage tracking fails
+            # Just log a warning and continue with original credits
+            logger.warning(f"[CONSUME] ⚠️ Usage tracking skipped: {str(e)}")
 
         return remaining_credits
 

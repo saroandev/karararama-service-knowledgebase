@@ -29,7 +29,7 @@ class CollectionFilter(BaseModel):
             if scope not in allowed_scopes:
                 raise ValueError(
                     f"Collection scopes can only be 'private' or 'shared'. "
-                    f"Got: '{scope.value}'. Use 'sources' parameter for external data sources like 'mevzuat' or 'karar'."
+                    f"Got: '{scope.value}'. Use 'sources' parameter for external data sources."
                 )
         return v
 
@@ -102,11 +102,20 @@ class QueryRequest(BaseModel):
         description="Optional conversation ID to maintain chat history. If not provided, a new conversation will be created."
     )
 
-    # Multi-source selection parameter
-    sources: List[DataScope] = Field(
+    # External sources selection parameter (Global DB)
+    sources: List[str] = Field(
         default=[],
-        description="List of data sources to search: 'private' (your documents), 'shared' (organization documents), 'mevzuat' (legislation), 'karar' (court decisions). If empty, no search is performed."
+        description="List of external data sources to search in Global DB (e.g., 'mevzuat', 'karar', 'reklam-kurulu-kararlari', 'all'). If empty, only collections are searched."
     )
+
+    @field_validator('sources')
+    @classmethod
+    def validate_sources(cls, v):
+        """Validate that sources contain non-empty strings"""
+        for source in v:
+            if not source or not source.strip():
+                raise ValueError("Source strings must be non-empty")
+        return v
 
     # Collection filtering (optional) - NEW: scope-aware collection filtering
     collections: Optional[List[CollectionFilter]] = Field(
@@ -166,6 +175,15 @@ class QueryRequest(BaseModel):
                         "lang": "tr",
                         "citations": True,
                         "stream": False
+                    }
+                },
+                {
+                    "question": "Reklam kanunları nelerdir?",
+                    "sources": ["reklam-kurulu-kararlari", "mevzuat"],
+                    "top_k": 5,
+                    "options": {
+                        "tone": "resmi",
+                        "lang": "tr"
                     }
                 }
             ]
