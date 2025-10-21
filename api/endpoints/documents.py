@@ -128,7 +128,8 @@ async def list_documents(
             # Get unique documents (first chunk only)
             results = collection.query(
                 expr="chunk_index == 0",
-                output_fields=['document_id', 'metadata']
+                output_fields=['document_id', 'metadata'],
+                limit=16384  # Milvus maximum limit
             )
 
             logger.info(f"✅ Found {len(results)} documents in {scope_label}")
@@ -164,7 +165,8 @@ async def list_documents(
                 # Count chunks for this document in this collection
                 chunk_count = len(collection.query(
                     expr=f'document_id == "{doc_id}"',
-                    output_fields=['id']
+                    output_fields=['id'],
+                    limit=16384  # Milvus maximum limit
                 ))
 
                 # Try to get MinIO URL for the document

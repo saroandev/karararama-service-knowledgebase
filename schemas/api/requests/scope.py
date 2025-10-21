@@ -10,6 +10,7 @@ class DataScope(str, Enum):
     """Data scope types for multi-tenant architecture (used for collections only)"""
     PRIVATE = "private"      # User's private data only
     SHARED = "shared"        # Organization shared data
+    ALL = "all"              # All accessible scopes (private + shared)
 
 
 class IngestScope(str, Enum):
