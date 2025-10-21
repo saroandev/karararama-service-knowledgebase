@@ -1,9 +1,11 @@
 """
-Health check endpoint
+Health check endpoint with proper HTTP status codes
 """
 import datetime
 import logging
-from fastapi import APIRouter
+import time
+from fastapi import APIRouter, status
+from fastapi.responses import JSONResponse
 from schemas.api.responses.health import HealthResponse, ServiceStatus, MilvusStatus, MinioStatus, GlobalDBStatus
 from api.core.milvus_manager import milvus_manager
 from api.core.dependencies import get_embedding_dimension
@@ -15,13 +17,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.get("/health", response_model=HealthResponse)
-async def health_check() -> HealthResponse:
-    """Health check endpoint
-
-    Returns health status of the system and its dependencies.
-    Returns 200 even if some services are down to allow API to report its status.
+@router.get("/health")
+async def health_check():
     """
+    Health check endpoint with proper HTTP status codes
+
+    Returns:
+    - 200 OK: All critical services are healthy
+    - 503 Service Unavailable: One or more critical services are down
+
+    Critical services: Milvus (vector DB), MinIO (object storage)
+    Non-critical services: Global DB (external service, informational only)
+
+    Response includes:
+    - Overall status: healthy, degraded, or unhealthy
+    - Individual service statuses with details
+    - Health check latency in milliseconds
+    - API version and configuration
+    """
+    start_time = time.time()
+
     # Check Milvus health
     milvus_health = milvus_manager.check_health()
     milvus_status = MilvusStatus(
@@ -72,15 +87,23 @@ async def health_check() -> HealthResponse:
             url=settings.GLOBAL_DB_SERVICE_URL
         )
 
-    # Determine overall status (Global DB is informational only, doesn't affect overall status)
+    # Determine overall status and HTTP status code
+    # Only Milvus and MinIO are critical - Global DB is informational
     if milvus_status.status == "connected" and minio_status.status == "connected":
         overall_status = "healthy"
+        http_status_code = status.HTTP_200_OK  # 200
     elif milvus_status.status == "disconnected" and minio_status.status == "disconnected":
         overall_status = "unhealthy"
+        http_status_code = status.HTTP_503_SERVICE_UNAVAILABLE  # 503
     else:
         overall_status = "degraded"
+        http_status_code = status.HTTP_503_SERVICE_UNAVAILABLE  # 503
 
-    return HealthResponse(
+    # Calculate health check latency
+    latency_ms = int((time.time() - start_time) * 1000)
+
+    # Build response
+    response_data = HealthResponse(
         status=overall_status,
         timestamp=datetime.datetime.now().isoformat(),
         services=ServiceStatus(
@@ -91,4 +114,16 @@ async def health_check() -> HealthResponse:
             embedding_dimension=get_embedding_dimension()
         ),
         version="1.0.0"
+    )
+
+    # Log health check result
+    logger.info(f"Health check: {overall_status} (Milvus: {milvus_status.status}, MinIO: {minio_status.status}, latency: {latency_ms}ms)")
+
+    # Return with proper HTTP status code
+    return JSONResponse(
+        status_code=http_status_code,
+        content={
+            **response_data.model_dump(),
+            "latency_ms": latency_ms  # Add latency to response
+        }
     )
