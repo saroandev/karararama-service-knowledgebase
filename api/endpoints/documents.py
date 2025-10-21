@@ -21,13 +21,13 @@ router = APIRouter()
 
 @router.get("/documents", response_model=List[DocumentInfo])
 async def list_documents(
+    collection: str = Query(
+        ...,
+        description="REQUIRED: Collection name to list documents from. Example: 'sozlesmeler', 'kanunlar'"
+    ),
     scope: Optional[DataScope] = Query(
         None,
         description="Filter by scope: 'private' (your documents), 'shared' (organization documents), or 'all' (both). Default: all accessible documents"
-    ),
-    collection: Optional[str] = Query(
-        None,
-        description="Optional collection name to filter documents. If None, lists from default space."
     ),
     user: UserContext = Depends(get_current_user)  # Only JWT token required
 ):
@@ -36,27 +36,21 @@ async def list_documents(
 
     Requires:
     - Valid JWT token in Authorization header
+    - **collection parameter is REQUIRED** (must be explicitly specified)
 
     Query Parameters:
-    - scope (optional): Filter documents by scope
+    - **collection (REQUIRED)**: Collection name to list documents from
+      - Examples: "sozlesmeler", "kanunlar", "raporlar"
+      - Returns 422 Unprocessable Entity if not provided
+    - **scope (optional)**: Filter documents by scope
       - **private**: Only your personal documents
       - **shared**: Only organization shared documents
       - **all**: Both private and shared documents (default)
       - If not provided, returns all accessible documents
-    - collection (REQUIRED): Collection name to list documents from
-      - **Must be specified** - if None, returns empty list
-      - This behavior matches the query endpoint where collections must be explicitly specified
-      - Example: "sozlesmeler", "kanunlar"
     """
     try:
         logger.info(f"📋 Listing documents for user {user.user_id} (org: {user.organization_id})")
-        logger.info(f"🎯 Scope filter: {scope or 'all accessible'}, Collection: {collection or 'none (will return empty)'}")
-
-        # NEW BEHAVIOR: If no collection specified, return empty list
-        # This matches the query endpoint behavior where collections must be explicitly specified
-        if collection is None:
-            logger.info("⚠️ No collection specified - returning empty list (collections must be explicitly specified)")
-            return []
+        logger.info(f"🎯 Scope filter: {scope or 'all accessible'}, Collection: {collection}")
 
         # Determine which collections to query
         target_collections = []
@@ -72,7 +66,7 @@ async def list_documents(
                 )
                 try:
                     milvus_collection = milvus_manager.get_collection(private_scope)
-                    scope_label = f"private/{collection}" if collection else "private"
+                    scope_label = f"private/{collection}"
                     target_collections.append({"collection": milvus_collection, "scope_label": scope_label})
                 except Exception as e:
                     logger.warning(f"Could not load private collection: {e}")
@@ -85,7 +79,7 @@ async def list_documents(
                 )
                 try:
                     milvus_collection = milvus_manager.get_collection(shared_scope)
-                    scope_label = f"shared/{collection}" if collection else "shared"
+                    scope_label = f"shared/{collection}"
                     target_collections.append({"collection": milvus_collection, "scope_label": scope_label})
                 except Exception as e:
                     logger.warning(f"Could not load shared collection: {e}")
@@ -98,10 +92,10 @@ async def list_documents(
                 organization_id=user.organization_id,
                 scope_type=DataScope.PRIVATE,
                 user_id=user.user_id,
-                collection_name=collection  # Add collection filter
+                collection_name=collection  # Collection is required
             )
             milvus_collection = milvus_manager.get_collection(private_scope)
-            scope_label = f"private/{collection}" if collection else "private"
+            scope_label = f"private/{collection}"
             target_collections.append({"collection": milvus_collection, "scope_label": scope_label})
 
         elif scope == DataScope.SHARED:
@@ -111,10 +105,10 @@ async def list_documents(
             shared_scope = ScopeIdentifier(
                 organization_id=user.organization_id,
                 scope_type=DataScope.SHARED,
-                collection_name=collection  # Add collection filter
+                collection_name=collection  # Collection is required
             )
             milvus_collection = milvus_manager.get_collection(shared_scope)
-            scope_label = f"shared/{collection}" if collection else "shared"
+            scope_label = f"shared/{collection}"
             target_collections.append({"collection": milvus_collection, "scope_label": scope_label})
 
         # Query all target collections and merge results
