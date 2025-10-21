@@ -10,7 +10,8 @@ import datetime
 import time
 import json
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, status
+from fastapi.responses import JSONResponse
 
 from schemas.api.requests.collection import CreateCollectionRequest, UpdateCollectionRequest, CollectionQueryRequest
 from schemas.api.requests.scope import DataScope, IngestScope, ScopeIdentifier
@@ -391,9 +392,14 @@ async def create_collection(
             minio_prefix=scope_id.get_object_prefix("docs")
         )
 
-        return CreateCollectionResponse(
+        response_data = CreateCollectionResponse(
             message=f"Collection '{request.name}' created successfully in {request.scope} scope",
             collection=collection_info
+        )
+
+        return JSONResponse(
+            status_code=status.HTTP_201_CREATED,
+            content=response_data.model_dump()
         )
 
     except Exception as e:
@@ -649,28 +655,45 @@ async def delete_collection(
             from pymilvus import Collection
             collection = Collection(collection_name_milvus)
             collection.drop()
-            logger.info(f"Dropped Milvus collection: {collection_name_milvus}")
+            logger.info(f"✅ Dropped Milvus collection: {collection_name_milvus}")
 
-        # Delete from MinIO
+        # Delete entire collection folder from MinIO (docs/ + chunks/ + metadata)
         client = storage.client_manager.get_client()
         bucket = scope_id.get_bucket_name()
-        collection_prefix = scope_id.get_object_prefix("docs").rstrip("/")  # Remove trailing slash
 
-        # List and delete all objects with collection prefix
-        objects_to_delete = client.list_objects(bucket, prefix=collection_prefix, recursive=True)
+        # Get collection folder path based on scope
+        # Private: users/{user_id}/collections/{collection_name}/
+        # Shared: shared/collections/{collection_name}/
+        if scope_id.scope_type == DataScope.PRIVATE:
+            collection_folder_prefix = f"users/{scope_id.user_id}/collections/{collection_name}/"
+        else:  # SHARED
+            collection_folder_prefix = f"shared/collections/{collection_name}/"
+
+        logger.info(f"🗑️  Deleting MinIO folder: {bucket}/{collection_folder_prefix}")
+
+        # List all objects in collection folder (recursive to get docs/, chunks/, and metadata)
+        objects_to_delete = client.list_objects(bucket, prefix=collection_folder_prefix, recursive=True)
 
         deleted_count = 0
+        failed_count = 0
         for obj in objects_to_delete:
             try:
                 client.remove_object(bucket, obj.object_name)
                 deleted_count += 1
+                logger.debug(f"Deleted: {obj.object_name}")
             except Exception as e:
-                logger.error(f"Error deleting object {obj.object_name}: {e}")
+                failed_count += 1
+                logger.error(f"❌ Error deleting object {obj.object_name}: {e}")
 
-        logger.info(f"Deleted {deleted_count} objects from MinIO for collection '{collection_name}'")
+        if failed_count > 0:
+            logger.warning(f"⚠️  Deleted {deleted_count} objects, {failed_count} failed for collection '{collection_name}'")
+            message = f"Collection '{collection_name}' deleted from {scope} scope with warnings ({failed_count} files failed to delete)"
+        else:
+            logger.info(f"✅ Deleted {deleted_count} objects from MinIO for collection '{collection_name}'")
+            message = f"Collection '{collection_name}' deleted successfully from {scope} scope ({deleted_count} files removed)"
 
         return DeleteCollectionResponse(
-            message=f"Collection '{collection_name}' deleted successfully from {scope} scope",
+            message=message,
             collection_name=collection_name,
             scope=scope.value,
             documents_deleted=documents_deleted,

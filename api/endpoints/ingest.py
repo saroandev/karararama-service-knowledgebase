@@ -7,7 +7,8 @@ Much cleaner and more maintainable than inline processing.
 import datetime
 import logging
 from typing import Union, Optional
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form, status
+from fastapi.responses import JSONResponse
 
 # Import schemas
 from schemas.api.responses.ingest import (
@@ -170,7 +171,7 @@ async def ingest_document(
                 if context.validation_result.existing_metadata:
                     document_title = context.validation_result.existing_metadata.get('document_title', document_title)
 
-                return ExistingDocumentResponse(
+                response_data = ExistingDocumentResponse(
                     document_id=document_id,
                     document_title=document_title,
                     processing_time=result.processing_time,
@@ -185,8 +186,13 @@ async def ingest_document(
                     uploaded_at=datetime.datetime.now().isoformat()
                 )
 
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content=response_data.model_dump()
+                )
+
             # Other validation failure or pipeline error
-            return FailedIngestResponse(
+            response_data = FailedIngestResponse(
                 document_id=document_id,
                 document_title=file.filename.replace('.pdf', ''),
                 processing_time=result.processing_time,
@@ -199,6 +205,11 @@ async def ingest_document(
                     bucket_name=scope_id.get_bucket_name()
                 ),
                 uploaded_at=datetime.datetime.now().isoformat()
+            )
+
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content=response_data.model_dump()
             )
 
         # Success! Pipeline completed
@@ -255,7 +266,7 @@ async def ingest_document(
             else:
                 validation_status = context.validation_result.status
 
-        return SuccessfulIngestResponse(
+        response_data = SuccessfulIngestResponse(
             document_id=document_id,
             document_title=document_title,
             chunks_created=result.chunks_created,
@@ -279,6 +290,11 @@ async def ingest_document(
             stage_timings=stage_timings
         )
 
+        return JSONResponse(
+            status_code=status.HTTP_201_CREATED,
+            content=response_data.model_dump()
+        )
+
     except Exception as e:
         # Detailed error logging
         error_context = {
@@ -298,7 +314,7 @@ async def ingest_document(
         user_message = get_user_friendly_error_message(e)
         processing_time = (datetime.datetime.now() - start_time).total_seconds()
 
-        return FailedIngestResponse(
+        response_data = FailedIngestResponse(
             document_id=document_id if 'document_id' in locals() else "",
             document_title=file.filename.replace('.pdf', '') if 'file' in locals() else "",
             processing_time=processing_time,
@@ -311,4 +327,9 @@ async def ingest_document(
                 bucket_name=scope_id.get_bucket_name()
             ),
             uploaded_at=datetime.datetime.now().isoformat()
+        )
+
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=response_data.model_dump()
         )

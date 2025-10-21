@@ -6,7 +6,8 @@ All search logic is now handled by the QueryOrchestrator.
 """
 
 import logging
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, status
+from fastapi.responses import JSONResponse
 
 from schemas.api.requests.query import QueryRequest
 from schemas.api.responses.query import QueryResponse
@@ -68,7 +69,10 @@ async def query_documents(
             user_token=user_token
         )
 
-        return response
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=response.model_dump()
+        )
 
     except Exception as e:
         logger.error(f"Query error: {str(e)}")

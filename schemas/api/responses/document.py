@@ -5,6 +5,33 @@ from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 
+class DeleteDocumentResponse(BaseModel):
+    """Document deletion response model"""
+    success: bool = Field(..., description="Operation success status")
+    document_id: str = Field(..., description="Deleted document identifier")
+    document_title: str = Field(..., description="Deleted document title")
+    deleted_chunks: int = Field(..., description="Number of chunks deleted")
+    message: str = Field(..., description="Success message")
+    details: Optional[Dict[str, str]] = Field(None, description="Deletion details (milvus/minio status)")
+    warning: Optional[str] = Field(None, description="Warning message if partial deletion")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "success": True,
+                "document_id": "doc_abc123",
+                "document_title": "Contract Document.pdf",
+                "deleted_chunks": 25,
+                "message": "'Contract Document.pdf' dokümanı ve 25 chunk başarıyla silindi",
+                "details": {
+                    "milvus_status": "success",
+                    "minio_status": "success"
+                }
+            }
+        }
+    }
+
+
 class DocumentInfo(BaseModel):
     """Document information response model"""
     document_id: str = Field(..., description="Unique document identifier")

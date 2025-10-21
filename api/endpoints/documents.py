@@ -5,9 +5,10 @@ import datetime
 import json
 import logging
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, status
+from fastapi.responses import JSONResponse
 
-from schemas.api.responses.document import DocumentInfo
+from schemas.api.responses.document import DocumentInfo, DeleteDocumentResponse
 from schemas.api.requests.scope import DataScope, ScopeIdentifier
 from api.core.milvus_manager import milvus_manager
 from app.core.storage import storage
@@ -25,37 +26,41 @@ async def list_documents(
         ...,
         description="REQUIRED: Collection name to list documents from. Example: 'sozlesmeler', 'kanunlar'"
     ),
-    scope: Optional[DataScope] = Query(
-        None,
-        description="Filter by scope: 'private' (your documents), 'shared' (organization documents), or 'all' (both). Default: all accessible documents"
+    scope: DataScope = Query(
+        ...,
+        description="REQUIRED: Scope filter - 'private' (your documents), 'shared' (organization documents), or 'all' (both private and shared)"
     ),
     user: UserContext = Depends(get_current_user)  # Only JWT token required
 ):
     """
-    List documents with multi-tenant scope filtering and collection filtering
+    List documents with explicit scope filtering and collection filtering
 
     Requires:
     - Valid JWT token in Authorization header
     - **collection parameter is REQUIRED** (must be explicitly specified)
+    - **scope parameter is REQUIRED** (must be explicitly specified)
 
     Query Parameters:
     - **collection (REQUIRED)**: Collection name to list documents from
       - Examples: "sozlesmeler", "kanunlar", "raporlar"
       - Returns 422 Unprocessable Entity if not provided
-    - **scope (optional)**: Filter documents by scope
+    - **scope (REQUIRED)**: Filter documents by scope
       - **private**: Only your personal documents
       - **shared**: Only organization shared documents
-      - **all**: Both private and shared documents (default)
-      - If not provided, returns all accessible documents
+      - **all**: Both private and shared documents
+      - Returns 422 Unprocessable Entity if not provided
+
+    This explicit approach ensures clarity and security by requiring users to specify
+    exactly what scope they want to query.
     """
     try:
         logger.info(f"📋 Listing documents for user {user.user_id} (org: {user.organization_id})")
-        logger.info(f"🎯 Scope filter: {scope or 'all accessible'}, Collection: {collection}")
+        logger.info(f"🎯 Scope: {scope}, Collection: {collection}")
 
-        # Determine which collections to query
+        # Determine which collections to query based on explicit scope
         target_collections = []
 
-        if scope is None or scope == DataScope.ALL:
+        if scope == DataScope.ALL:
             # Get all accessible collections
             if user.data_access.own_data:
                 private_scope = ScopeIdentifier(
@@ -210,7 +215,7 @@ async def list_documents(
         raise HTTPException(status_code=500, detail=f"Failed to list documents: {str(e)}")
 
 
-@router.delete("/documents/{document_id}")
+@router.delete("/documents/{document_id}", response_model=DeleteDocumentResponse)
 async def delete_document(
     document_id: str,
     scope: DataScope = Query(..., description="Scope of the document to delete (private or shared)"),
@@ -377,32 +382,42 @@ async def delete_document(
 
         # Prepare response based on deletion results
         if milvus_deleted and minio_deleted:
-            return {
-                "success": True,
-                "document_id": document_id,
-                "document_title": doc_title,
-                "deleted_chunks": len(chunks),
-                "message": f"'{doc_title}' dokümanı ve {len(chunks)} chunk başarıyla silindi",
-                "details": {
+            response_data = DeleteDocumentResponse(
+                success=True,
+                document_id=document_id,
+                document_title=doc_title,
+                deleted_chunks=len(chunks),
+                message=f"'{doc_title}' dokümanı ve {len(chunks)} chunk başarıyla silindi",
+                details={
                     "milvus_status": "success",
                     "minio_status": "success"
                 }
-            }
+            )
+
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content=response_data.model_dump()
+            )
+
         elif milvus_deleted and not minio_deleted:
             # Partial success - document removed from search but files remain
-            return {
-                "success": True,
-                "document_id": document_id,
-                "document_title": doc_title,
-                "deleted_chunks": len(chunks),
-                "message": f"'{doc_title}' dokümanı veritabanından silindi ancak dosya deposundan silinemedi",
-                "warning": f"MinIO silme hatası: {minio_error}",
-                "details": {
+            response_data = DeleteDocumentResponse(
+                success=True,
+                document_id=document_id,
+                document_title=doc_title,
+                deleted_chunks=len(chunks),
+                message=f"'{doc_title}' dokümanı veritabanından silindi ancak dosya deposundan silinemedi",
+                warning=f"MinIO silme hatası: {minio_error}",
+                details={
                     "milvus_status": "success",
-                    "minio_status": "failed",
-                    "minio_error": minio_error
+                    "minio_status": "failed"
                 }
-            }
+            )
+
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content=response_data.model_dump()
+            )
 
     except HTTPException:
         # Re-raise HTTP exceptions with our custom format
