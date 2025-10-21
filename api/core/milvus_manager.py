@@ -105,13 +105,16 @@ class MilvusConnectionManager:
                     # Collection doesn't exist and auto-create is disabled
                     raise Exception(f"Collection '{collection_name}' does not exist")
 
-            # NOTE: Lazy loading - collection.load() removed to avoid MinIO deadlock
-            # Milvus will auto-load the collection on first search operation
-            # collection.load()  # ❌ Causes blocking/deadlock with multiple collections
+            # Load collection into memory for query operations
+            try:
+                collection.load()
+                logger.info(f"Loaded collection into memory: {collection_name}")
+            except Exception as e:
+                logger.warning(f"Collection load warning for {collection_name}: {e}")
 
             # Cache it
             self._collections[collection_name] = collection
-            logger.info(f"Retrieved collection (lazy load): {collection_name}")
+            logger.info(f"Retrieved collection: {collection_name}")
 
             return collection
 
@@ -177,6 +180,13 @@ class MilvusConnectionManager:
 
         collection.create_index(field_name="embedding", index_params=index_params)
         logger.info(f"✅ Successfully created collection: {collection_name} with HNSW index")
+
+        # Load the newly created collection into memory
+        try:
+            collection.load()
+            logger.info(f"🚀 Loaded new collection into memory: {collection_name}")
+        except Exception as e:
+            logger.warning(f"Warning: Could not load new collection {collection_name}: {e}")
 
     def get_user_accessible_collections(self, user_context: UserContext) -> List[Collection]:
         """
