@@ -8,6 +8,7 @@ from typing import Dict, Any
 from app.core.orchestrator.stages.base import PipelineStage, StageResult
 from app.core.orchestrator.pipeline_context import PipelineContext
 from app.services.auth_service import get_auth_service_client
+from app.config.constants import ServiceType
 
 
 class ConsumeStage(PipelineStage):
@@ -85,7 +86,7 @@ class ConsumeStage(PipelineStage):
 
             usage_result = await auth_client.consume_usage(
                 user_id=context.user.user_id,
-                service_type="rag_ingest",
+                service_type=ServiceType.INGEST,
                 tokens_used=documents_uploaded,  # 1 document = 1 token
                 processing_time=context.get_total_duration(),
                 metadata=usage_metadata

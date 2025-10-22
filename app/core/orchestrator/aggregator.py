@@ -11,6 +11,7 @@ from app.core.conversation import conversation_manager
 from schemas.api.requests.query import QueryRequest, QueryOptions
 from schemas.api.responses.query import QueryResponse, QuerySource
 from app.config import settings
+from app.config.constants import ServiceType
 from app.core.storage import storage
 from app.core.auth import UserContext
 from app.services.auth_service import get_auth_service_client
@@ -404,14 +405,14 @@ Bu cevapları birleştir, karşılaştır ve kapsamlı bir yanıt oluştur."""
 
         logger.info(f"[CONSUME] Starting usage reporting to auth service")
         logger.info(f"[CONSUME] User ID: {user.user_id}")
-        logger.info(f"[CONSUME] Service Type: rag_query")
+        logger.info(f"[CONSUME] Service Type: {ServiceType.QUERY}")
         logger.info(f"[CONSUME] Tokens Used: {tokens_used}")
         logger.info(f"[CONSUME] Processing Time: {processing_time:.2f}s")
 
         try:
             usage_result = await auth_client.consume_usage(
                 user_id=user.user_id,
-                service_type="rag_query",
+                service_type=ServiceType.QUERY,
                 tokens_used=tokens_used,
                 processing_time=processing_time,
                 metadata={

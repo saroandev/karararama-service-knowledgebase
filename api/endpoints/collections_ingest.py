@@ -36,6 +36,7 @@ from api.utils.error_handler import (
 )
 from app.core.auth import UserContext, require_permission, get_current_user
 from app.services.auth_service import get_auth_service_client
+from app.config.constants import ServiceType
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -358,7 +359,7 @@ async def ingest_to_collection(
         try:
             usage_result = await auth_client.consume_usage(
                 user_id=user.user_id,
-                service_type="rag_ingest_collection",
+                service_type=ServiceType.INGEST_COLLECTION,
                 tokens_used=total_embedding_tokens,
                 processing_time=processing_time,
                 metadata={

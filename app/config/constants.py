@@ -109,3 +109,20 @@ ERROR_CHUNK_NOT_FOUND = "Chunk not found"
 SUCCESS_DOCUMENT_INGESTED = "Document successfully ingested"
 SUCCESS_DOCUMENT_DELETED = "Document successfully deleted"
 SUCCESS_QUERY_COMPLETED = "Query completed successfully"
+
+# Service Type Constants (Usage Tracking)
+class ServiceType:
+    """
+    Service types for usage tracking in auth service
+
+    These constants are used when reporting usage to the auth service
+    via the consume_usage() endpoint.
+    """
+    QUERY = "rag_query"
+    INGEST = "rag_ingest"
+    INGEST_COLLECTION = "rag_ingest_collection"
+    LIST_DOCUMENTS = "rag_list_documents"
+    DELETE_DOCUMENT = "rag_delete"
+
+    # All valid service types
+    ALL = [QUERY, INGEST, INGEST_COLLECTION, LIST_DOCUMENTS, DELETE_DOCUMENT]

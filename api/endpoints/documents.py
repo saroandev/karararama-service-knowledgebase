@@ -15,6 +15,7 @@ from app.core.storage import storage
 from app.core.auth import UserContext, require_permission, get_current_user
 from app.services.auth_service import get_auth_service_client
 from app.config import settings
+from app.config.constants import ServiceType
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -197,7 +198,7 @@ async def list_documents(
         try:
             await auth_client.consume_usage(
                 user_id=user.user_id,
-                service_type="rag_list_documents",
+                service_type=ServiceType.LIST_DOCUMENTS,
                 tokens_used=0,  # No tokens for list operation
                 processing_time=0,
                 metadata={
@@ -367,7 +368,7 @@ async def delete_document(
         try:
             await auth_client.consume_usage(
                 user_id=user.user_id,
-                service_type="rag_delete",
+                service_type=ServiceType.DELETE_DOCUMENT,
                 tokens_used=0,  # No tokens for delete operation
                 processing_time=0,
                 metadata={
