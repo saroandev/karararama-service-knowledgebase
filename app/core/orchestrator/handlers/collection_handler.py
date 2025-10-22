@@ -17,19 +17,19 @@ class CollectionServiceHandler(BaseHandler):
     isolating Milvus logic from the orchestrator for clean architecture.
     """
 
-    def __init__(self, collections: List[CollectionFilter], user_token: str, options=None):
+    def __init__(self, collections: List[CollectionFilter], user_access_token: str, options=None):
         """
         Initialize collection service handler
 
         Args:
             collections: List of collection filters with scopes
-            user_token: JWT token for authentication
+            user_access_token: JWT access token for authentication
             options: Query options for tone, citations, etc.
         """
         # Use PRIVATE as default source_type (can be overridden by actual results)
         super().__init__(SourceType.PRIVATE, system_prompt=None, options=options)
         self.collections = collections
-        self.user_token = user_token
+        self.user_access_token = user_access_token
 
     async def search(
         self,
@@ -82,7 +82,7 @@ class CollectionServiceHandler(BaseHandler):
                 response = await client.post(
                     "http://localhost:8080/api/collections/query",
                     json=request_payload,
-                    headers={"Authorization": f"Bearer {self.user_token}"}
+                    headers={"Authorization": f"Bearer {self.user_access_token}"}
                 )
 
             processing_time = time.time() - start_time

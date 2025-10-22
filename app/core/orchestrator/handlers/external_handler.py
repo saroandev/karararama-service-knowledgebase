@@ -15,18 +15,18 @@ class ExternalServiceHandler(BaseHandler):
     Global DB service generates answers with its own prompts.
     """
 
-    def __init__(self, source_path: str, user_token: str, options=None):
+    def __init__(self, source_path: str, user_access_token: str, options=None):
         """
         Initialize external service handler
 
         Args:
             source_path: Source path for Global DB (e.g., "mevzuat", "karar", "reklam-kurulu-kararlari", "all")
-            user_token: JWT token for authentication
+            user_access_token: JWT access token for authentication
             options: Query options for tone, citations, etc.
         """
         # No system_prompt needed - external service generates its own answer
         super().__init__(SourceType.EXTERNAL, system_prompt=None, options=options)
-        self.user_token = user_token
+        self.user_access_token = user_access_token
         self.source_path = source_path
         self.global_db_client = get_global_db_client()
 
@@ -56,7 +56,7 @@ class ExternalServiceHandler(BaseHandler):
             # Call external service with options
             external_response = await self.global_db_client.search_public(
                 question=question,
-                user_token=self.user_token,
+                user_token=self.user_access_token,
                 top_k=top_k,
                 min_relevance_score=min_relevance_score,
                 bucket=self.source_path,  # Pass source_path as bucket parameter

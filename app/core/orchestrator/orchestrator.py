@@ -36,7 +36,7 @@ class QueryOrchestrator:
         self,
         request: QueryRequest,
         user: UserContext,
-        user_token: str
+        user_access_token: str
     ) -> QueryResponse:
         """
         Execute query across all requested sources
@@ -44,7 +44,7 @@ class QueryOrchestrator:
         Args:
             request: Query request with question and sources
             user: User context with permissions
-            user_token: JWT token for external service authentication
+            user_access_token: JWT access token for authentication
 
         Returns:
             QueryResponse with aggregated results
@@ -55,6 +55,7 @@ class QueryOrchestrator:
             logger.info(f"🎯 Orchestrator: Processing query for user {user.user_id}")
             logger.info(f"📝 Question: {request.question}")
             logger.info(f"🔍 Requested sources: {request.sources}")
+            logger.info(f"🔍 Requested sources: {request.collections}")
 
             # Handle conversation history
             conversation_id = request.conversation_id or conversation_manager.create_new_conversation()
@@ -75,7 +76,7 @@ class QueryOrchestrator:
             logger.info(f"⚙️ Query options: tone={options.tone}, citations={options.citations}, lang={options.lang}")
 
             # Create handlers for external sources and collection filters
-            handlers = self._create_handlers(request.sources, user, user_token, options, request.collections)
+            handlers = self._create_handlers(request.sources, user, user_access_token, options, request.collections)
 
             if not handlers:
                 logger.warning("⚠️ No handlers created - falling back to LLM-only mode")
@@ -138,7 +139,7 @@ class QueryOrchestrator:
         self,
         sources: List[str],
         user: UserContext,
-        user_token: str,
+        user_access_token: str,
         options: QueryOptions,
         collection_filters = None
     ) -> List[BaseHandler]:
@@ -154,7 +155,7 @@ class QueryOrchestrator:
         Args:
             sources: List of external source paths (strings)
             user: User context
-            user_token: JWT token for external services
+            user_access_token: JWT access token for authentication
             options: Query options (tone, lang, etc.)
             collection_filters: Optional list of CollectionFilter objects
         """
@@ -167,7 +168,7 @@ class QueryOrchestrator:
             handlers.append(
                 CollectionServiceHandler(
                     collections=collection_filters,
-                    user_token=user_token,
+                    user_access_token=user_access_token,
                     options=options
                 )
             )
@@ -178,7 +179,7 @@ class QueryOrchestrator:
             handlers.append(
                 ExternalServiceHandler(
                     source_path=source_path,
-                    user_token=user_token,
+                    user_access_token=user_access_token,
                     options=options
                 )
             )
@@ -198,6 +199,7 @@ class QueryOrchestrator:
         Uses OpenAI directly to answer the question based on its training data with conversation history.
         """
         from openai import OpenAI
+        from app.core.orchestrator.prompts import PromptTemplate
 
         logger.info("🤖 No sources or collections specified - generating LLM-only response")
 
@@ -205,17 +207,46 @@ class QueryOrchestrator:
             # Use OpenAI to create answer
             options = request.options or QueryOptions()
 
-            # Create prompt for LLM based on language
+            # Get base LLM-only prompt
+            system_prompt = PromptTemplate.LLM_ONLY
+
+            # Apply tone modifier if specified and different from default
+            if options.tone and options.tone != "resmi":
+                tone_modifier = PromptTemplate.TONE_MODIFIERS.get(options.tone, "")
+                if tone_modifier:
+                    system_prompt += tone_modifier
+                    logger.info(f"🎨 Applied tone modifier: {options.tone}")
+
+            # Apply language modifier if English
             if options.lang == "eng":
+                # Override with English version
                 system_prompt = (
-                    "You are an AI assistant. Answer the user's question using your knowledge and training data. "
-                    "Do not reference any specific sources, just use your general knowledge."
+                    "You are a helpful AI assistant.\n\n"
+                    "YOUR TASK:\n"
+                    "• Answer user questions based on your general knowledge and training data\n"
+                    "• Provide accurate, current, and helpful information\n"
+                    "• Write clearly, understandably, and naturally\n"
+                    "• Explicitly state when uncertain\n\n"
+                    "ANSWER STYLE:\n"
+                    "• Give direct and concise answers\n"
+                    "• Break down into bullet points when needed\n"
+                    "• Explain complex topics in simple language\n"
+                    "• Use examples to make topics concrete\n\n"
+                    "IMPORTANT RULES:\n"
+                    "• Answer only based on your own knowledge and training data\n"
+                    "• Do not reference specific sources (since no documents were provided)\n"
+                    "• Say \"I don't have definite knowledge about this\" when unsure\n"
+                    "• Don't speculate, admit when you don't know\n"
+                    "• For current events, note \"My training data is up to early 2024\"\n\n"
+                    "NOTE:\n"
+                    "The user has not provided any documents, so you should answer using only your general knowledge."
                 )
-            else:
-                system_prompt = (
-                    "Sen bir AI asistanısın. Kullanıcının sorusunu kendi bilgin ve eğitim verinle cevapla. "
-                    "Herhangi bir kaynağa atıfta bulunma, sadece genel bilgini kullan."
-                )
+                # Apply tone modifier for English as well
+                if options.tone and options.tone != "resmi":
+                    tone_modifier = PromptTemplate.TONE_MODIFIERS.get(options.tone, "")
+                    if tone_modifier:
+                        system_prompt += tone_modifier
+                logger.info(f"🌍 Using English language prompt")
 
             # Get conversation history
             conversation_history = conversation_manager.get_context_for_llm(

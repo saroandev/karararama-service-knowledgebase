@@ -54,11 +54,11 @@ async def query_documents(
         logger.info(f"🔍 Query from user {user.user_id} (org: {user.organization_id}): {request.question}")
         logger.info(f"🎯 Requested sources: {request.sources}")
 
-        # Extract JWT token for external service authentication
+        # Extract JWT access token for authentication
         auth_header = http_request.headers.get("Authorization", "")
-        user_token = ""
+        user_access_token = ""
         if auth_header.startswith("Bearer "):
-            user_token = auth_header.replace("Bearer ", "")
+            user_access_token = auth_header.replace("Bearer ", "")
 
         # Create orchestrator and execute query
         orchestrator = QueryOrchestrator()
@@ -66,7 +66,7 @@ async def query_documents(
         response = await orchestrator.execute_query(
             request=request,
             user=user,
-            user_token=user_token
+            user_access_token=user_access_token
         )
 
         return JSONResponse(
