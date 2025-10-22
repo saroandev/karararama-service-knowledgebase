@@ -374,7 +374,7 @@ Bu cevapları birleştir, karşılaştır ve kapsamlı bir yanıt oluştur."""
             chat_response = client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
                 messages=messages,
-                max_tokens=700,
+                # max_tokens=700,  # REMOVED: Let LLM decide response length based on content from handlers
                 temperature=0.7
             )
 
