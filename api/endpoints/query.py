@@ -45,7 +45,7 @@ async def query_documents(
     Architecture:
     This endpoint now uses the Orchestrator pattern. The QueryOrchestrator coordinates:
     1. CollectionServiceHandler for collection-based searches (via HTTP)
-    2. ExternalServiceHandler for MEVZUAT/KARAR sources (via HTTP)
+    2. ExternalServiceHandler for extrernal Global DB sources (via HTTP)
     3. ResultAggregator for merging results and generating answers
 
     All handlers execute in parallel for optimal performance.

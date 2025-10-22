@@ -21,7 +21,7 @@ load_dotenv()
 from api.utils.json_response import CustomJSONResponse
 
 # Import routers
-from api.endpoints import health, query, documents, ingest, collections, conversations
+from api.endpoints import health, query, documents, ingest, collections, collections_query, collections_ingest, conversations
 
 # Import exception handlers
 from app.core.exceptions import (
@@ -89,6 +89,8 @@ app.include_router(conversations.router, tags=["Conversations"])  # Conversation
 app.include_router(documents.router, tags=["Documents"])
 app.include_router(ingest.router, tags=["Ingest"])
 app.include_router(collections.router, tags=["Collections"])
+app.include_router(collections_query.router, prefix="/api", tags=["Collections"])  # Collection query endpoint
+app.include_router(collections_ingest.router, prefix="/api", tags=["Collections"])  # Collection-specific ingest
 
 
 # Run the app with Uvicorn

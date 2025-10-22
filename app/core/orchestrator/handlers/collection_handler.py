@@ -88,16 +88,40 @@ class CollectionServiceHandler(BaseHandler):
             processing_time = time.time() - start_time
 
             if response.status_code != 200:
+                # Enhanced error logging with response details
                 error_msg = f"Collections query failed: HTTP {response.status_code}"
-                self.logger.warning(f"⚠️ {error_msg}")
+
+                # Try to extract error details from response
+                try:
+                    error_detail = response.json().get("detail", "No details available")
+                    if response.status_code == 404:
+                        self.logger.warning(f"⚠️ {error_msg} - Collection not found: {error_detail}")
+                        error_msg = f"Collection not found: {error_detail}"
+                    else:
+                        self.logger.warning(f"⚠️ {error_msg} - {error_detail}")
+                        error_msg = f"{error_msg} - {error_detail}"
+                except Exception:
+                    self.logger.warning(f"⚠️ {error_msg}")
+
                 return self._create_error_result(error_msg)
 
             # Parse response
             response_data = response.json()
 
             if not response_data.get("success"):
+                # Enhanced logging for success=false
                 error_msg = "Collections query returned success=false"
-                self.logger.warning(f"⚠️ {error_msg}")
+
+                # Try to extract additional error info
+                collections_searched = response_data.get("collections_searched", 0)
+                total_results = response_data.get("total_results", 0)
+
+                self.logger.warning(f"⚠️ {error_msg} (collections_searched={collections_searched}, total_results={total_results})")
+
+                # If no collections were searched, it means they don't exist
+                if collections_searched == 0:
+                    error_msg = "No collections found - they may not exist or user doesn't have access"
+
                 return self._create_error_result(error_msg)
 
             # Extract results
