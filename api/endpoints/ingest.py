@@ -98,7 +98,8 @@ async def ingest_document(
                 detail=f"Collection '{collection_name}' not found in {scope.value} scope. Create it first using POST /collections"
             )
 
-        # Verify exact collection name match from metadata
+        # Verify exact collection name match from metadata (if exists)
+        # Note: Old collections may not have metadata - we allow this for backward compatibility
         try:
             minio_prefix = scope_id.get_object_prefix("docs")
             metadata_path = f"{minio_prefix}_collection_metadata.json"
@@ -111,20 +112,22 @@ async def ingest_document(
 
             original_collection_name = collection_meta.get("collection_name")
 
+            # Verify exact match (case-sensitive, Turkish characters)
             if original_collection_name != collection_name:
                 raise HTTPException(
                     status_code=404,
                     detail=f"Collection '{collection_name}' not found in {scope.value} scope. Create it first using POST /collections"
                 )
 
+            logger.info(f"✅ Collection metadata verified: {collection_name}")
+
         except HTTPException:
             raise
         except Exception as e:
-            logger.warning(f"Could not verify collection name from metadata: {e}")
-            raise HTTPException(
-                status_code=404,
-                detail=f"Collection '{collection_name}' not found in {scope.value} scope. Create it first using POST /collections"
-            )
+            # Metadata doesn't exist - this is OK for old collections or manual Milvus collections
+            # Log warning but allow ingestion to proceed
+            logger.warning(f"⚠️ Collection '{collection_name}' exists in Milvus but metadata not found: {e}")
+            logger.warning(f"💡 This may be an old collection. Ingestion will proceed but consider recreating the collection with proper metadata.")
 
         logger.info(f"📁 Using existing collection: {collection_name}")
 

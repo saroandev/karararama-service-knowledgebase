@@ -601,8 +601,11 @@ async def delete_collection(
         collection_name=collection_name
     )
 
-    # IMPORTANT: Verify exact collection name match from metadata before deletion
+    # Try to verify collection name from metadata before deletion
     # This prevents "sozlesme" from deleting "Sözleşme" collection
+    # Note: If metadata doesn't exist (old collections or inconsistent state),
+    # we still allow deletion to clean up orphaned Milvus collections
+    metadata_verified = False
     try:
         minio_prefix = scope_id.get_object_prefix("docs")
         metadata_path = f"{minio_prefix}_collection_metadata.json"
@@ -623,15 +626,16 @@ async def delete_collection(
                 detail=f"Collection '{collection_name}' not found in {scope.value} scope"
             )
 
+        metadata_verified = True
+        logger.info(f"✅ Collection metadata verified for deletion: {collection_name}")
+
     except HTTPException:
         raise
     except Exception as e:
-        # If metadata doesn't exist, collection wasn't created properly
-        logger.warning(f"Could not verify collection name from metadata: {e}")
-        raise HTTPException(
-            status_code=404,
-            detail=f"Collection '{collection_name}' not found in {scope.value} scope"
-        )
+        # Metadata doesn't exist - this may be an old collection or inconsistent state
+        # Allow deletion to proceed to clean up orphaned Milvus collections
+        logger.warning(f"⚠️ Collection metadata not found: {e}")
+        logger.warning(f"💡 Proceeding with deletion anyway to clean up Milvus collection")
 
     # Get collection info before deleting
     try:
