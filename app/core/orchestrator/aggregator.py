@@ -46,12 +46,17 @@ class ResultAggregator:
             QueryResponse with aggregated results and generated answer
         """
         try:
-            # 1. Merge all search results
+            # 1. Merge all search results and track failures
             all_results = []
+            failed_handlers = []
 
             for handler_result in handler_results:
                 if not handler_result.success:
                     logger.warning(f"Handler {handler_result.source_type} failed: {handler_result.error}")
+                    failed_handlers.append({
+                        "source_type": handler_result.source_type.value,
+                        "error": handler_result.error
+                    })
                     continue
 
                 # Collect results
@@ -106,6 +111,14 @@ class ResultAggregator:
                 user=user,
                 conversation_id=conversation_id
             )
+
+            # 4.5. Add partial failure warning if some handlers failed but we have results
+            if failed_handlers and answer:
+                options = request.options or QueryOptions()
+                lang = options.lang if options.lang else "tr"
+                failure_notice = self._build_failure_notice(failed_handlers, lang)
+                answer = f"{answer}\n\n{failure_notice}"
+                logger.info(f"⚠️ Added partial failure notice for {len(failed_handlers)} failed handler(s)")
 
             # 5. Report usage to auth service
             remaining_credits = await self._report_usage(
@@ -386,9 +399,33 @@ Bu cevapları birleştir, karşılaştır ve kapsamlı bir yanıt oluştur."""
 
         except Exception as e:
             logger.error(f"❌ Failed to synthesize answers: {str(e)}")
-            # Fallback: just return all answers concatenated
-            fallback = "\n\n".join(combined_text)
-            return fallback, 0
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+
+            # Enhanced fallback: structured presentation instead of raw concatenation
+            if options.lang == "eng":
+                fallback_parts = [
+                    "⚠️ Note: Automatic synthesis failed. Below are the individual answers from each source:\n"
+                ]
+            else:
+                fallback_parts = [
+                    "⚠️ Not: Otomatik birleştirme başarısız oldu. Aşağıda her kaynaktan gelen cevaplar ayrı ayrı sunulmuştur:\n"
+                ]
+
+            # Add each answer with clear separation
+            for source_type, answer in answers.items():
+                emoji = source_emojis.get(source_type, "📌")
+                source_label = {
+                    "private": "Kişisel Belgelerinize Göre" if options.lang == "tr" else "Based on Your Personal Documents",
+                    "shared": "Organizasyon Belgelerine Göre" if options.lang == "tr" else "Based on Organization Documents",
+                    "external": "Harici Kaynaklara Göre" if options.lang == "tr" else "Based on External Sources"
+                }.get(source_type, source_type.capitalize())
+
+                fallback_parts.append(f"\n{emoji} {source_label}:")
+                fallback_parts.append(f"{answer}\n")
+                fallback_parts.append("---")
+
+            return "\n".join(fallback_parts), 0
 
     async def _report_usage(
         self,
@@ -444,13 +481,37 @@ Bu cevapları birleştir, karşılaştır ve kapsamlı bir yanıt oluştur."""
         processing_time: float,
         conversation_id: str = None
     ) -> QueryResponse:
-        """Create empty response when no results found"""
+        """
+        Create detailed empty response when no results found
+
+        Provides helpful context about where search was performed and actionable suggestions
+        """
         # If no conversation_id provided, create a new one
         if not conversation_id:
             conversation_id = conversation_manager.create_new_conversation()
 
+        # Get language preference
+        options = request.options or QueryOptions()
+        lang = options.lang if options.lang else "tr"
+
+        # Build detailed answer with context
+        answer = self._build_empty_response_message(request, lang)
+
+        # Save to conversation history (even empty responses should be logged)
+        conversation_manager.save_message(
+            conversation_id=conversation_id,
+            user_id=user.user_id,
+            organization_id=user.organization_id,
+            role="assistant",
+            content=answer,
+            sources=[],
+            tokens_used=0,
+            processing_time=processing_time
+        )
+        logger.info(f"💾 Saved empty response to conversation log")
+
         return QueryResponse(
-            answer="İlgili bilgi bulunamadı.",
+            answer=answer,
             conversation_id=conversation_id,
             citations=[],
             processing_time=processing_time,
@@ -461,3 +522,163 @@ Bu cevapları birleştir, karşılaştır ve kapsamlı bir yanıt oluştur."""
             tokens_used=0,
             remaining_credits=user.remaining_credits
         )
+
+    def _build_empty_response_message(self, request: QueryRequest, lang: str) -> str:
+        """
+        Build a detailed, helpful message when no results are found
+
+        Args:
+            request: Original query request
+            lang: Language code (tr/eng)
+
+        Returns:
+            Detailed error message with context and suggestions
+        """
+        # Determine what was searched
+        searched_locations = []
+
+        # Check collections
+        if request.collections:
+            for coll in request.collections:
+                for scope in coll.scopes:
+                    if lang == "eng":
+                        scope_label = "your documents" if scope.value == "private" else "organization documents"
+                        searched_locations.append(f"{coll.name} collection ({scope_label})")
+                    else:
+                        scope_label = "kişisel belgeleriniz" if scope.value == "private" else "organizasyon belgeleri"
+                        searched_locations.append(f"{coll.name} koleksiyonu ({scope_label})")
+
+        # Check external sources
+        if request.sources:
+            for source in request.sources:
+                if lang == "eng":
+                    source_labels = {
+                        "mevzuat": "Legislation database",
+                        "karar": "Court decisions database",
+                        "all": "All external databases"
+                    }
+                    searched_locations.append(source_labels.get(source, f"{source} database"))
+                else:
+                    source_labels = {
+                        "mevzuat": "Mevzuat veritabanı",
+                        "karar": "Karar veritabanı",
+                        "all": "Tüm harici veritabanları"
+                    }
+                    searched_locations.append(source_labels.get(source, f"{source} veritabanı"))
+
+        # Build message based on language
+        if lang == "eng":
+            parts = ["No relevant information found."]
+
+            if searched_locations:
+                parts.append("\n🔍 Searched in:")
+                for loc in searched_locations:
+                    parts.append(f"  • {loc}")
+
+            parts.append("\n💡 Suggestions:")
+            parts.append("  • Try rephrasing your question with different terms")
+            parts.append("  • Use more general or specific keywords")
+
+            if request.collections:
+                parts.append("  • Check if your collections contain relevant documents")
+            else:
+                parts.append("  • Try searching in specific collections")
+
+            if request.min_relevance_score > 0.7:
+                parts.append(f"  • Lower the relevance threshold (currently {request.min_relevance_score})")
+
+            return "\n".join(parts)
+
+        else:  # Turkish
+            parts = ["İlgili bilgi bulunamadı."]
+
+            if searched_locations:
+                parts.append("\n🔍 Arama Yapılan Yerler:")
+                for loc in searched_locations:
+                    parts.append(f"  • {loc}")
+
+            parts.append("\n💡 Öneriler:")
+            parts.append("  • Sorunuzu farklı kelimelerle ifade etmeyi deneyin")
+            parts.append("  • Daha genel veya daha spesifik terimler kullanın")
+
+            if request.collections:
+                parts.append("  • Koleksiyonlarınızda ilgili döküman olup olmadığını kontrol edin")
+            else:
+                parts.append("  • Belirli koleksiyonlarda arama yapmayı deneyin")
+
+            if request.min_relevance_score > 0.7:
+                parts.append(f"  • Eşleşme eşiğini düşürün (şu an {request.min_relevance_score})")
+
+            return "\n".join(parts)
+
+    def _build_failure_notice(self, failed_handlers: List[Dict], lang: str) -> str:
+        """
+        Build a notice about failed handlers for partial success scenarios
+
+        Args:
+            failed_handlers: List of failed handler info dicts
+            lang: Language code (tr/eng)
+
+        Returns:
+            Formatted failure notice string
+        """
+        # Map source types to user-friendly names
+        source_names_tr = {
+            "private": "Kişisel belgeler",
+            "shared": "Organizasyon belgeleri",
+            "external": "Harici kaynaklar"
+        }
+
+        source_names_eng = {
+            "private": "Your personal documents",
+            "shared": "Organization documents",
+            "external": "External sources"
+        }
+
+        if lang == "eng":
+            parts = ["\n---\n", "⚠️ Note: Some sources could not be accessed:"]
+            for failure in failed_handlers:
+                source_name = source_names_eng.get(failure["source_type"], failure["source_type"])
+                # Simplify error message for user
+                error_msg = self._simplify_error_message(failure["error"], lang)
+                parts.append(f"  • {source_name}: {error_msg}")
+            parts.append("\nThe answer above was provided based on available sources only.")
+            return "\n".join(parts)
+
+        else:  # Turkish
+            parts = ["\n---\n", "⚠️ Not: Bazı kaynaklara erişilemedi:"]
+            for failure in failed_handlers:
+                source_name = source_names_tr.get(failure["source_type"], failure["source_type"])
+                # Simplify error message for user
+                error_msg = self._simplify_error_message(failure["error"], lang)
+                parts.append(f"  • {source_name}: {error_msg}")
+            parts.append("\nYukarıdaki cevap sadece erişilebilen kaynaklara göre verilmiştir.")
+            return "\n".join(parts)
+
+    def _simplify_error_message(self, error: str, lang: str) -> str:
+        """
+        Convert technical error messages to user-friendly descriptions
+
+        Args:
+            error: Technical error message
+            lang: Language code (tr/eng)
+
+        Returns:
+            Simplified error message
+        """
+        error_lower = error.lower()
+
+        # Common error patterns and their translations
+        if "timeout" in error_lower or "timed out" in error_lower:
+            return "Zaman aşımı" if lang == "tr" else "Timeout"
+        elif "not found" in error_lower or "404" in error_lower:
+            return "Bulunamadı" if lang == "tr" else "Not found"
+        elif "connection" in error_lower or "unreachable" in error_lower:
+            return "Bağlantı hatası" if lang == "tr" else "Connection error"
+        elif "unauthorized" in error_lower or "403" in error_lower or "401" in error_lower:
+            return "Yetki hatası" if lang == "tr" else "Authorization error"
+        elif "service unavailable" in error_lower or "503" in error_lower:
+            return "Servis erişilemez" if lang == "tr" else "Service unavailable"
+        else:
+            # Generic message for unknown errors
+            return "Geçici hata" if lang == "tr" else "Temporary error"
