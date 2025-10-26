@@ -252,8 +252,8 @@ class DocumentValidator(BaseValidator):
             Dictionary with existence check result
         """
         try:
-            # Use scope-aware collection if provided
-            collection: Collection = milvus_manager.get_collection(scope)
+            # Use scope-aware collection if provided (auto-create for ingest validation operation)
+            collection: Collection = milvus_manager.get_collection(scope, auto_create=True)
 
             # Query for existing document
             search_results = collection.query(

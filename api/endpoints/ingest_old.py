@@ -275,8 +275,8 @@ async def ingest_document(
 
         logger.info(f"Created {len(chunks)} chunks")
 
-        # 3. Connect to scoped Milvus collection
-        collection = milvus_manager.get_collection(scope_id)
+        # 3. Connect to scoped Milvus collection (auto-create for ingest operation)
+        collection = milvus_manager.get_collection(scope_id, auto_create=True)
 
         # 4. Generate embeddings with batch processing
         chunk_texts = [chunk.text for chunk in chunks]
@@ -568,8 +568,8 @@ async def batch_ingest_documents(
             file_hash = hashlib.md5(pdf_data).hexdigest()
             document_id = f"doc_{file_hash[:16]}"
 
-            # Check if document already exists in scoped collection
-            collection = milvus_manager.get_collection(scope_id)
+            # Check if document already exists in scoped collection (auto-create for ingest operation)
+            collection = milvus_manager.get_collection(scope_id, auto_create=True)
             search_existing = collection.query(
                 expr=f'document_id == "{document_id}"',
                 output_fields=['id'],

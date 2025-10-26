@@ -45,13 +45,14 @@ class MilvusConnectionManager:
                 raise
         return connections
 
-    def get_collection(self, scope: ScopeIdentifier, auto_create: bool = True) -> Collection:
+    def get_collection(self, scope: ScopeIdentifier, auto_create: bool = False) -> Collection:
         """
         Get Milvus collection for the specified scope
 
         Args:
             scope: ScopeIdentifier for multi-tenant (REQUIRED - no legacy mode)
             auto_create: If True, creates collection if it doesn't exist. If False, raises exception.
+                        DEFAULT: False (fail-safe - prevents accidental collection creation)
 
         Returns:
             Collection instance

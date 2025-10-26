@@ -306,7 +306,7 @@ async def delete_document(
     logger.info(f"👤 User: {user.user_id} (org: {user.organization_id})")
 
     try:
-        # Get scoped Milvus collection
+        # Get scoped Milvus collection (do NOT auto-create for delete operation)
         try:
             collection = milvus_manager.get_collection(scope_id)
         except Exception as e:

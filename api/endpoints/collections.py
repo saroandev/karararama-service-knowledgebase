@@ -257,8 +257,8 @@ def _get_collection_info(
             detail=f"Collection '{collection_name}' not found in {scope_id.scope_type.value} scope"
         )
 
-    # Get collection from Milvus
-    collection = milvus_manager.get_collection(scope_id)
+    # Get collection from Milvus (do NOT auto-create in read operations)
+    collection = milvus_manager.get_collection(scope_id, auto_create=False)
 
     # Get statistics
     try:
@@ -296,6 +296,7 @@ def _get_collection_info(
     created_by = user.user_id  # Default to current user
     created_by_email = user.email  # Default to current user email
     updated_at = None
+    original_collection_name = collection_name  # Fallback to sanitized name if metadata not found
 
     try:
         # Check for collection metadata file
@@ -313,19 +314,23 @@ def _get_collection_info(
         created_by = collection_meta.get("created_by", user.user_id)
         created_by_email = collection_meta.get("created_by_email", user.email)
 
+        # Get original collection name from metadata (with spaces, Turkish chars, etc.)
+        if "collection_name" in collection_meta:
+            original_collection_name = collection_meta.get("collection_name")
+
         # Get last_updated from statistics if available
         stats = collection_meta.get("statistics", {})
         updated_at = stats.get("last_updated")
 
     except Exception:
-        # No metadata file exists yet
+        # No metadata file exists yet - use sanitized name as fallback
         pass
 
     # Calculate size in MB
     size_mb = round(size_bytes / (1024 * 1024), 2) if size_bytes > 0 else 0.0
 
     return CollectionInfo(
-        name=collection_name,
+        name=original_collection_name,
         scope=scope_id.scope_type.value,
         description=description,
         document_count=document_count,
@@ -401,8 +406,8 @@ async def create_collection(
         )
 
     try:
-        # Create Milvus collection
-        milvus_manager.get_collection(scope_id)
+        # Create Milvus collection (auto-create for create operation)
+        milvus_manager.get_collection(scope_id, auto_create=True)
         logger.info(f"Created Milvus collection: {collection_name}")
 
         # Save metadata to MinIO
@@ -807,7 +812,17 @@ async def list_collection_documents(
     )
 
     # Resolve collection name (handles both original and hyphenated names)
-    original_collection_name = _resolve_collection_name(collection_name, temp_scope_id, user)
+    # This will raise HTTPException(404) if collection metadata not found
+    try:
+        original_collection_name = _resolve_collection_name(collection_name, temp_scope_id, user)
+        logger.info(f"✅ Resolved collection name: '{collection_name}' -> '{original_collection_name}'")
+    except HTTPException as e:
+        # Collection not found - provide clear error message
+        logger.warning(f"❌ Collection '{collection_name}' not found in {scope.value} scope")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Collection '{collection_name}' not found in {scope.value} scope. Make sure the collection exists and you have access to it."
+        )
 
     # Create scope identifier with resolved original name
     scope_id = ScopeIdentifier(
@@ -823,13 +838,14 @@ async def list_collection_documents(
     # Ensure Milvus connection exists
     milvus_manager.get_connection()
     if not utility.has_collection(milvus_collection_name):
+        logger.error(f"❌ Milvus collection '{milvus_collection_name}' not found (metadata exists but Milvus collection missing)")
         raise HTTPException(
             status_code=404,
             detail=f"Collection '{original_collection_name}' not found in {scope.value} scope"
         )
 
-    # Get collection from Milvus
-    collection = milvus_manager.get_collection(scope_id)
+    # Get collection from Milvus (do NOT auto-create in read operations)
+    collection = milvus_manager.get_collection(scope_id, auto_create=False)
 
     # Query all chunks to get document information
     try:

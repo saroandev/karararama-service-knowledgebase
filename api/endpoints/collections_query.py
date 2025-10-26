@@ -206,7 +206,7 @@ async def query_collections(
                     )
 
                     try:
-                        collection = milvus_manager.get_collection(private_scope, auto_create=False)
+                        collection = milvus_manager.get_collection(private_scope)
                         collections_to_search.append({
                             "collection": collection,
                             "scope_label": f"private/{collection_name}",
@@ -235,7 +235,7 @@ async def query_collections(
                     )
 
                     try:
-                        collection = milvus_manager.get_collection(shared_scope, auto_create=False)
+                        collection = milvus_manager.get_collection(shared_scope)
                         collections_to_search.append({
                             "collection": collection,
                             "scope_label": f"shared/{collection_name}",

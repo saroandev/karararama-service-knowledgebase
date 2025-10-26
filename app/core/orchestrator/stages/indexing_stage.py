@@ -69,8 +69,8 @@ class IndexingStage(PipelineStage):
             )
 
         try:
-            # Get scope-aware Milvus collection
-            collection = milvus_manager.get_collection(context.scope_identifier)
+            # Get scope-aware Milvus collection (auto-create for ingest operation)
+            collection = milvus_manager.get_collection(context.scope_identifier, auto_create=True)
             collection_name = context.get_collection_name()
 
             self.logger.info(f"📦 Target collection: {collection_name}")
@@ -166,7 +166,7 @@ class IndexingStage(PipelineStage):
             return
 
         try:
-            # Get collection
+            # Get collection (collection should already exist if we're rolling back)
             collection = milvus_manager.get_collection(context.scope_identifier)
 
             # Delete by document_id (deletes all chunks of this document)
