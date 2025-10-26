@@ -35,6 +35,79 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _resolve_collection_name(
+    collection_name_input: str,
+    scope_id: ScopeIdentifier,
+    user: UserContext
+) -> str:
+    """
+    Resolve collection name from URL input to original collection name
+
+    Supports both:
+    1. Original name with spaces: "bosluk denemesi"
+    2. Sanitized name with hyphens: "bosluk-denemesi"
+
+    This allows URLs to use hyphenated names (URL-friendly) while
+    internally using the original collection name.
+
+    Args:
+        collection_name_input: Name from URL (may be hyphenated or original)
+        scope_id: Scope identifier (will be updated with correct collection name)
+        user: User context
+
+    Returns:
+        Original collection name from metadata
+
+    Raises:
+        HTTPException: If collection not found or name doesn't match
+    """
+    try:
+        # Try to get metadata using the input name as-is first
+        temp_scope = ScopeIdentifier(
+            organization_id=scope_id.organization_id,
+            scope_type=scope_id.scope_type,
+            user_id=scope_id.user_id,
+            collection_name=collection_name_input
+        )
+
+        minio_prefix = temp_scope.get_object_prefix("docs")
+        metadata_path = f"{minio_prefix}_collection_metadata.json"
+        bucket = temp_scope.get_bucket_name()
+        client = storage.client_manager.get_client()
+
+        response = client.get_object(bucket, metadata_path)
+        import json
+        collection_meta = json.loads(response.read().decode('utf-8'))
+
+        # Get original collection name from metadata
+        original_name = collection_meta.get("collection_name")
+        sanitized_name = collection_meta.get("collection_name_sanitized")
+
+        # Check if input matches either original or sanitized name
+        if original_name == collection_name_input:
+            # Exact match with original name
+            return original_name
+        elif sanitized_name == collection_name_input:
+            # Match with sanitized name (URL-friendly)
+            return original_name
+        else:
+            # Name doesn't match - collection not found
+            raise HTTPException(
+                status_code=404,
+                detail=f"Collection '{collection_name_input}' not found in {scope_id.scope_type.value} scope"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # If metadata doesn't exist, collection wasn't created properly
+        logger.warning(f"Could not resolve collection name from metadata: {e}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Collection '{collection_name_input}' not found in {scope_id.scope_type.value} scope"
+        )
+
+
 def update_collection_metadata(scope_id: ScopeIdentifier):
     """
     Update collection metadata statistics in MinIO after document ingestion
@@ -335,7 +408,8 @@ async def create_collection(
         # Save metadata to MinIO
         current_time = datetime.datetime.now().isoformat()
         metadata_content = {
-            "collection_name": request.name,
+            "collection_name": request.name,  # Original name with spaces for display
+            "collection_name_sanitized": scope_id._sanitize_for_minio(request.name),  # Sanitized for MinIO paths
             "scope": request.scope.value,
             "description": request.description,
             "metadata": request.metadata,
@@ -509,15 +583,17 @@ async def get_collection(
     """
     Get detailed information about a specific collection
 
-    Note: Collection name must match exactly (case-sensitive, Turkish characters must match)
+    Supports both original names and URL-friendly hyphenated names:
+    - "bosluk denemesi" (original with spaces)
+    - "bosluk-denemesi" (URL-friendly with hyphens)
     """
     logger.info(f"Getting collection '{collection_name}' in {scope} scope")
 
     # Convert scope
     data_scope = DataScope(scope.value)
 
-    # Create scope identifier
-    scope_id = ScopeIdentifier(
+    # Create temporary scope identifier for name resolution
+    temp_scope_id = ScopeIdentifier(
         organization_id=user.organization_id,
         scope_type=data_scope,
         user_id=user.user_id if scope == IngestScope.PRIVATE else None,
@@ -531,39 +607,18 @@ async def get_collection(
     if data_scope == DataScope.SHARED and not user.data_access.shared_data:
         raise HTTPException(status_code=403, detail="No access to shared collections")
 
-    # IMPORTANT: Verify exact collection name match from metadata before getting info
-    # This prevents "sozlesme" from matching "Sözleşme" collection
-    try:
-        minio_prefix = scope_id.get_object_prefix("docs")
-        metadata_path = f"{minio_prefix}_collection_metadata.json"
-        bucket = scope_id.get_bucket_name()
-        client = storage.client_manager.get_client()
+    # Resolve collection name (handles both original and hyphenated names)
+    original_collection_name = _resolve_collection_name(collection_name, temp_scope_id, user)
 
-        response = client.get_object(bucket, metadata_path)
-        import json
-        collection_meta = json.loads(response.read().decode('utf-8'))
+    # Create scope identifier with resolved original name
+    scope_id = ScopeIdentifier(
+        organization_id=user.organization_id,
+        scope_type=data_scope,
+        user_id=user.user_id if scope == IngestScope.PRIVATE else None,
+        collection_name=original_collection_name
+    )
 
-        # Get original collection name from metadata
-        original_collection_name = collection_meta.get("collection_name")
-
-        # Exact match required (case-sensitive, Turkish characters must match)
-        if original_collection_name != collection_name:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Collection '{collection_name}' not found in {scope.value} scope"
-            )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        # If metadata doesn't exist, collection wasn't created properly
-        logger.warning(f"Could not verify collection name from metadata: {e}")
-        raise HTTPException(
-            status_code=404,
-            detail=f"Collection '{collection_name}' not found in {scope.value} scope"
-        )
-
-    return _get_collection_info(collection_name, scope_id, user)
+    return _get_collection_info(original_collection_name, scope_id, user)
 
 
 @router.delete("/collections/{collection_name}", response_model=DeleteCollectionResponse)
@@ -583,7 +638,9 @@ async def delete_collection(
     - Milvus collection and all vectors
     - All documents and chunks from MinIO
 
-    Note: Collection name must match exactly (case-sensitive, Turkish characters must match)
+    Supports both original names and URL-friendly hyphenated names:
+    - "bosluk denemesi" (original with spaces)
+    - "bosluk-denemesi" (URL-friendly with hyphens)
     """
     logger.info(f"Deleting collection '{collection_name}' in {scope} scope")
 
@@ -593,53 +650,40 @@ async def delete_collection(
     # Convert scope
     data_scope = DataScope(scope.value)
 
-    # Create scope identifier
-    scope_id = ScopeIdentifier(
+    # Create temporary scope identifier for name resolution
+    temp_scope_id = ScopeIdentifier(
         organization_id=user.organization_id,
         scope_type=data_scope,
         user_id=user.user_id if scope == IngestScope.PRIVATE else None,
         collection_name=collection_name
     )
 
-    # Try to verify collection name from metadata before deletion
-    # This prevents "sozlesme" from deleting "Sözleşme" collection
-    # Note: If metadata doesn't exist (old collections or inconsistent state),
-    # we still allow deletion to clean up orphaned Milvus collections
-    metadata_verified = False
+    # Try to resolve collection name (handles both original and hyphenated names)
+    # If resolution fails, it will raise HTTPException 404
     try:
-        minio_prefix = scope_id.get_object_prefix("docs")
-        metadata_path = f"{minio_prefix}_collection_metadata.json"
-        bucket = scope_id.get_bucket_name()
-        client = storage.client_manager.get_client()
-
-        response = client.get_object(bucket, metadata_path)
-        import json
-        collection_meta = json.loads(response.read().decode('utf-8'))
-
-        # Get original collection name from metadata
-        original_collection_name = collection_meta.get("collection_name")
-
-        # Exact match required (case-sensitive, Turkish characters must match)
-        if original_collection_name != collection_name:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Collection '{collection_name}' not found in {scope.value} scope"
-            )
-
-        metadata_verified = True
-        logger.info(f"✅ Collection metadata verified for deletion: {collection_name}")
-
+        original_collection_name = _resolve_collection_name(collection_name, temp_scope_id, user)
+        logger.info(f"✅ Collection name resolved: '{collection_name}' -> '{original_collection_name}'")
     except HTTPException:
+        # Resolution failed - collection not found
         raise
     except Exception as e:
         # Metadata doesn't exist - this may be an old collection or inconsistent state
         # Allow deletion to proceed to clean up orphaned Milvus collections
-        logger.warning(f"⚠️ Collection metadata not found: {e}")
+        logger.warning(f"⚠️ Could not resolve collection name: {e}")
         logger.warning(f"💡 Proceeding with deletion anyway to clean up Milvus collection")
+        original_collection_name = collection_name
+
+    # Create scope identifier with resolved original name
+    scope_id = ScopeIdentifier(
+        organization_id=user.organization_id,
+        scope_type=data_scope,
+        user_id=user.user_id if scope == IngestScope.PRIVATE else None,
+        collection_name=original_collection_name
+    )
 
     # Get collection info before deleting
     try:
-        collection_info = _get_collection_info(collection_name, scope_id, user)
+        collection_info = _get_collection_info(original_collection_name, scope_id, user)
         documents_deleted = collection_info.document_count
         chunks_deleted = collection_info.chunk_count
     except HTTPException:
@@ -665,13 +709,15 @@ async def delete_collection(
         client = storage.client_manager.get_client()
         bucket = scope_id.get_bucket_name()
 
-        # Get collection folder path based on scope
-        # Private: users/{user_id}/collections/{collection_name}/
-        # Shared: shared/collections/{collection_name}/
+        # Get collection folder path based on scope (uses sanitized collection name)
+        # scope_id.get_object_prefix() already sanitizes the collection name for MinIO paths
+        # Private: users/{user_id}/collections/{sanitized_name}/
+        # Shared: shared/collections/{sanitized_name}/
+        sanitized_collection_name = scope_id._sanitize_for_minio(original_collection_name)
         if scope_id.scope_type == DataScope.PRIVATE:
-            collection_folder_prefix = f"users/{scope_id.user_id}/collections/{collection_name}/"
+            collection_folder_prefix = f"users/{scope_id.user_id}/collections/{sanitized_collection_name}/"
         else:  # SHARED
-            collection_folder_prefix = f"shared/collections/{collection_name}/"
+            collection_folder_prefix = f"shared/collections/{sanitized_collection_name}/"
 
         logger.info(f"🗑️  Deleting MinIO folder: {bucket}/{collection_folder_prefix}")
 
@@ -736,20 +782,14 @@ async def list_collection_documents(
     - Valid JWT token
     - Access to the specified scope (private or shared)
 
-    Note: Collection name must match exactly (case-sensitive, Turkish characters must match)
+    Supports both original names and URL-friendly hyphenated names:
+    - "bosluk denemesi" (original with spaces)
+    - "bosluk-denemesi" (URL-friendly with hyphens)
     """
     logger.info(f"Listing documents in collection '{collection_name}' ({scope.value} scope)")
 
     # Convert scope
     data_scope = DataScope(scope.value)
-
-    # Create scope identifier
-    scope_id = ScopeIdentifier(
-        organization_id=user.organization_id,
-        scope_type=data_scope,
-        user_id=user.user_id if scope == IngestScope.PRIVATE else None,
-        collection_name=collection_name
-    )
 
     # Check access
     if data_scope == DataScope.PRIVATE and not user.data_access.own_data:
@@ -757,6 +797,25 @@ async def list_collection_documents(
 
     if data_scope == DataScope.SHARED and not user.data_access.shared_data:
         raise HTTPException(status_code=403, detail="No access to shared collections")
+
+    # Create temporary scope identifier for name resolution
+    temp_scope_id = ScopeIdentifier(
+        organization_id=user.organization_id,
+        scope_type=data_scope,
+        user_id=user.user_id if scope == IngestScope.PRIVATE else None,
+        collection_name=collection_name
+    )
+
+    # Resolve collection name (handles both original and hyphenated names)
+    original_collection_name = _resolve_collection_name(collection_name, temp_scope_id, user)
+
+    # Create scope identifier with resolved original name
+    scope_id = ScopeIdentifier(
+        organization_id=user.organization_id,
+        scope_type=data_scope,
+        user_id=user.user_id if scope == IngestScope.PRIVATE else None,
+        collection_name=original_collection_name
+    )
 
     # Check if collection exists in Milvus
     milvus_collection_name = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
@@ -766,39 +825,7 @@ async def list_collection_documents(
     if not utility.has_collection(milvus_collection_name):
         raise HTTPException(
             status_code=404,
-            detail=f"Collection '{collection_name}' not found in {scope.value} scope"
-        )
-
-    # IMPORTANT: Verify exact collection name match from metadata
-    # This prevents "sozlesme" from matching "Sözleşme" collection
-    try:
-        minio_prefix = scope_id.get_object_prefix("docs")
-        metadata_path = f"{minio_prefix}_collection_metadata.json"
-        bucket = scope_id.get_bucket_name()
-        client = storage.client_manager.get_client()
-
-        response = client.get_object(bucket, metadata_path)
-        import json
-        collection_meta = json.loads(response.read().decode('utf-8'))
-
-        # Get original collection name from metadata
-        original_collection_name = collection_meta.get("collection_name")
-
-        # Exact match required (case-sensitive, Turkish characters must match)
-        if original_collection_name != collection_name:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Collection '{collection_name}' not found in {scope.value} scope"
-            )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        # If metadata doesn't exist, collection wasn't created properly
-        logger.warning(f"Could not verify collection name from metadata: {e}")
-        raise HTTPException(
-            status_code=404,
-            detail=f"Collection '{collection_name}' not found in {scope.value} scope"
+            detail=f"Collection '{original_collection_name}' not found in {scope.value} scope"
         )
 
     # Get collection from Milvus
@@ -872,7 +899,7 @@ async def list_collection_documents(
                 document_type=doc_data["document_type"],
                 uploaded_by=doc_data["uploaded_by"],
                 uploaded_by_email=doc_data["uploaded_by_email"],
-                collection_name=collection_name,
+                collection_name=original_collection_name,  # Use original name, not hyphenated
                 url=url,
                 scope=scope.value,
                 metadata=None
@@ -881,7 +908,7 @@ async def list_collection_documents(
         # Sort by created_at descending
         documents.sort(key=lambda x: x.created_at, reverse=True)
 
-        logger.info(f"Found {len(documents)} documents in collection '{collection_name}'")
+        logger.info(f"Found {len(documents)} documents in collection '{original_collection_name}'")
         return documents
 
     except Exception as e:

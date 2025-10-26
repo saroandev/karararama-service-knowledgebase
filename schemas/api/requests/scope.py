@@ -90,6 +90,58 @@ class ScopeIdentifier(BaseModel):
 
         return sanitized
 
+    @staticmethod
+    def _sanitize_for_minio(name: str) -> str:
+        """
+        Sanitize collection name for MinIO path compatibility
+
+        Creates URL-friendly paths by converting:
+        - Turkish characters to ASCII equivalents (ş->s, ğ->g, etc.)
+        - Spaces to hyphens (not underscores, for better URL readability)
+        - Special characters to hyphens
+        - Uppercase to lowercase
+        - Multiple hyphens to single
+
+        Args:
+            name: Original collection name (can contain Turkish chars, spaces, etc.)
+
+        Returns:
+            MinIO-safe path component (URL-friendly with hyphens)
+
+        Examples:
+            "Sözleşme Taslakları" -> "sozlesme-taslaklari"
+            "bosluk denemesi" -> "bosluk-denemesi"
+            "My Documents (2024)" -> "my-documents-2024"
+        """
+        # Turkish character mapping
+        turkish_map = {
+            'ş': 's', 'Ş': 's',
+            'ğ': 'g', 'Ğ': 'g',
+            'ı': 'i', 'İ': 'i',
+            'ö': 'o', 'Ö': 'o',
+            'ü': 'u', 'Ü': 'u',
+            'ç': 'c', 'Ç': 'c'
+        }
+
+        # Convert Turkish characters
+        sanitized = ''.join(turkish_map.get(c, c) for c in name)
+
+        # Convert to lowercase
+        sanitized = sanitized.lower()
+
+        # Replace spaces and special characters with hyphens
+        # Keep only alphanumeric and hyphens
+        import re
+        sanitized = re.sub(r'[^a-z0-9-]', '-', sanitized)
+
+        # Replace multiple hyphens with single
+        sanitized = re.sub(r'-+', '-', sanitized)
+
+        # Remove leading/trailing hyphens
+        sanitized = sanitized.strip('-')
+
+        return sanitized
+
     def get_collection_name(self, dimension: int = 1536) -> str:
         """
         Generate Milvus collection name for this scope
@@ -152,9 +204,12 @@ class ScopeIdentifier(BaseModel):
 
         Folder structure with org/user hierarchy:
         - PRIVATE (default): users/{user_id}/{category}/
-        - PRIVATE (collection): users/{user_id}/collections/{collection_name}/{category}/
+        - PRIVATE (collection): users/{user_id}/collections/{collection_name_sanitized}/{category}/
         - SHARED (default): shared/{category}/
-        - SHARED (collection): shared/collections/{collection_name}/{category}/
+        - SHARED (collection): shared/collections/{collection_name_sanitized}/{category}/
+
+        Note: Collection names are sanitized for MinIO paths using hyphens instead of spaces
+              for URL-friendly paths. Original names are preserved in metadata.
 
         Args:
             category: Storage category ("docs" or "chunks")
@@ -165,16 +220,22 @@ class ScopeIdentifier(BaseModel):
         Examples:
             Private docs: "users/17d0faab-0830-4007-8ed6-73cfd049505b/docs/"
             Private collection: "users/17d0faab-0830-4007-8ed6-73cfd049505b/collections/legal-research/docs/"
+            Private collection (spaces): "users/.../collections/bosluk-denemesi/docs/" (from "bosluk denemesi")
             Shared chunks: "shared/chunks/"
             Shared collection: "shared/collections/contracts/chunks/"
+            Shared collection (Turkish): "shared/collections/sozlesme-taslaklari/chunks/" (from "Sözleşme Taslakları")
         """
         if self.scope_type == DataScope.PRIVATE:
             if self.collection_name:
-                return f"users/{self.user_id}/collections/{self.collection_name}/{category}/"
+                # Sanitize collection name for MinIO path (hyphens instead of spaces)
+                safe_collection_name = self._sanitize_for_minio(self.collection_name)
+                return f"users/{self.user_id}/collections/{safe_collection_name}/{category}/"
             return f"users/{self.user_id}/{category}/"
         elif self.scope_type == DataScope.SHARED:
             if self.collection_name:
-                return f"shared/collections/{self.collection_name}/{category}/"
+                # Sanitize collection name for MinIO path (hyphens instead of spaces)
+                safe_collection_name = self._sanitize_for_minio(self.collection_name)
+                return f"shared/collections/{safe_collection_name}/{category}/"
             return f"shared/{category}/"
         else:
             raise ValueError(f"Cannot generate object prefix for scope type: {self.scope_type}")
