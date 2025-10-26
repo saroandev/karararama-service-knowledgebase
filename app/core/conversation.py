@@ -227,13 +227,25 @@ class ConversationManager:
 
     def create_new_conversation(self) -> str:
         """
-        Create a new conversation ID
+        DEPRECATED: This method is no longer used.
+
+        Conversation IDs are now REQUIRED to come from the client/UI.
+        The client must generate and provide a conversation_id in every request.
+
+        This method is kept for backward compatibility only but should not be used.
 
         Returns:
             New conversation ID (UUID)
         """
+        import warnings
+        warnings.warn(
+            "create_new_conversation() is deprecated. "
+            "Conversation IDs must be provided by the client.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         conversation_id = str(uuid.uuid4())
-        logger.info(f"🆕 Created new conversation: {conversation_id}")
+        logger.warning(f"⚠️ DEPRECATED: Created new conversation: {conversation_id} - Client should provide this!")
         return conversation_id
 
     def delete_conversation(

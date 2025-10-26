@@ -479,16 +479,16 @@ Bu cevapları birleştir, karşılaştır ve kapsamlı bir yanıt oluştur."""
         request: QueryRequest,
         user: UserContext,
         processing_time: float,
-        conversation_id: str = None
+        conversation_id: str
     ) -> QueryResponse:
         """
         Create detailed empty response when no results found
 
         Provides helpful context about where search was performed and actionable suggestions
+
+        Args:
+            conversation_id: Required conversation ID from request (always provided by client)
         """
-        # If no conversation_id provided, create a new one
-        if not conversation_id:
-            conversation_id = conversation_manager.create_new_conversation()
 
         # Get language preference
         options = request.options or QueryOptions()

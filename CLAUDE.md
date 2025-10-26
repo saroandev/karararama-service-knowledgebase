@@ -147,13 +147,19 @@ Coordinates multi-source query processing with parallel execution:
 
 PostgreSQL-based chat history with SQLAlchemy:
 - **Table**: `conversation_log` (auto-created by `migrations/init.sql`)
-- **Conversation ID**: UUID format `conv-{uuid}`, passed in request or auto-generated
+- **Conversation ID**: **REQUIRED from client** - UUID format recommended (e.g., `conv-{uuid}`)
+- **Client Responsibility**: UI/frontend must generate and provide conversation_id in every request
 - **Context Injection**: Last 10 messages automatically sent to LLM for multi-turn awareness
 - **Storage**: User questions and assistant answers with metadata (tokens, processing time, sources)
 
+**Important**: Backend does NOT generate conversation IDs. The client must:
+1. Generate a unique conversation_id when starting a new conversation
+2. Use the same conversation_id for all messages in that conversation
+3. Include conversation_id in every `/chat/process` request
+
 **Methods**:
-- `create_new_conversation()`: Generates new conversation ID
-- `save_message()`: Stores user/assistant messages
+- `create_new_conversation()`: **DEPRECATED** - Conversation IDs must come from client
+- `save_message()`: Stores user/assistant messages with conversation_id
 - `get_context_for_llm()`: Retrieves last N messages formatted for GPT
 
 **PostgreSQL Configuration**:
