@@ -10,7 +10,7 @@ from schemas.api.requests.scope import ScopeIdentifier
 # Source name to MinIO bucket/Milvus collection base name mapping
 # Maps user-friendly names to actual bucket names in Global DB service
 SOURCE_TO_BUCKET_MAPPING = {
-    "Türk Hukuku Mevzuatları": "mevzuatlar",
+    "Türk Hukuku Mevzuatları": "mevzuat",
     "Türk Hukuku Kararları": "kararlar",
     "Reklam Kurulu Kararları": "reklam_kurulu_kararlari",
     # Add more mappings as needed
