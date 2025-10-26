@@ -4,7 +4,7 @@ Documents management endpoints with multi-tenant scope support
 import datetime
 import json
 import logging
-from typing import List, Optional
+from typing import List
 from fastapi import APIRouter, HTTPException, Depends, Query, status
 from fastapi.responses import JSONResponse
 
@@ -21,12 +21,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.get("/documents", response_model=List[DocumentInfo])
+@router.get("/collections/{collection_name}/documents", response_model=List[DocumentInfo])
 async def list_documents(
-    collection: str = Query(
-        ...,
-        description="REQUIRED: Collection name to list documents from. Example: 'sozlesmeler', 'kanunlar'"
-    ),
+    collection_name: str,
     scope: DataScope = Query(
         ...,
         description="REQUIRED: Scope filter - 'private' (your documents), 'shared' (organization documents), or 'all' (both private and shared)"
@@ -34,26 +31,34 @@ async def list_documents(
     user: UserContext = Depends(get_current_user)  # Only JWT token required
 ):
     """
-    List documents with explicit scope filtering and collection filtering
+    List documents from a specific collection with scope filtering
 
     Requires:
     - Valid JWT token in Authorization header
-    - **collection parameter is REQUIRED** (must be explicitly specified)
-    - **scope parameter is REQUIRED** (must be explicitly specified)
+    - **collection_name in URL path is REQUIRED** (e.g., /collections/test_duzgun/documents)
+    - **scope query parameter is REQUIRED** (must be explicitly specified)
+
+    URL Parameters:
+    - **collection_name (REQUIRED)**: Collection name to list documents from
+      - Examples: "sozlesmeler", "kanunlar", "test_duzgun"
+      - Specified in URL path
 
     Query Parameters:
-    - **collection (REQUIRED)**: Collection name to list documents from
-      - Examples: "sozlesmeler", "kanunlar", "raporlar"
-      - Returns 422 Unprocessable Entity if not provided
     - **scope (REQUIRED)**: Filter documents by scope
       - **private**: Only your personal documents
       - **shared**: Only organization shared documents
       - **all**: Both private and shared documents
       - Returns 422 Unprocessable Entity if not provided
 
-    This explicit approach ensures clarity and security by requiring users to specify
-    exactly what scope they want to query.
+    Example URLs:
+    - GET /collections/test_duzgun/documents?scope=private
+    - GET /collections/sozlesmeler/documents?scope=shared
+    - GET /collections/kanunlar/documents?scope=all
+
+    This RESTful approach makes the collection hierarchy clear and explicit.
     """
+    # Rename the path parameter to match the rest of the function
+    collection = collection_name
     try:
         logger.info(f"📋 Listing documents for user {user.user_id} (org: {user.organization_id})")
         logger.info(f"🎯 Scope: {scope}, Collection: {collection}")
@@ -216,25 +221,38 @@ async def list_documents(
         raise HTTPException(status_code=500, detail=f"Failed to list documents: {str(e)}")
 
 
-@router.delete("/documents/{document_id}", response_model=DeleteDocumentResponse)
+@router.delete("/collections/{collection_name}/documents/{document_id}", response_model=DeleteDocumentResponse)
 async def delete_document(
+    collection_name: str,
     document_id: str,
     scope: DataScope = Query(..., description="Scope of the document to delete (private or shared)"),
-    collection: Optional[str] = Query(None, description="Optional collection name. If None, deletes from default space."),
     user: UserContext = Depends(get_current_user)  # Only JWT token required
 ):
     """
-    Delete a document and all its chunks from a specific scope and collection
+    Delete a document and all its chunks from a specific collection and scope
 
     Requires:
     - Valid JWT token in Authorization header
+    - **collection_name in URL path is REQUIRED**
     - Scope must be specified (private or shared)
     - Users can delete from their PRIVATE scope
     - Only ADMIN role can delete from SHARED scope
 
+    URL Parameters:
+    - **collection_name (REQUIRED)**: Collection name to delete from
+      - Examples: "sozlesmeler", "test_duzgun", "kanunlar"
+      - Specified in URL path
+    - **document_id (REQUIRED)**: The document ID to delete
+
     Query Parameters:
-    - collection (optional): Collection name to delete from. If None, deletes from default space.
+    - **scope (REQUIRED)**: Scope of the document (private or shared)
+
+    Example URLs:
+    - DELETE /collections/test_duzgun/documents/doc-123?scope=private
+    - DELETE /collections/sozlesmeler/documents/doc-456?scope=shared
     """
+    # Use the path parameter as collection
+    collection = collection_name
     # Validate scope permissions
     if scope == DataScope.SHARED and user.role != "admin":
         raise HTTPException(
