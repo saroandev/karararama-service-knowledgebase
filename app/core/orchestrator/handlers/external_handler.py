@@ -5,6 +5,16 @@ from typing import Optional
 
 from app.core.orchestrator.handlers.base import BaseHandler, HandlerResult, SearchResult, SourceType
 from app.services.global_db_service import get_global_db_client
+from schemas.api.requests.scope import ScopeIdentifier
+
+# Source name to MinIO bucket/Milvus collection base name mapping
+# Maps user-friendly names to actual bucket names in Global DB service
+SOURCE_TO_BUCKET_MAPPING = {
+    "Türk Hukuku Mevzuatları": "mevzuatlar",
+    "Türk Hukuku Kararları": "kararlar",
+    "Reklam Kurulu Kararları": "reklam_kurulu_kararlari",
+    # Add more mappings as needed
+}
 
 
 class ExternalServiceHandler(BaseHandler):
@@ -20,14 +30,27 @@ class ExternalServiceHandler(BaseHandler):
         Initialize external service handler
 
         Args:
-            source_path: Source path for Global DB (e.g., "mevzuat", "karar", "reklam-kurulu-kararlari", "all")
+            source_path: Source path for Global DB (e.g., "Türk Hukuku Mevzuatları", "mevzuat", "karar")
+                        Can contain Turkish characters and spaces (will be mapped to bucket names)
             user_access_token: JWT access token for authentication
             options: Query options for tone, citations, etc.
         """
         # No system_prompt needed - external service generates its own answer
         super().__init__(SourceType.EXTERNAL, system_prompt=None, options=options)
         self.user_access_token = user_access_token
-        self.source_path = source_path
+        self.source_path_original = source_path  # Keep original for logging
+
+        # Determine bucket name:
+        # 1. Check if source_path exists in mapping
+        # 2. If not found, sanitize the source_path for Milvus compatibility
+        if source_path in SOURCE_TO_BUCKET_MAPPING:
+            self.bucket_name = SOURCE_TO_BUCKET_MAPPING[source_path]
+            self.logger.info(f"  🗺️ Mapped source '{source_path}' to bucket '{self.bucket_name}'")
+        else:
+            # Fallback: sanitize the source path (remove Turkish chars, spaces, etc.)
+            self.bucket_name = ScopeIdentifier._sanitize_collection_name(source_path)
+            self.logger.info(f"  🔄 No mapping found, using sanitized name: '{self.bucket_name}'")
+
         self.global_db_client = get_global_db_client()
 
     async def search(
@@ -51,15 +74,16 @@ class ExternalServiceHandler(BaseHandler):
         start_time = time.time()
 
         try:
-            self.logger.info(f"🌍 Querying Global DB service (source: {self.source_path}) with options: tone={self.options.tone}, citations={self.options.citations}...")
+            self.logger.info(f"🌍 Querying Global DB service (source: {self.source_path_original}) with options: tone={self.options.tone}, citations={self.options.citations}...")
+            self.logger.info(f"  📦 Using bucket name: {self.bucket_name} (Milvus collection: {self.bucket_name}_chunks)")
 
-            # Call external service with options
+            # Call external service with options (use mapped/sanitized bucket_name)
             external_response = await self.global_db_client.search_public(
                 question=question,
                 user_token=self.user_access_token,
                 top_k=top_k,
                 min_relevance_score=min_relevance_score,
-                bucket=self.source_path,  # Pass source_path as bucket parameter
+                bucket=self.bucket_name,  # Pass mapped bucket name for both Milvus and MinIO
                 options=self.options
             )
 
@@ -67,7 +91,7 @@ class ExternalServiceHandler(BaseHandler):
 
             if not external_response.get("success"):
                 error_msg = external_response.get("error", "Unknown error")
-                self.logger.warning(f"⚠️ Global DB (source: {self.source_path}) query failed: {error_msg}")
+                self.logger.warning(f"⚠️ Global DB (source: {self.source_path_original}) query failed: {error_msg}")
                 return self._create_error_result(error_msg)
 
             # Extract answer and citations/sources
@@ -75,7 +99,7 @@ class ExternalServiceHandler(BaseHandler):
             # Try citations first (new format), fallback to sources (backward compatibility)
             external_sources = external_response.get("citations", []) or external_response.get("sources", [])
 
-            self.logger.info(f"✅ Global DB (source: {self.source_path}) returned {len(external_sources)} citations")
+            self.logger.info(f"✅ Global DB (source: {self.source_path_original}) returned {len(external_sources)} citations")
 
             # Convert external sources to SearchResult objects
             search_results = []
@@ -91,7 +115,7 @@ class ExternalServiceHandler(BaseHandler):
             )
 
         except Exception as e:
-            self.logger.error(f"❌ External service (source: {self.source_path}) error: {str(e)}")
+            self.logger.error(f"❌ External service (source: {self.source_path_original}) error: {str(e)}")
             import traceback
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             return self._create_error_result(str(e))
