@@ -342,7 +342,7 @@ def _get_collection_info(
     )
 
 
-@router.post("/collections", response_model=CreateCollectionResponse)
+@router.post("/create_collection", response_model=CreateCollectionResponse)
 async def create_collection(
     request: CreateCollectionRequest,
     user: UserContext = Depends(get_current_user)
