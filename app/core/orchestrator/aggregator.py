@@ -69,7 +69,7 @@ class ResultAggregator:
             # Check if we have any results or answers
             has_any_answer = any(r.success and r.generated_answer for r in handler_results)
             if not all_results and not has_any_answer:
-                return self._create_empty_response(request, user, processing_time)
+                return self._create_empty_response(request, user, processing_time, conversation_id)
 
             # Get options (default if not provided)
             options = request.options or QueryOptions()
