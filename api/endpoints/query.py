@@ -31,7 +31,14 @@ async def query_documents(
 
     Requires:
     - Valid JWT token in Authorization header
+    - **conversation_id in request body is REQUIRED** (must be provided by client)
     - Any authenticated user can query their accessible sources
+
+    Conversation History:
+    - Client MUST provide a conversation_id in every request
+    - The same conversation_id should be used for all messages in a conversation
+    - Format recommendation: "conv-{uuid}" (e.g., "conv-123e4567-e89b-12d3-a456-426614174000")
+    - Backend will maintain conversation history for context-aware responses
 
     Searches across selected sources based on sources parameter (list):
     - PRIVATE: User's private data (requires own_data access)

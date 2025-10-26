@@ -97,10 +97,18 @@ class QueryRequest(BaseModel):
     question: str = Field(..., description="Question to ask")
 
     # Conversation history support
-    conversation_id: Optional[str] = Field(
-        default=None,
-        description="Optional conversation ID to maintain chat history. If not provided, a new conversation will be created."
+    conversation_id: str = Field(
+        ...,
+        description="REQUIRED: Conversation ID to maintain chat history. Must be provided by the client (e.g., 'conv-{uuid}')."
     )
+
+    @field_validator('conversation_id')
+    @classmethod
+    def validate_conversation_id(cls, v):
+        """Validate that conversation_id is not empty"""
+        if not v or not v.strip():
+            raise ValueError("conversation_id must be a non-empty string")
+        return v.strip()
 
     # External sources selection parameter (Global DB)
     sources: List[str] = Field(
@@ -160,6 +168,7 @@ class QueryRequest(BaseModel):
             "examples": [
                 {
                     "question": "İcra ve İflas Kanunu nedir?",
+                    "conversation_id": "conv-123e4567-e89b-12d3-a456-426614174000",
                     "sources": ["mevzuat"],
                     "collections": [
                         {"name": "sozlesmeler", "scopes": ["private", "shared"]},
@@ -179,6 +188,7 @@ class QueryRequest(BaseModel):
                 },
                 {
                     "question": "Reklam kanunları nelerdir?",
+                    "conversation_id": "conv-987f6543-a21c-34b5-c678-789012345678",
                     "sources": ["reklam-kurulu-kararlari", "mevzuat"],
                     "top_k": 5,
                     "options": {

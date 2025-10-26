@@ -57,8 +57,8 @@ class QueryOrchestrator:
             logger.info(f"🔍 Requested sources: {request.sources}")
             logger.info(f"🔍 Requested sources: {request.collections}")
 
-            # Handle conversation history
-            conversation_id = request.conversation_id or conversation_manager.create_new_conversation()
+            # Use conversation ID from request (required by client)
+            conversation_id = request.conversation_id
             logger.info(f"💬 Conversation ID: {conversation_id}")
 
             # Save user question to conversation log
