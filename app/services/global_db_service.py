@@ -267,22 +267,25 @@ class GlobalDBServiceClient:
             "sources": []
         }
 
-    async def get_presigned_url(
+    async def get_presigned_url_from_external(
         self,
-        document_id: str,
+        document_url: str,
         user_token: str,
         expires_seconds: int = 3600
     ) -> Dict[str, Any]:
         """
-        Get presigned URL for a document from Global DB service
+        Get presigned URL from Global DB service (POST /docs/presign)
+
+        This method forwards the presign request to Global DB service,
+        which handles URL parsing and MinIO presigned URL generation.
 
         Args:
-            document_id: Document identifier
+            document_url: Full document URL from citations
             user_token: JWT token for authentication
             expires_seconds: URL expiry time in seconds
 
         Returns:
-            Dict with 'success', 'url', 'expires_in', 'document_id' fields
+            Dict with 'url', 'expires_in', 'document_id', 'source_type' fields
 
         Raises:
             Exception: If communication fails
@@ -292,33 +295,29 @@ class GlobalDBServiceClient:
             "Content-Type": "application/json"
         }
 
+        payload = {
+            "document_url": document_url,
+            "expires_seconds": expires_seconds
+        }
+
         try:
-            logger.info(f"🔗 Requesting presigned URL from Global DB for document: {document_id}")
+            logger.info(f"🔗 Requesting presigned URL from Global DB")
+            logger.info(f"📄 Document URL: {document_url[:100]}...")
 
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(
-                    f"{self.base_url}/docs/{document_id}/presign",
-                    params={"expires_seconds": expires_seconds},
+                response = await client.post(
+                    f"{self.base_url}/docs/presign",
+                    json=payload,
                     headers=headers
                 )
 
                 if response.status_code == 200:
                     result = response.json()
-
-                    if result.get("success"):
-                        logger.info(f"✅ Presigned URL generated for document {document_id}")
-                        return result
-                    else:
-                        error_msg = result.get("error", "Unknown error")
-                        logger.error(f"❌ Global DB presign failed: {error_msg}")
-                        return {
-                            "success": False,
-                            "error": error_msg,
-                            "url": None
-                        }
+                    logger.info(f"✅ Presigned URL received from Global DB")
+                    return result
 
                 elif response.status_code == 404:
-                    logger.error(f"📄 Document not found in Global DB: {document_id}")
+                    logger.error("📄 Document not found in Global DB")
                     return {
                         "success": False,
                         "error": "Document not found",
@@ -333,11 +332,21 @@ class GlobalDBServiceClient:
                         "url": None
                     }
 
-                else:
-                    logger.error(f"❌ Global DB presign error: {response.status_code}")
+                elif response.status_code == 400:
+                    error_detail = response.json().get("detail", "Invalid request")
+                    logger.error(f"❌ Bad request to Global DB: {error_detail}")
                     return {
                         "success": False,
-                        "error": f"Service error: {response.status_code}",
+                        "error": f"Bad request: {error_detail}",
+                        "url": None
+                    }
+
+                else:
+                    logger.error(f"❌ Global DB presign error: {response.status_code}")
+                    error_text = response.text[:200] if response.text else "No error details"
+                    return {
+                        "success": False,
+                        "error": f"Service error: {response.status_code} - {error_text}",
                         "url": None
                     }
 

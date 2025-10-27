@@ -462,21 +462,45 @@ async def delete_document(
 
 # ==================== Helper Functions for Presigned URL ====================
 
-def _is_collection_document(hostname: str) -> bool:
+def _is_collection_document(url: str) -> bool:
     """
     Check if document is from collection (MinIO) or external source
 
     Args:
-        hostname: URL hostname to check
+        url: Full document URL (to check both hostname and port)
 
     Returns:
         True if collection document, False if external source
     """
-    # MinIO hosts that indicate collection documents
-    minio_endpoint_host = settings.MINIO_ENDPOINT.split(":")[0]
-    minio_hosts = ["minio", "localhost", "127.0.0.1", minio_endpoint_host]
+    parsed = urlparse(url)
 
-    return hostname in minio_hosts
+    # Get hostname and port from URL
+    hostname = parsed.hostname or ""
+    port = parsed.port
+
+    # Collection MinIO endpoint (from settings)
+    # Format: "localhost:9000" or "minio:9000"
+    collection_endpoint = settings.MINIO_ENDPOINT
+
+    # Parse collection endpoint
+    if ":" in collection_endpoint:
+        collection_host, collection_port_str = collection_endpoint.split(":", 1)
+        collection_port = int(collection_port_str)
+    else:
+        collection_host = collection_endpoint
+        collection_port = 9000  # Default MinIO port
+
+    # Check if hostname + port matches collection MinIO
+    # Case 1: Exact match with collection endpoint
+    if hostname == collection_host and port == collection_port:
+        return True
+
+    # Case 2: Special case for "minio" hostname (Docker internal)
+    if hostname == "minio" and (port == 9000 or port is None):
+        return True
+
+    # Otherwise, it's an external source
+    return False
 
 
 def _extract_minio_path(url: str) -> tuple:
@@ -572,11 +596,8 @@ async def get_presigned_url_for_viewing(
         logger.info(f"🔗 Presigned URL request from user {user.user_id}")
         logger.info(f"📄 Document URL: {request.document_url[:100]}...")
 
-        # Parse document URL
-        parsed_url = urlparse(request.document_url)
-
-        # Determine source type based on hostname
-        is_collection = _is_collection_document(parsed_url.hostname)
+        # Determine source type based on hostname + port
+        is_collection = _is_collection_document(request.document_url)
 
         if is_collection:
             # ==================== SCENARIO 1: Collection Document ====================
@@ -645,15 +666,11 @@ async def get_presigned_url_for_viewing(
             logger.info("🌍 Detected external source document (Global DB)")
 
             try:
-                # Extract document_id from URL
-                document_id = _extract_document_id_from_url(request.document_url)
-                logger.info(f"  Document ID: {document_id}")
-
                 # Call Global DB Service to get presigned URL
+                # Global DB handles URL parsing and MinIO presigned URL generation
                 global_db_client = get_global_db_client()
 
                 # Get user's access token from UserContext
-                # Note: UserContext should have the raw JWT token stored
                 user_token = user.raw_token if hasattr(user, 'raw_token') else ""
 
                 if not user_token:
@@ -670,13 +687,15 @@ async def get_presigned_url_for_viewing(
                         }
                     )
 
-                result = await global_db_client.get_presigned_url(
-                    document_id=document_id,
+                # Forward presign request to Global DB Service
+                result = await global_db_client.get_presigned_url_from_external(
+                    document_url=request.document_url,  # Send full URL
                     user_token=user_token,
                     expires_seconds=request.expires_seconds
                 )
 
-                if not result.get("success"):
+                # Check if Global DB request failed
+                if not result.get("url"):
                     error_msg = result.get("error", "Unknown error")
                     logger.error(f"❌ Global DB presign failed: {error_msg}")
 
@@ -687,6 +706,9 @@ async def get_presigned_url_for_viewing(
                     elif "auth" in error_msg.lower():
                         status_code = 401
                         error_code = "AUTHENTICATION_FAILED"
+                    elif "bad request" in error_msg.lower():
+                        status_code = 400
+                        error_code = "INVALID_URL_FORMAT"
                     else:
                         status_code = 500
                         error_code = "EXTERNAL_SERVICE_ERROR"
@@ -703,27 +725,13 @@ async def get_presigned_url_for_viewing(
                         }
                     )
 
-                logger.info(f"✅ Received presigned URL from Global DB for document {document_id}")
+                logger.info(f"✅ Received presigned URL from Global DB")
 
                 return PresignedUrlResponse(
                     url=result["url"],
                     expires_in=result.get("expires_in", request.expires_seconds),
-                    document_id=result.get("document_id", document_id),
-                    source_type="external"
-                )
-
-            except ValueError as e:
-                logger.error(f"❌ Invalid URL format: {str(e)}")
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "success": False,
-                        "error": {
-                            "code": "INVALID_URL_FORMAT",
-                            "message": "Geçersiz doküman URL formatı",
-                            "details": str(e)
-                        }
-                    }
+                    document_id=result.get("document_id", "unknown"),
+                    source_type=result.get("source_type", "external")
                 )
 
             except HTTPException:
@@ -732,6 +740,8 @@ async def get_presigned_url_for_viewing(
 
             except Exception as e:
                 logger.error(f"❌ External presign error: {str(e)}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 raise HTTPException(
                     status_code=500,
                     detail={
