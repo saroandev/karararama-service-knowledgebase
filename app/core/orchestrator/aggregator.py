@@ -80,11 +80,24 @@ class ResultAggregator:
             context_parts = []
 
             for i, result in enumerate(all_results):
+                # Log each result for debugging
+                doc_id_preview = result.document_id[:12] if len(result.document_id) > 12 else result.document_id
+                logger.info(
+                    f"📊 Result {i+1}/{len(all_results)}: "
+                    f"score={result.score:.4f}, "
+                    f"doc_id={doc_id_preview}..., "
+                    f"threshold={request.min_relevance_score}"
+                )
+
                 # Create QuerySource
                 source = self._create_query_source(result, i + 1)
 
                 # Filter by relevance score
                 if result.score >= request.min_relevance_score:
+                    logger.info(
+                        f"✅ Result {i+1} PASSED filtering "
+                        f"(score={result.score:.4f} >= threshold {request.min_relevance_score})"
+                    )
                     high_confidence_sources.append(source)
 
                     # Add to context (limited by max_sources_in_context)
@@ -99,6 +112,10 @@ class ResultAggregator:
                             context_parts.append(result.text)
                 else:
                     # Low confidence source
+                    logger.warning(
+                        f"❌ Result {i+1} FAILED filtering "
+                        f"(score={result.score:.4f} < threshold {request.min_relevance_score})"
+                    )
                     if request.include_low_confidence_sources:
                         low_confidence_sources.append(source)
 
