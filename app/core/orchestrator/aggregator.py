@@ -90,7 +90,7 @@ class ResultAggregator:
                 )
 
                 # Create QuerySource (pass user context for scope-aware URL generation)
-                source = self._create_query_source(result, i + 1, user)
+                source = self._create_query_source(result, user)
 
                 # Filter by relevance score
                 if result.score >= request.min_relevance_score:
@@ -198,28 +198,34 @@ class ResultAggregator:
             logger.error(f"Traceback: {traceback.format_exc()}")
             raise
 
-    def _create_query_source(self, result: SearchResult, rank: int, user: UserContext) -> QuerySource:
-        """Convert SearchResult to QuerySource with scope-aware URL generation"""
+    def _create_query_source(self, result: SearchResult, user: UserContext) -> QuerySource:
+        """Convert SearchResult to QuerySource (unified format)"""
 
-        # Handle document URL based on source type
         if result.source_type == SourceType.EXTERNAL:
-            # External source - use URL from metadata
-            document_url = result.document_url
-            original_filename = result.document_title if result.document_title != 'Unknown' else 'External Document'
-            doc_title = result.document_title
+            # External source - pass through as-is (already in correct format)
+            return QuerySource(
+                document_id=result.document_id,
+                chunk_index=result.chunk_index,
+                text=result.text,
+                relevance_score=result.score,
+                document_url=result.document_url,
+                metadata=result.metadata or {}
+            )
         else:
-            # Internal source (private/shared) - generate scope-aware MinIO URL
+            # Internal source (private/shared) - build unified format
             doc_id = result.document_id
 
-            # Try to get metadata from MinIO
+            # Get MinIO metadata if not cached
             if doc_id not in self.doc_metadata_cache:
                 self.doc_metadata_cache[doc_id] = storage.get_document_metadata(doc_id)
+
+            minio_metadata = self.doc_metadata_cache.get(doc_id, {})
 
             # Determine filename
             if result.document_title and result.document_title != 'Unknown':
                 original_filename = f"{result.document_title}.pdf" if not result.document_title.endswith('.pdf') else result.document_title
-            elif doc_id in self.doc_metadata_cache:
-                original_filename = self.doc_metadata_cache[doc_id].get("original_filename", f'{doc_id}.pdf')
+            elif minio_metadata:
+                original_filename = minio_metadata.get("original_filename", f'{doc_id}.pdf')
             else:
                 original_filename = f'{doc_id}.pdf'
 
@@ -234,15 +240,18 @@ class ResultAggregator:
                     scope_type=DataScope.PRIVATE,
                     user_id=user.user_id
                 )
+                scope_str = "private"
             elif result.source_type == SourceType.SHARED:
                 scope = ScopeIdentifier(
                     organization_id=user.organization_id,
                     scope_type=DataScope.SHARED
                 )
+                scope_str = "shared"
             else:
                 scope = None
+                scope_str = "unknown"
 
-            # Get collection name from metadata if available
+            # Get collection name from result metadata
             collection_name = result.metadata.get("collection_name") if result.metadata else None
 
             # Generate presigned MinIO URL (1 hour expiry) with scope
@@ -253,23 +262,43 @@ class ResultAggregator:
                 collection_name=collection_name
             )
 
-            # Fallback to browser URL if presigned fails
+            # If presigned URL generation fails, return empty string
             if not document_url:
-                encoded_filename = quote(original_filename)
-                document_url = f"http://localhost:9001/browser/raw-documents/{doc_id}/{encoded_filename}"
-                logger.warning(f"⚠️ Presigned URL failed for {doc_id}, using browser URL fallback")
+                document_url = ""
+                logger.warning(f"⚠️ Presigned URL failed for {doc_id}, returning empty URL")
 
-        return QuerySource(
-            rank=rank,
-            score=round(result.score, 3),
-            document_id=result.document_id,
-            document_name=original_filename,
-            document_title=doc_title,
-            document_url=document_url,
-            page_number=result.page_number,
-            text_preview=result.text[:200] + "..." if len(result.text) > 200 else result.text,
-            created_at=result.created_at
-        )
+            # Build unified metadata
+            unified_metadata = {
+                "filename": original_filename,
+                "title": doc_title,
+                "bucket": scope.get_bucket_name() if scope else "unknown",
+                "scope": scope_str,
+                "page_number": result.page_number or 0,
+            }
+
+            # Add collection_name if exists (for internal collections)
+            if collection_name:
+                unified_metadata["collection_name"] = collection_name
+
+            # Add created_at if exists
+            if result.created_at:
+                unified_metadata["created_at"] = result.created_at
+
+            # Merge with MinIO metadata (preserve file_size, upload_date, etc.)
+            if minio_metadata:
+                for key in ["file_size", "upload_date", "uploaded_by", "file_hash"]:
+                    if key in minio_metadata:
+                        unified_metadata[key] = minio_metadata[key]
+
+            # Return unified format
+            return QuerySource(
+                document_id=doc_id,
+                chunk_index=result.chunk_index,
+                text=result.text,  # Full text, not preview
+                relevance_score=result.score,
+                document_url=document_url,
+                metadata=unified_metadata
+            )
 
     async def _generate_answer(
         self,

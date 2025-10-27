@@ -6,16 +6,16 @@ from pydantic import BaseModel, Field
 
 
 class QuerySource(BaseModel):
-    """Source information for query response"""
-    rank: int = Field(..., description="Ranking position")
-    score: float = Field(..., description="Relevance score")
+    """Unified source citation format (matches external sources)"""
     document_id: str = Field(..., description="Document identifier")
-    document_name: str = Field(..., description="Document file name")
-    document_title: str = Field(..., description="Document title")
-    document_url: str = Field(..., description="Document URL in MinIO")
-    page_number: int = Field(..., description="Page number in the document")
-    text_preview: str = Field(..., description="Preview of relevant text chunk")
-    created_at: int = Field(default=0, description="Creation timestamp")
+    chunk_index: Optional[int] = Field(None, description="Chunk index in document")
+    text: str = Field(..., description="Full chunk text content")
+    relevance_score: float = Field(..., description="Relevance score (0-1)")
+    document_url: str = Field(..., description="Presigned document download URL")
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Document metadata (filename, title, source/collection_name, bucket, page_number, etc.)"
+    )
 
 
 class QueryResponse(BaseModel):
@@ -47,10 +47,18 @@ class QueryResponse(BaseModel):
                 "citations": [
                     {
                         "document_id": "doc_123",
-                        "document_title": "RAG Overview",
-                        "page_number": 1,
-                        "chunk_text": "Retrieval-Augmented Generation (RAG) is...",
-                        "score": 0.95
+                        "chunk_index": 3,
+                        "text": "Retrieval-Augmented Generation (RAG) is...",
+                        "relevance_score": 0.95,
+                        "document_url": "http://localhost:9000/org-abc/users/xyz/docs/doc-123/file.pdf?X-Amz-...",
+                        "metadata": {
+                            "filename": "RAG Overview.pdf",
+                            "title": "RAG Overview",
+                            "bucket": "org-abc123",
+                            "scope": "private",
+                            "page_number": 1,
+                            "collection_name": "research-papers"
+                        }
                     }
                 ],
                 "processing_time": 1.23,

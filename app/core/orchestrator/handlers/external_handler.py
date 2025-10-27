@@ -126,7 +126,7 @@ class ExternalServiceHandler(BaseHandler):
             from datetime import datetime
 
             # Extract metadata (might be nested)
-            metadata = source_data.get("metadata", {})
+            source_metadata = source_data.get("metadata", {})
 
             # Get score (try both relevance_score and score)
             score = source_data.get("relevance_score", source_data.get("score", 0.0))
@@ -134,13 +134,13 @@ class ExternalServiceHandler(BaseHandler):
             # Get document title (try multiple field names)
             document_title = (
                 source_data.get("document_name") or
-                metadata.get("title") or
-                metadata.get("filename") or
+                source_metadata.get("title") or
+                source_metadata.get("filename") or
                 "Unknown"
             )
 
             # Parse created_at/upload_date (might be ISO string or timestamp)
-            created_at_raw = source_data.get("created_at", metadata.get("upload_date", 0))
+            created_at_raw = source_data.get("created_at", source_metadata.get("upload_date", 0))
             if isinstance(created_at_raw, str):
                 # Parse ISO format string to timestamp
                 try:
@@ -150,20 +150,24 @@ class ExternalServiceHandler(BaseHandler):
             else:
                 created_at = created_at_raw if isinstance(created_at_raw, int) else 0
 
+            # Preserve all metadata from external source (this will be used in aggregator)
+            # Keep the original metadata structure from external service
+            preserved_metadata = source_metadata.copy() if source_metadata else {}
+
+            # Ensure required fields exist in metadata (for backward compatibility)
+            if 'page_number' not in preserved_metadata:
+                preserved_metadata['page_number'] = source_data.get("page_number", 0)
+
             return SearchResult(
                 score=score,
                 document_id=source_data.get("document_id", "unknown"),
                 text=source_data.get("text", ""),
                 source_type=self.source_type,
-                metadata={
-                    'document_title': document_title,
-                    'page_number': source_data.get("page_number", metadata.get("page_number", 0)),
-                    'created_at': created_at,
-                    'document_url': source_data.get("document_url", metadata.get("document_url", ""))
-                },
-                page_number=source_data.get("page_number", metadata.get("page_number", 0)),
+                chunk_index=source_data.get("chunk_index"),
+                metadata=preserved_metadata,  # Pass through all metadata from external source
+                page_number=source_data.get("page_number", source_metadata.get("page_number", 0)),
                 document_title=document_title,
-                document_url=source_data.get("document_url", metadata.get("document_url", "#")),
+                document_url=source_data.get("document_url", source_metadata.get("document_url", "#")),
                 created_at=created_at
             )
 
