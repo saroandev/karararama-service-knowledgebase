@@ -17,6 +17,9 @@ sys.path.append(str(Path(__file__).parent.parent))
 # Load environment variables
 load_dotenv()
 
+# Import settings
+from app.config.settings import settings
+
 # Import custom JSON response
 from api.utils.json_response import CustomJSONResponse
 
@@ -67,10 +70,13 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware
+# CORS middleware - Parse origins from environment variable
+cors_origins = ["*"] if settings.CORS_ORIGINS == "*" else [origin.strip() for origin in settings.CORS_ORIGINS.split(",")]
+logger.info(f"🌐 CORS enabled for origins: {cors_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]

@@ -44,11 +44,19 @@ data:
   AUTH_SERVICE_URL: "http://auth-svc.preprod.svc.cluster.local:8001"
   AUTH_SERVICE_TIMEOUT: "5"
 
+  # Global DB Service Configuration (Public Data Source)
+  GLOBAL_DB_SERVICE_URL: "http://global-db-svc.preprod.svc.cluster.local:8070"
+  GLOBAL_DB_SERVICE_TIMEOUT: "30"
+  GLOBAL_DB_DEFAULT_BUCKET: "mevzuat"
+
   # PostgreSQL
   POSTGRES_HOST: "postgres-svc.postgres-preprod.svc.cluster.local"
   POSTGRES_PORT: "5432"
   POSTGRES_DB: "onedocsv2-postgres-preprod-db"
   POSTGRES_USER: "onedocsv2-postgres-preprod-user"
+
+  # CORS Configuration
+  CORS_ORIGINS: "https://frontend-preprod.onedocs.ai"
 
 ---
 apiVersion: v1

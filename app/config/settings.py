@@ -67,4 +67,9 @@ class Settings:
     POSTGRES_USER = os.getenv("POSTGRES_USER", "raguser")
     POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "ragpassword")
 
+    # CORS Configuration
+    # Comma-separated list of allowed origins (e.g., "https://frontend-preprod.onedocs.ai,https://frontend-prod.onedocs.ai")
+    # Use "*" to allow all origins (not recommended for production)
+    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
+
 settings = Settings()
