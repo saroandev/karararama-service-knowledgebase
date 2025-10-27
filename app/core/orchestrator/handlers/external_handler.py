@@ -75,15 +75,15 @@ class ExternalServiceHandler(BaseHandler):
 
         try:
             self.logger.info(f"🌍 Querying Global DB service (source: {self.source_path_original}) with options: tone={self.options.tone}, citations={self.options.citations}...")
-            self.logger.info(f"  📦 Using bucket name: {self.bucket_name} (Milvus collection: {self.bucket_name}_chunks)")
+            self.logger.info(f"  📦 Will search all active sources from Global DB")
 
-            # Call external service with options (use mapped/sanitized bucket_name)
+            # Call external service with options
+            # Note: Global DB service now fetches all active sources automatically via /admin/sources
             external_response = await self.global_db_client.search_public(
                 question=question,
                 user_token=self.user_access_token,
                 top_k=top_k,
                 min_relevance_score=min_relevance_score,
-                bucket=self.bucket_name,  # Pass mapped bucket name for both Milvus and MinIO
                 options=self.options
             )
 
