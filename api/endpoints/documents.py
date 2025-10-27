@@ -462,15 +462,50 @@ async def delete_document(
 
 # ==================== Helper Functions for Presigned URL ====================
 
+def _parse_endpoint(endpoint: str) -> tuple:
+    """
+    Parse endpoint string to (hostname, port) tuple
+
+    Args:
+        endpoint: Endpoint string (e.g., "localhost:9000", "minio-prod.onedocs.com:443")
+
+    Returns:
+        Tuple of (hostname, port)
+
+    Examples:
+        "localhost:9000" → ("localhost", 9000)
+        "minio-prod.onedocs.com:443" → ("minio-prod.onedocs.com", 443)
+        "minio" → ("minio", 9000)  # Default port
+    """
+    if ":" in endpoint:
+        host, port_str = endpoint.split(":", 1)
+        return host, int(port_str)
+    else:
+        return endpoint, 9000  # Default MinIO port
+
+
 def _is_collection_document(url: str) -> bool:
     """
     Check if document is from collection (MinIO) or external source
+
+    Uses environment variables to determine source type:
+    - MINIO_ENDPOINT: Collection MinIO (user documents)
+    - GLOBAL_DB_MINIO_ENDPOINT: External source MinIO (MEVZUAT/KARAR)
 
     Args:
         url: Full document URL (to check both hostname and port)
 
     Returns:
         True if collection document, False if external source
+
+    Examples:
+        # Development
+        "http://localhost:9000/..." → True (collection)
+        "http://localhost:9040/..." → False (external)
+
+        # Production
+        "https://minio-kb.onedocs.com/..." → True (collection)
+        "https://minio-globaldb.onedocs.com/..." → False (external)
     """
     parsed = urlparse(url)
 
@@ -478,17 +513,8 @@ def _is_collection_document(url: str) -> bool:
     hostname = parsed.hostname or ""
     port = parsed.port
 
-    # Collection MinIO endpoint (from settings)
-    # Format: "localhost:9000" or "minio:9000"
-    collection_endpoint = settings.MINIO_ENDPOINT
-
-    # Parse collection endpoint
-    if ":" in collection_endpoint:
-        collection_host, collection_port_str = collection_endpoint.split(":", 1)
-        collection_port = int(collection_port_str)
-    else:
-        collection_host = collection_endpoint
-        collection_port = 9000  # Default MinIO port
+    # Collection MinIO endpoint (from config)
+    collection_host, collection_port = _parse_endpoint(settings.MINIO_ENDPOINT)
 
     # Check if hostname + port matches collection MinIO
     # Case 1: Exact match with collection endpoint

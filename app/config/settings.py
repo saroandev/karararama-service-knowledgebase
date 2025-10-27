@@ -53,6 +53,7 @@ class Settings:
     GLOBAL_DB_SERVICE_URL = os.getenv("GLOBAL_DB_SERVICE_URL", "http://localhost:8070")
     GLOBAL_DB_SERVICE_TIMEOUT = int(os.getenv("GLOBAL_DB_SERVICE_TIMEOUT", "30"))
     GLOBAL_DB_DEFAULT_BUCKET = os.getenv("GLOBAL_DB_DEFAULT_BUCKET", "mevzuat")
+    GLOBAL_DB_MINIO_ENDPOINT = os.getenv("GLOBAL_DB_MINIO_ENDPOINT", "localhost:9040")
 
     # Query Source Filtering Configuration
     DEFAULT_MIN_RELEVANCE_SCORE = float(os.getenv("DEFAULT_MIN_RELEVANCE_SCORE", "0.7"))
