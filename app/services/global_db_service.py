@@ -267,6 +267,104 @@ class GlobalDBServiceClient:
             "sources": []
         }
 
+    async def get_presigned_url(
+        self,
+        document_id: str,
+        user_token: str,
+        expires_seconds: int = 3600
+    ) -> Dict[str, Any]:
+        """
+        Get presigned URL for a document from Global DB service
+
+        Args:
+            document_id: Document identifier
+            user_token: JWT token for authentication
+            expires_seconds: URL expiry time in seconds
+
+        Returns:
+            Dict with 'success', 'url', 'expires_in', 'document_id' fields
+
+        Raises:
+            Exception: If communication fails
+        """
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "Content-Type": "application/json"
+        }
+
+        try:
+            logger.info(f"🔗 Requesting presigned URL from Global DB for document: {document_id}")
+
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(
+                    f"{self.base_url}/docs/{document_id}/presign",
+                    params={"expires_seconds": expires_seconds},
+                    headers=headers
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+
+                    if result.get("success"):
+                        logger.info(f"✅ Presigned URL generated for document {document_id}")
+                        return result
+                    else:
+                        error_msg = result.get("error", "Unknown error")
+                        logger.error(f"❌ Global DB presign failed: {error_msg}")
+                        return {
+                            "success": False,
+                            "error": error_msg,
+                            "url": None
+                        }
+
+                elif response.status_code == 404:
+                    logger.error(f"📄 Document not found in Global DB: {document_id}")
+                    return {
+                        "success": False,
+                        "error": "Document not found",
+                        "url": None
+                    }
+
+                elif response.status_code == 401:
+                    logger.error("🔒 Global DB authentication failed (invalid token)")
+                    return {
+                        "success": False,
+                        "error": "Authentication failed",
+                        "url": None
+                    }
+
+                else:
+                    logger.error(f"❌ Global DB presign error: {response.status_code}")
+                    return {
+                        "success": False,
+                        "error": f"Service error: {response.status_code}",
+                        "url": None
+                    }
+
+        except httpx.TimeoutException:
+            logger.error("⏱️ Global DB service timeout while getting presigned URL")
+            return {
+                "success": False,
+                "error": "Request timeout",
+                "url": None
+            }
+
+        except httpx.RequestError as e:
+            logger.error(f"❌ Global DB service request error: {str(e)}")
+            return {
+                "success": False,
+                "error": f"Request failed: {str(e)}",
+                "url": None
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Unexpected error in Global DB presign: {str(e)}")
+            return {
+                "success": False,
+                "error": f"Unexpected error: {str(e)}",
+                "url": None
+            }
+
     async def check_health(self) -> bool:
         """Check if Global DB service is healthy"""
         try:

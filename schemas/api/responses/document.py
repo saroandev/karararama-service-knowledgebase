@@ -69,6 +69,25 @@ class DocumentInfo(BaseModel):
                     "pages": 10,
                     "category": "technical"
                 }
-        }
             }
         }
+    }
+
+
+class PresignedUrlResponse(BaseModel):
+    """Response model for presigned URL generation"""
+    url: str = Field(..., description="Presigned URL for inline document viewing")
+    expires_in: int = Field(..., description="URL expiry time in seconds")
+    document_id: str = Field(..., description="Document identifier")
+    source_type: str = Field(..., description="Source type: 'collection' or 'external'")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "url": "http://minio:9000/org-abc/users/xyz/docs/doc-123/file.pdf?response-content-type=application%2Fpdf&response-content-disposition=inline&X-Amz-Algorithm=...",
+                "expires_in": 3600,
+                "document_id": "doc-123",
+                "source_type": "collection"
+            }
+        }
+    }

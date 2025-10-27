@@ -5,15 +5,19 @@ import datetime
 import json
 import logging
 from typing import List
+from urllib.parse import urlparse
+from datetime import timedelta
 from fastapi import APIRouter, HTTPException, Depends, Query, status
 from fastapi.responses import JSONResponse
 
-from schemas.api.responses.document import DocumentInfo, DeleteDocumentResponse
+from schemas.api.responses.document import DocumentInfo, DeleteDocumentResponse, PresignedUrlResponse
+from schemas.api.requests.document import PresignedUrlRequest
 from schemas.api.requests.scope import DataScope, ScopeIdentifier
 from api.core.milvus_manager import milvus_manager
 from app.core.storage import storage
 from app.core.auth import UserContext, require_permission, get_current_user
 from app.services.auth_service import get_auth_service_client
+from app.services.global_db_service import get_global_db_client
 from app.config import settings
 from app.config.constants import ServiceType
 
@@ -451,6 +455,311 @@ async def delete_document(
                     "code": "INTERNAL_ERROR",
                     "message": "Beklenmeyen bir hata oluştu",
                     "details": f"Silme işlemi sırasında hata: {str(e)}"
+                }
+            }
+        )
+
+
+# ==================== Helper Functions for Presigned URL ====================
+
+def _is_collection_document(hostname: str) -> bool:
+    """
+    Check if document is from collection (MinIO) or external source
+
+    Args:
+        hostname: URL hostname to check
+
+    Returns:
+        True if collection document, False if external source
+    """
+    # MinIO hosts that indicate collection documents
+    minio_endpoint_host = settings.MINIO_ENDPOINT.split(":")[0]
+    minio_hosts = ["minio", "localhost", "127.0.0.1", minio_endpoint_host]
+
+    return hostname in minio_hosts
+
+
+def _extract_minio_path(url: str) -> tuple:
+    """
+    Extract bucket and object_key from MinIO URL
+
+    Args:
+        url: Full MinIO URL
+
+    Returns:
+        Tuple of (bucket_name, object_key)
+
+    Example:
+        Input: http://minio:9000/org-abc/users/xyz/docs/doc-123/file.pdf?X-Amz-...
+        Output: ("org-abc", "users/xyz/docs/doc-123/file.pdf")
+    """
+    parsed = urlparse(url)
+    # Remove query parameters and leading slash
+    path = parsed.path.lstrip("/").split("?")[0]
+    path_parts = path.split("/")
+
+    if len(path_parts) < 2:
+        raise ValueError(f"Invalid MinIO URL format: {url}")
+
+    bucket = path_parts[0]
+    object_key = "/".join(path_parts[1:])
+
+    return bucket, object_key
+
+
+def _extract_document_id_from_url(url: str) -> str:
+    """
+    Extract document_id from URL path
+
+    Args:
+        url: Document URL
+
+    Returns:
+        Document ID
+
+    Example:
+        Input: /users/xyz/docs/doc-123/file.pdf
+        Output: doc-123
+    """
+    parsed = urlparse(url)
+    path_parts = [p for p in parsed.path.split("/") if p]  # Remove empty parts
+
+    # Find "docs" folder and get next part (document_id)
+    if "docs" in path_parts:
+        docs_idx = path_parts.index("docs")
+        if docs_idx + 1 < len(path_parts):
+            return path_parts[docs_idx + 1]
+
+    raise ValueError(f"Cannot extract document_id from URL: {url}")
+
+
+# ==================== Presigned URL Endpoint ====================
+
+@router.post("/docs/presign", response_model=PresignedUrlResponse)
+async def get_presigned_url_for_viewing(
+    request: PresignedUrlRequest,
+    user: UserContext = Depends(get_current_user)
+):
+    """
+    Generate presigned URL for inline document viewing
+
+    **Supports two scenarios:**
+    1. **Collection Documents**: Documents stored in local MinIO (user's own documents)
+       - Generates presigned URL directly from MinIO
+    2. **External Sources**: Documents from Global DB service (MEVZUAT/KARAR)
+       - Forwards request to Global DB service to get presigned URL
+
+    **URL Detection:**
+    - Collection documents have hostname: `minio`, `localhost`, or configured MINIO_ENDPOINT
+    - External sources have different hostnames (global-db MinIO instance)
+
+    **Authentication:**
+    - Requires valid JWT token in Authorization header
+
+    **Example Request:**
+    ```json
+    {
+      "document_url": "http://minio:9000/org-abc/users/xyz/docs/doc-123/file.pdf?X-Amz-...",
+      "expires_seconds": 3600
+    }
+    ```
+
+    **Response:**
+    - URL with inline display headers (opens in browser instead of downloading)
+    - `source_type`: "collection" or "external"
+    """
+    try:
+        logger.info(f"🔗 Presigned URL request from user {user.user_id}")
+        logger.info(f"📄 Document URL: {request.document_url[:100]}...")
+
+        # Parse document URL
+        parsed_url = urlparse(request.document_url)
+
+        # Determine source type based on hostname
+        is_collection = _is_collection_document(parsed_url.hostname)
+
+        if is_collection:
+            # ==================== SCENARIO 1: Collection Document ====================
+            logger.info("📦 Detected collection document (local MinIO)")
+
+            try:
+                # Extract bucket and object_key from URL
+                bucket, object_key = _extract_minio_path(request.document_url)
+                logger.info(f"  Bucket: {bucket}")
+                logger.info(f"  Object key: {object_key}")
+
+                # Extract document_id for response
+                document_id = _extract_document_id_from_url(request.document_url)
+
+                # Generate presigned URL with inline display headers
+                client = storage.client_manager.get_client()
+                presigned_url = client.presigned_get_object(
+                    bucket,
+                    object_key,
+                    expires=timedelta(seconds=request.expires_seconds),
+                    response_headers={
+                        "response-content-type": "application/pdf",
+                        "response-content-disposition": "inline"
+                    }
+                )
+
+                logger.info(f"✅ Generated presigned URL for collection document {document_id}")
+
+                return PresignedUrlResponse(
+                    url=presigned_url,
+                    expires_in=request.expires_seconds,
+                    document_id=document_id,
+                    source_type="collection"
+                )
+
+            except ValueError as e:
+                logger.error(f"❌ Invalid URL format: {str(e)}")
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "success": False,
+                        "error": {
+                            "code": "INVALID_URL_FORMAT",
+                            "message": "Geçersiz doküman URL formatı",
+                            "details": str(e)
+                        }
+                    }
+                )
+
+            except Exception as e:
+                logger.error(f"❌ MinIO presign error: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "success": False,
+                        "error": {
+                            "code": "MINIO_PRESIGN_FAILED",
+                            "message": "Presigned URL oluşturulamadı",
+                            "details": str(e)
+                        }
+                    }
+                )
+
+        else:
+            # ==================== SCENARIO 2: External Source ====================
+            logger.info("🌍 Detected external source document (Global DB)")
+
+            try:
+                # Extract document_id from URL
+                document_id = _extract_document_id_from_url(request.document_url)
+                logger.info(f"  Document ID: {document_id}")
+
+                # Call Global DB Service to get presigned URL
+                global_db_client = get_global_db_client()
+
+                # Get user's access token from UserContext
+                # Note: UserContext should have the raw JWT token stored
+                user_token = user.raw_token if hasattr(user, 'raw_token') else ""
+
+                if not user_token:
+                    logger.error("❌ User token not available for Global DB request")
+                    raise HTTPException(
+                        status_code=401,
+                        detail={
+                            "success": False,
+                            "error": {
+                                "code": "TOKEN_UNAVAILABLE",
+                                "message": "Authentication token gerekli",
+                                "details": "Global DB erişimi için token bulunamadı"
+                            }
+                        }
+                    )
+
+                result = await global_db_client.get_presigned_url(
+                    document_id=document_id,
+                    user_token=user_token,
+                    expires_seconds=request.expires_seconds
+                )
+
+                if not result.get("success"):
+                    error_msg = result.get("error", "Unknown error")
+                    logger.error(f"❌ Global DB presign failed: {error_msg}")
+
+                    # Determine appropriate HTTP status code
+                    if "not found" in error_msg.lower():
+                        status_code = 404
+                        error_code = "DOCUMENT_NOT_FOUND"
+                    elif "auth" in error_msg.lower():
+                        status_code = 401
+                        error_code = "AUTHENTICATION_FAILED"
+                    else:
+                        status_code = 500
+                        error_code = "EXTERNAL_SERVICE_ERROR"
+
+                    raise HTTPException(
+                        status_code=status_code,
+                        detail={
+                            "success": False,
+                            "error": {
+                                "code": error_code,
+                                "message": "External source'dan presigned URL alınamadı",
+                                "details": error_msg
+                            }
+                        }
+                    )
+
+                logger.info(f"✅ Received presigned URL from Global DB for document {document_id}")
+
+                return PresignedUrlResponse(
+                    url=result["url"],
+                    expires_in=result.get("expires_in", request.expires_seconds),
+                    document_id=result.get("document_id", document_id),
+                    source_type="external"
+                )
+
+            except ValueError as e:
+                logger.error(f"❌ Invalid URL format: {str(e)}")
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "success": False,
+                        "error": {
+                            "code": "INVALID_URL_FORMAT",
+                            "message": "Geçersiz doküman URL formatı",
+                            "details": str(e)
+                        }
+                    }
+                )
+
+            except HTTPException:
+                # Re-raise HTTP exceptions
+                raise
+
+            except Exception as e:
+                logger.error(f"❌ External presign error: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "success": False,
+                        "error": {
+                            "code": "EXTERNAL_PRESIGN_FAILED",
+                            "message": "External source'dan presigned URL alınamadı",
+                            "details": str(e)
+                        }
+                    }
+                )
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+
+    except Exception as e:
+        logger.error(f"❌ Unexpected error in presign endpoint: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "success": False,
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Beklenmeyen bir hata oluştu",
+                    "details": str(e)
                 }
             }
         )

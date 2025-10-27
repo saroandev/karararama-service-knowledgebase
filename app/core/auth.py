@@ -33,6 +33,7 @@ class UserContext(BaseModel):
     remaining_credits: int = 0
     permissions: List[Union[str, Dict[str, Any]]] = []
     data_access: DataAccessScope = DataAccessScope()  # Data access scope
+    raw_token: str = ""                # Raw JWT token (for external service calls)
 
     model_config = {"frozen": True}
 
@@ -228,7 +229,8 @@ async def get_current_user(
         role=role,
         remaining_credits=remaining_credits if remaining_credits is not None else 0,
         permissions=permissions,
-        data_access=data_access
+        data_access=data_access,
+        raw_token=token  # Store raw token for external service calls
     )
 
 
