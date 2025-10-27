@@ -237,13 +237,21 @@ class DocumentStorage(BaseStorage):
             raise Exception(f"Document {document_id} not found")
         return data
 
-    def get_document_url(self, document_id: str, expiry_seconds: int = 3600) -> Optional[str]:
+    def get_document_url(
+        self,
+        document_id: str,
+        expiry_seconds: int = 3600,
+        scope: Any = None,
+        collection_name: Optional[str] = None
+    ) -> Optional[str]:
         """
-        Get a presigned URL for downloading a document
+        Get a presigned URL for downloading a document (scope-aware)
 
         Args:
             document_id: Document identifier
             expiry_seconds: URL expiry time in seconds (default 1 hour)
+            scope: ScopeIdentifier for multi-tenant storage (optional, uses legacy if None)
+            collection_name: Collection name if document is in a collection (optional)
 
         Returns:
             Presigned URL string or None if document not found
@@ -251,10 +259,30 @@ class DocumentStorage(BaseStorage):
         try:
             client = self.client_manager.get_client()
 
+            # Determine bucket and prefix based on scope
+            if scope:
+                # Scope-aware: use organization bucket + folder structure
+                bucket = scope.get_bucket_name()
+
+                if collection_name:
+                    # Document in collection
+                    object_prefix = scope.get_object_prefix("collections") + f"{collection_name}/docs/"
+                else:
+                    # Document in default space
+                    object_prefix = scope.get_object_prefix("docs")
+
+                logger.debug(f"Scope-aware URL generation: bucket={bucket}, prefix={object_prefix}")
+            else:
+                # Legacy: use old bucket structure
+                bucket = self.legacy_bucket
+                object_prefix = ""
+                logger.debug(f"Legacy URL generation: bucket={bucket}")
+
             # List objects in document folder
+            full_prefix = f"{object_prefix}{document_id}/"
             objects = list(client.list_objects(
-                self.bucket,
-                prefix=f"{document_id}/",
+                bucket,
+                prefix=full_prefix,
                 recursive=False
             ))
 
@@ -266,22 +294,24 @@ class DocumentStorage(BaseStorage):
                     break
 
             if not pdf_object:
-                logger.warning(f"No PDF found for document {document_id}")
+                logger.warning(f"No PDF found for document {document_id} in {bucket}/{full_prefix}")
                 return None
 
             # Generate presigned URL
             from datetime import timedelta
             url = client.presigned_get_object(
-                self.bucket,
+                bucket,
                 pdf_object.object_name,
                 expires=timedelta(seconds=expiry_seconds)
             )
 
-            logger.debug(f"Generated presigned URL for document {document_id}")
+            logger.debug(f"✅ Generated presigned URL for document {document_id}")
             return url
 
         except Exception as e:
-            logger.error(f"Failed to generate URL for document {document_id}: {e}")
+            logger.error(f"❌ Failed to generate URL for document {document_id}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return None
 
     def delete_document(self, document_id: str, scope: Any = None) -> bool:

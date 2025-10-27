@@ -89,8 +89,8 @@ class ResultAggregator:
                     f"threshold={request.min_relevance_score}"
                 )
 
-                # Create QuerySource
-                source = self._create_query_source(result, i + 1)
+                # Create QuerySource (pass user context for scope-aware URL generation)
+                source = self._create_query_source(result, i + 1, user)
 
                 # Filter by relevance score
                 if result.score >= request.min_relevance_score:
@@ -198,8 +198,8 @@ class ResultAggregator:
             logger.error(f"Traceback: {traceback.format_exc()}")
             raise
 
-    def _create_query_source(self, result: SearchResult, rank: int) -> QuerySource:
-        """Convert SearchResult to QuerySource"""
+    def _create_query_source(self, result: SearchResult, rank: int, user: UserContext) -> QuerySource:
+        """Convert SearchResult to QuerySource with scope-aware URL generation"""
 
         # Handle document URL based on source type
         if result.source_type == SourceType.EXTERNAL:
@@ -208,7 +208,7 @@ class ResultAggregator:
             original_filename = result.document_title if result.document_title != 'Unknown' else 'External Document'
             doc_title = result.document_title
         else:
-            # Internal source (private/shared) - generate MinIO URL
+            # Internal source (private/shared) - generate scope-aware MinIO URL
             doc_id = result.document_id
 
             # Try to get metadata from MinIO
@@ -225,9 +225,39 @@ class ResultAggregator:
 
             doc_title = result.document_title if result.document_title != 'Unknown' else original_filename.replace('.pdf', '')
 
-            # Generate MinIO URL
-            encoded_filename = quote(original_filename)
-            document_url = f"http://localhost:9001/browser/raw-documents/{doc_id}/{encoded_filename}"
+            # Create scope identifier based on source type
+            from schemas.api.requests.scope import DataScope, ScopeIdentifier
+
+            if result.source_type == SourceType.PRIVATE:
+                scope = ScopeIdentifier(
+                    organization_id=user.organization_id,
+                    scope_type=DataScope.PRIVATE,
+                    user_id=user.user_id
+                )
+            elif result.source_type == SourceType.SHARED:
+                scope = ScopeIdentifier(
+                    organization_id=user.organization_id,
+                    scope_type=DataScope.SHARED
+                )
+            else:
+                scope = None
+
+            # Get collection name from metadata if available
+            collection_name = result.metadata.get("collection_name") if result.metadata else None
+
+            # Generate presigned MinIO URL (1 hour expiry) with scope
+            document_url = storage.documents.get_document_url(
+                doc_id,
+                expiry_seconds=3600,
+                scope=scope,
+                collection_name=collection_name
+            )
+
+            # Fallback to browser URL if presigned fails
+            if not document_url:
+                encoded_filename = quote(original_filename)
+                document_url = f"http://localhost:9001/browser/raw-documents/{doc_id}/{encoded_filename}"
+                logger.warning(f"⚠️ Presigned URL failed for {doc_id}, using browser URL fallback")
 
         return QuerySource(
             rank=rank,
