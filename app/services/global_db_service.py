@@ -19,6 +19,80 @@ class GlobalDBServiceClient:
         self.base_url = settings.GLOBAL_DB_SERVICE_URL
         self.timeout = settings.GLOBAL_DB_SERVICE_TIMEOUT
         self.default_bucket = settings.GLOBAL_DB_DEFAULT_BUCKET
+        self._sources_cache: Optional[List[str]] = None
+        self._cache_timestamp: Optional[float] = None
+        self._cache_ttl = 300  # 5 minutes cache TTL
+
+    async def _fetch_active_sources(self, user_token: str) -> List[str]:
+        """
+        Fetch active sources from Global DB service
+
+        Args:
+            user_token: JWT token for authentication
+
+        Returns:
+            List of source paths (without trailing slashes)
+
+        Raises:
+            Exception: If fetching sources fails
+        """
+        import time
+
+        # Check cache
+        if (self._sources_cache is not None and
+            self._cache_timestamp is not None and
+            time.time() - self._cache_timestamp < self._cache_ttl):
+            logger.info("📦 Using cached sources list")
+            return self._sources_cache
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "Content-Type": "application/json"
+        }
+
+        try:
+            logger.info("🔍 Fetching active sources from Global DB service...")
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(
+                    f"{self.base_url}/admin/sources",
+                    params={"include_inactive": "false"},
+                    headers=headers
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    if result.get("success"):
+                        sources = result.get("sources", [])
+                        # Extract source_path and remove trailing slashes
+                        source_paths = [
+                            src["source_path"].rstrip("/")
+                            for src in sources
+                            if "source_path" in src
+                        ]
+
+                        # Update cache
+                        self._sources_cache = source_paths
+                        self._cache_timestamp = time.time()
+
+                        logger.info(f"✅ Fetched {len(source_paths)} active sources")
+                        return source_paths
+                    else:
+                        error_msg = result.get("error", "Unknown error")
+                        logger.error(f"❌ Failed to fetch sources: {error_msg}")
+                        raise Exception(f"Failed to fetch sources: {error_msg}")
+                else:
+                    logger.error(f"❌ Sources endpoint error: {response.status_code}")
+                    raise Exception(f"Sources endpoint error: {response.status_code}")
+
+        except httpx.TimeoutException:
+            logger.error("⏱️ Timeout fetching sources from Global DB")
+            raise Exception("Timeout fetching sources")
+        except httpx.RequestError as e:
+            logger.error(f"❌ Request error fetching sources: {str(e)}")
+            raise Exception(f"Request error: {str(e)}")
+        except Exception as e:
+            logger.error(f"❌ Unexpected error fetching sources: {str(e)}")
+            raise
 
     async def search_public(
         self,
@@ -26,7 +100,6 @@ class GlobalDBServiceClient:
         user_token: str,
         top_k: int = 5,
         min_relevance_score: float = 0.7,
-        bucket: Optional[str] = None,
         options: Optional['QueryOptions'] = None
     ) -> Dict[str, Any]:
         """
@@ -37,7 +110,6 @@ class GlobalDBServiceClient:
             user_token: JWT token for authentication
             top_k: Number of results to retrieve
             min_relevance_score: Minimum relevance score
-            bucket: Bucket name (defaults to 'mevzuat')
             options: Query options (tone, citations, lang, stream)
 
         Returns:
@@ -46,12 +118,22 @@ class GlobalDBServiceClient:
         Raises:
             Exception: If communication fails
         """
-        bucket = bucket or self.default_bucket
+        # Fetch active sources from Global DB
+        try:
+            sources = await self._fetch_active_sources(user_token)
+        except Exception as e:
+            logger.error(f"❌ Failed to fetch sources: {str(e)}")
+            return {
+                "success": False,
+                "error": f"Failed to fetch sources: {str(e)}",
+                "answer": "",
+                "sources": []
+            }
 
         # Build base payload
         payload = {
             "question": question,
-            "source": bucket,  # Global DB service expects "source" field
+            "sources": sources,  # Global DB service expects "sources" field as list
             "top_k": top_k,
             "min_relevance_score": min_relevance_score,
             "generate_answer": True
@@ -78,7 +160,7 @@ class GlobalDBServiceClient:
             try:
                 # Log request with options info
                 options_str = f", options=(tone={options.tone}, citations={options.citations})" if options else ""
-                logger.info(f"🌍 Calling Global DB service (attempt {attempt + 1}): bucket={bucket}{options_str}, question={question[:50]}...")
+                logger.info(f"🌍 Calling Global DB service (attempt {attempt + 1}): sources={len(sources)}{options_str}, question={question[:50]}...")
 
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     response = await client.post(
