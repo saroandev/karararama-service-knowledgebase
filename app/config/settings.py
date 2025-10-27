@@ -11,6 +11,11 @@ class Settings:
     MINIO_BUCKET_DOCS = os.getenv("MINIO_BUCKET_DOCS", "raw-documents")
     MINIO_BUCKET_CHUNKS = os.getenv("MINIO_BUCKET_CHUNKS", "rag-chunks")
 
+    # MinIO External Endpoint for presigned URLs (accessible from frontend/browser)
+    # If not set, defaults to MINIO_ENDPOINT (internal endpoint)
+    # Example: "minio-preprod.onedocs.ai:9000" for preprod environment
+    MINIO_EXTERNAL_ENDPOINT = os.getenv("MINIO_EXTERNAL_ENDPOINT", os.getenv("MINIO_ENDPOINT", "localhost:9000"))
+
     MILVUS_HOST = os.getenv("MILVUS_HOST", "localhost")
     MILVUS_PORT = int(os.getenv("MILVUS_PORT", "19530"))
     # MILVUS_COLLECTION removed - System now uses scope-based collections only

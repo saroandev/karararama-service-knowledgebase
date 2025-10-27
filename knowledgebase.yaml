@@ -9,6 +9,7 @@ data:
 
   # MinIO
   MINIO_ENDPOINT: "minio-svc.minio-preprod.svc.cluster.local:9000"
+  MINIO_EXTERNAL_ENDPOINT: "minio-preprod.onedocs.ai:9000"
   MINIO_SECURE: "false"
 
   # Milvus

@@ -650,6 +650,11 @@ async def get_presigned_url_for_viewing(
                     }
                 )
 
+                # Replace internal endpoint with external endpoint for frontend accessibility
+                if settings.MINIO_EXTERNAL_ENDPOINT != settings.MINIO_ENDPOINT:
+                    presigned_url = presigned_url.replace(settings.MINIO_ENDPOINT, settings.MINIO_EXTERNAL_ENDPOINT)
+                    logger.debug(f"🔄 Replaced internal endpoint with external: {settings.MINIO_ENDPOINT} → {settings.MINIO_EXTERNAL_ENDPOINT}")
+
                 logger.info(f"✅ Generated presigned URL for collection document {document_id}")
 
                 return PresignedUrlResponse(

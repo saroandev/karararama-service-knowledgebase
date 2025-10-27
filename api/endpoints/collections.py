@@ -900,6 +900,10 @@ async def list_collection_documents(
                     for obj in objects:
                         if obj.object_name.endswith('.pdf'):
                             url = client.presigned_get_object(bucket, obj.object_name, expires=datetime.timedelta(hours=1))
+                            # Replace internal endpoint with external endpoint for frontend accessibility
+                            if settings.MINIO_EXTERNAL_ENDPOINT != settings.MINIO_ENDPOINT:
+                                url = url.replace(settings.MINIO_ENDPOINT, settings.MINIO_EXTERNAL_ENDPOINT)
+                                logger.debug(f"🔄 Replaced internal endpoint with external in preview URL")
                             break
             except Exception as e:
                 logger.warning(f"Could not generate presigned URL for {doc_id}: {e}")

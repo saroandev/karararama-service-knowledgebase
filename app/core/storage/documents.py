@@ -305,6 +305,11 @@ class DocumentStorage(BaseStorage):
                 expires=timedelta(seconds=expiry_seconds)
             )
 
+            # Replace internal endpoint with external endpoint for frontend accessibility
+            if settings.MINIO_EXTERNAL_ENDPOINT != settings.MINIO_ENDPOINT:
+                url = url.replace(settings.MINIO_ENDPOINT, settings.MINIO_EXTERNAL_ENDPOINT)
+                logger.debug(f"🔄 Replaced internal endpoint with external: {settings.MINIO_ENDPOINT} → {settings.MINIO_EXTERNAL_ENDPOINT}")
+
             logger.debug(f"✅ Generated presigned URL for document {document_id}")
             return url
 
