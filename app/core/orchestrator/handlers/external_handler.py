@@ -124,6 +124,7 @@ class ExternalServiceHandler(BaseHandler):
         """Convert external service result to SearchResult object"""
         try:
             from datetime import datetime
+            from app.config import settings
 
             # Extract metadata (might be nested)
             source_metadata = source_data.get("metadata", {})
@@ -158,6 +159,16 @@ class ExternalServiceHandler(BaseHandler):
             if 'page_number' not in preserved_metadata:
                 preserved_metadata['page_number'] = source_data.get("page_number", 0)
 
+            # Get document URL from external source
+            document_url = source_data.get("document_url", source_metadata.get("document_url", "#"))
+
+            # Replace internal MinIO endpoint with external endpoint for frontend accessibility
+            if document_url and document_url != "#":
+                # Replace MINIO_ENDPOINT with MINIO_EXTERNAL_ENDPOINT if they differ
+                if settings.MINIO_EXTERNAL_ENDPOINT != settings.MINIO_ENDPOINT:
+                    document_url = document_url.replace(settings.MINIO_ENDPOINT, settings.MINIO_EXTERNAL_ENDPOINT)
+                    self.logger.debug(f"🔄 Replaced internal endpoint with external in document_url")
+
             return SearchResult(
                 score=score,
                 document_id=source_data.get("document_id", "unknown"),
@@ -167,7 +178,7 @@ class ExternalServiceHandler(BaseHandler):
                 metadata=preserved_metadata,  # Pass through all metadata from external source
                 page_number=source_data.get("page_number", source_metadata.get("page_number", 0)),
                 document_title=document_title,
-                document_url=source_data.get("document_url", source_metadata.get("document_url", "#")),
+                document_url=document_url,
                 created_at=created_at
             )
 
