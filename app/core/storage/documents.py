@@ -257,6 +257,7 @@ class DocumentStorage(BaseStorage):
             Presigned URL string or None if document not found
         """
         try:
+            # Use standard client for object lookup
             client = self.client_manager.get_client()
 
             # Determine bucket and prefix based on scope
@@ -297,18 +298,37 @@ class DocumentStorage(BaseStorage):
                 logger.warning(f"No PDF found for document {document_id} in {bucket}/{full_prefix}")
                 return None
 
-            # Generate presigned URL
+            # Generate presigned URL with external endpoint for frontend accessibility
+            # Create a separate client with external endpoint to ensure correct signature
             from datetime import timedelta
-            url = client.presigned_get_object(
-                bucket,
-                pdf_object.object_name,
-                expires=timedelta(seconds=expiry_seconds)
-            )
+            import urllib3
 
-            # Replace internal endpoint with external endpoint for frontend accessibility
             if settings.MINIO_EXTERNAL_ENDPOINT != settings.MINIO_ENDPOINT:
-                url = url.replace(settings.MINIO_ENDPOINT, settings.MINIO_EXTERNAL_ENDPOINT)
-                logger.debug(f"🔄 Replaced internal endpoint with external: {settings.MINIO_ENDPOINT} → {settings.MINIO_EXTERNAL_ENDPOINT}")
+                # Create client with external endpoint for presigned URL generation
+                external_client = Minio(
+                    settings.MINIO_EXTERNAL_ENDPOINT,
+                    access_key=settings.MINIO_ROOT_USER,
+                    secret_key=settings.MINIO_ROOT_PASSWORD,
+                    secure=settings.MINIO_SECURE,
+                    http_client=urllib3.PoolManager(
+                        timeout=urllib3.Timeout(connect=10.0, read=30.0),
+                        maxsize=5,
+                        retries=urllib3.Retry(total=1)
+                    )
+                )
+                url = external_client.presigned_get_object(
+                    bucket,
+                    pdf_object.object_name,
+                    expires=timedelta(seconds=expiry_seconds)
+                )
+                logger.debug(f"🔄 Generated presigned URL with external endpoint: {settings.MINIO_EXTERNAL_ENDPOINT}")
+            else:
+                # Use internal client if endpoints are the same
+                url = client.presigned_get_object(
+                    bucket,
+                    pdf_object.object_name,
+                    expires=timedelta(seconds=expiry_seconds)
+                )
 
             logger.debug(f"✅ Generated presigned URL for document {document_id}")
             return url
