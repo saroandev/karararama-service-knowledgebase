@@ -5,8 +5,10 @@ import io
 import json
 import logging
 import time
+import urllib3
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+from minio import Minio
 from minio.error import S3Error
 from app.config import settings
 from app.core.storage.base import BaseStorage
@@ -301,7 +303,6 @@ class DocumentStorage(BaseStorage):
             # Generate presigned URL with external endpoint for frontend accessibility
             # Create a separate client with external endpoint to ensure correct signature
             from datetime import timedelta
-            import urllib3
 
             if settings.MINIO_EXTERNAL_ENDPOINT != settings.MINIO_ENDPOINT:
                 # Create client with external endpoint for presigned URL generation
