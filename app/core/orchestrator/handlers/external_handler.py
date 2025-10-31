@@ -80,11 +80,11 @@ class ExternalServiceHandler(BaseHandler):
             self.logger.info(f"  🔍 Search mode: {search_mode}")
             self.logger.info(f"  ⚙️  Options: tone={self.options.tone}, citations={self.options.citations}")
 
-            # Call external service with user-specified source
+            # Call external service with mapped bucket name
             external_response = await self.global_db_client.search_public(
                 question=question,
                 user_token=self.user_access_token,
-                sources=[self.source_path_original],  # Pass user's requested source
+                sources=[self.bucket_name],  # Use mapped bucket name instead of original
                 top_k=top_k,
                 min_relevance_score=min_relevance_score,
                 options=self.options,
