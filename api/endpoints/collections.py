@@ -24,12 +24,12 @@ from schemas.api.responses.collection import (
     CollectionSearchResult
 )
 from schemas.api.responses.document import DocumentInfo
-from api.core.milvus_manager import milvus_manager
+from api.core.milvus_manager import milvus_manager  # LEGACY: Used for compatibility
+from api.core.milvus_client_manager import milvus_client_manager  # NEW: MilvusClient API
 from api.core.embeddings import embedding_service
 from app.core.auth import UserContext, get_current_user
 from app.core.storage import storage
 from app.config import settings
-from pymilvus import utility
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
