@@ -2,8 +2,16 @@
 Query request schemas
 """
 from typing import List, Optional
+from enum import Enum
 from pydantic import BaseModel, Field, field_validator
 from schemas.api.requests.scope import DataScope
+
+
+class SearchMode(str, Enum):
+    """Search mode options for collection queries"""
+    HYBRID = "hybrid"      # Semantic + BM25 with RRF fusion (default)
+    SEMANTIC = "semantic"  # Dense vector only
+    BM25 = "bm25"         # Sparse vector (keyword) only
 
 
 class CollectionFilter(BaseModel):
@@ -139,6 +147,12 @@ class QueryRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=20, description="Maximum number of sources to retrieve from vector DB")
     use_reranker: bool = Field(default=True, description="Whether to use reranking for better results")
 
+    # Collection search mode
+    search_mode: SearchMode = Field(
+        default=SearchMode.HYBRID,
+        description="Search mode for collections: 'hybrid' (semantic + BM25 with RRF), 'semantic' (dense vector only), or 'bm25' (keyword only)"
+    )
+
     # Source filtering parameters
     min_relevance_score: float = Field(
         default=0.7,
@@ -176,6 +190,7 @@ class QueryRequest(BaseModel):
                     ],
                     "top_k": 5,
                     "use_reranker": True,
+                    "search_mode": "hybrid",
                     "min_relevance_score": 0.7,
                     "include_low_confidence_sources": False,
                     "max_sources_in_context": 5,
@@ -191,6 +206,7 @@ class QueryRequest(BaseModel):
                     "conversation_id": "conv-987f6543-a21c-34b5-c678-789012345678",
                     "sources": ["reklam-kurulu-kararlari", "mevzuat"],
                     "top_k": 5,
+                    "search_mode": "semantic",
                     "options": {
                         "tone": "resmi",
                         "lang": "tr"

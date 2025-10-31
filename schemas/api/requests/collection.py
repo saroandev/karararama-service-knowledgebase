@@ -2,9 +2,17 @@
 Collection management request schemas
 """
 from typing import Optional, Dict, Any, List
+from enum import Enum
 from pydantic import BaseModel, Field, field_validator
 from schemas.api.requests.scope import IngestScope
 from schemas.api.requests.query import CollectionFilter, QueryOptions
+
+
+class SearchMode(str, Enum):
+    """Search mode options for collection queries"""
+    HYBRID = "hybrid"      # Semantic + BM25 with RRF fusion (default)
+    SEMANTIC = "semantic"  # Dense vector only
+    BM25 = "bm25"         # Sparse vector (keyword) only
 
 
 class CreateCollectionRequest(BaseModel):
@@ -126,6 +134,10 @@ class CollectionQueryRequest(BaseModel):
         le=1.0,
         description="Minimum relevance score threshold"
     )
+    search_mode: SearchMode = Field(
+        default=SearchMode.HYBRID,
+        description="Search mode: 'hybrid' (semantic + BM25), 'semantic' (dense only), or 'bm25' (keyword only)"
+    )
     options: Optional[QueryOptions] = Field(
         default=None,
         description="Query options for tone, language, citations"
@@ -142,6 +154,7 @@ class CollectionQueryRequest(BaseModel):
                     ],
                     "top_k": 5,
                     "min_relevance_score": 0.7,
+                    "search_mode": "hybrid",
                     "options": {
                         "tone": "resmi",
                         "lang": "tr",

@@ -36,6 +36,7 @@ class CollectionServiceHandler(BaseHandler):
         question: str,
         top_k: int = 5,
         min_relevance_score: float = 0.7,
+        search_mode: str = "hybrid",
         **kwargs
     ) -> HandlerResult:
         """
@@ -45,6 +46,7 @@ class CollectionServiceHandler(BaseHandler):
             question: User's question
             top_k: Maximum number of results
             min_relevance_score: Minimum score threshold
+            search_mode: Search mode for collections ('hybrid', 'semantic', or 'bm25')
 
         Returns:
             HandlerResult with search results from collections
@@ -53,6 +55,7 @@ class CollectionServiceHandler(BaseHandler):
 
         try:
             self.logger.info(f"📦 Querying collections via internal endpoint: {[c.name for c in self.collections]}")
+            self.logger.info(f"🔍 Search mode: {search_mode}")
 
             # Prepare request payload
             request_payload = {
@@ -65,7 +68,8 @@ class CollectionServiceHandler(BaseHandler):
                     for c in self.collections
                 ],
                 "top_k": top_k,
-                "min_relevance_score": min_relevance_score
+                "min_relevance_score": min_relevance_score,
+                "search_mode": search_mode
             }
 
             # Add options if provided

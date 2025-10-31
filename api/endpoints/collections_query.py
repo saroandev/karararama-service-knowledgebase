@@ -11,7 +11,7 @@ import json
 from typing import List
 from fastapi import APIRouter, HTTPException, Depends
 
-from schemas.api.requests.collection import CollectionQueryRequest
+from schemas.api.requests.collection import CollectionQueryRequest, SearchMode
 from schemas.api.requests.scope import DataScope, ScopeIdentifier
 from schemas.api.requests.query import QueryOptions
 from schemas.api.responses.collection import CollectionQueryResponse, CollectionSearchResult
@@ -277,17 +277,27 @@ async def query_collections(
 
         logger.info(f"📊 Searching in {len(collections_to_search)} collection(s)")
 
-        # 3. Hybrid Search across all collections (Dense + BM25)
+        # 3. Search across all collections based on search_mode
         all_results = []
         client = milvus_client_manager.get_client()
 
-        logger.info(f"🔍 SEARCH MODE: Hybrid Search (Semantic + BM25)")
+        # Log search mode
+        mode_name = {
+            SearchMode.HYBRID: "Hybrid Search (Semantic + BM25)",
+            SearchMode.SEMANTIC: "Semantic Search Only (Dense Vector)",
+            SearchMode.BM25: "BM25 Search Only (Keyword)"
+        }.get(request.search_mode, "Hybrid Search")
+
+        logger.info(f"🔍 SEARCH MODE: {mode_name}")
         logger.info(f"📊 Search Parameters:")
-        logger.info(f"   • Dense Field: embedding (1536-dim, COSINE)")
-        logger.info(f"   • Sparse Field: sparse (BM25 keyword)")
-        logger.info(f"   • Ranker: RRF (Reciprocal Rank Fusion)")
+
+        if request.search_mode in [SearchMode.HYBRID, SearchMode.SEMANTIC]:
+            logger.info(f"   • Dense Field: embedding (1536-dim, COSINE)")
+        if request.search_mode in [SearchMode.HYBRID, SearchMode.BM25]:
+            logger.info(f"   • Sparse Field: sparse (BM25 keyword)")
+        if request.search_mode == SearchMode.HYBRID:
+            logger.info(f"   • Ranker: RRF (Reciprocal Rank Fusion)")
         logger.info(f"   • Top-K: {request.top_k}")
-        logger.info(f"   • BM25 Hybrid: ✅ ENABLED")
 
         for collection_info in collections_to_search:
             milvus_collection_name = collection_info["collection_name_milvus"]
@@ -299,170 +309,291 @@ async def query_collections(
             try:
                 search_start = time.time()
 
-                # 1. Dense vector search (Semantic) - SEPARATE
-                logger.info(f"   🧠 Dense search (semantic)...")
-                dense_start = time.time()
-                dense_results = client.search(
-                    collection_name=milvus_collection_name,
-                    data=[query_embedding],
-                    anns_field='embedding',
-                    limit=request.top_k * 2,
-                    output_fields=['document_id', 'chunk_index', 'text', 'metadata']
-                )
-                dense_time = time.time() - dense_start
-                logger.info(f"      ⏱️  Found {len(dense_results[0])} results in {dense_time:.3f}s")
+                # ========================================
+                # CONDITIONAL SEARCH BASED ON MODE
+                # ========================================
 
-                # 2. BM25 search (Keyword) - SEPARATE
-                logger.info(f"   🔤 BM25 search (keyword)...")
-                bm25_start = time.time()
-                # BM25 expects text input, Milvus converts to sparse vector
-                bm25_results = client.search(
-                    collection_name=milvus_collection_name,
-                    data=[request.question],  # Text query
-                    anns_field='sparse',      # Sparse field
-                    limit=request.top_k * 2,
-                    output_fields=['document_id', 'chunk_index', 'text', 'metadata']
-                )
-                bm25_time = time.time() - bm25_start
-                logger.info(f"      ⏱️  Found {len(bm25_results[0])} results in {bm25_time:.3f}s")
+                if request.search_mode == SearchMode.SEMANTIC:
+                    # ===== SEMANTIC ONLY MODE =====
+                    logger.info(f"   🧠 Semantic search (dense vector only)...")
+                    dense_start = time.time()
+                    semantic_results = client.search(
+                        collection_name=milvus_collection_name,
+                        data=[query_embedding],
+                        anns_field='embedding',
+                        limit=request.top_k,
+                        output_fields=['document_id', 'chunk_index', 'text', 'metadata']
+                    )
+                    dense_time = time.time() - dense_start
+                    logger.info(f"      ⏱️  Found {len(semantic_results[0])} results in {dense_time:.3f}s")
 
-                # 3. Manual RRF Fusion with score tracking
-                logger.info(f"   🔀 Fusing results with RRF...")
+                    # Process semantic results
+                    for rank, result in enumerate(semantic_results[0], 1):
+                        entity = result.get('entity', {})
+                        doc_id = entity.get('document_id', 'unknown')
+                        chunk_index = entity.get('chunk_index', 0)
+                        text = entity.get('text', '')
+                        metadata = entity.get('metadata', {})
+                        distance = result.get('distance', 0)
 
-                # Build score dictionaries: {(doc_id, chunk_index): (score, rank)}
-                semantic_scores = {}
-                for rank, result in enumerate(dense_results[0], 1):
-                    entity = result.get('entity', {})
-                    doc_id = entity.get('document_id', 'unknown')
-                    chunk_idx = entity.get('chunk_index', 0)
-                    distance = result.get('distance', 0)
-                    # COSINE distance: convert to similarity (1 - distance)
-                    similarity = 1 - distance
-                    key = (doc_id, chunk_idx)
-                    semantic_scores[key] = {'score': similarity, 'rank': rank, 'result': result}
+                        # COSINE distance: convert to similarity (1 - distance)
+                        similarity = 1 - distance
 
-                bm25_scores = {}
-                for rank, result in enumerate(bm25_results[0], 1):
-                    entity = result.get('entity', {})
-                    doc_id = entity.get('document_id', 'unknown')
-                    chunk_idx = entity.get('chunk_index', 0)
-                    distance = result.get('distance', 0)
-                    # BM25 score is in distance field (higher = better)
-                    key = (doc_id, chunk_idx)
-                    bm25_scores[key] = {'score': distance, 'rank': rank, 'result': result}
+                        # Parse metadata
+                        if isinstance(metadata, str):
+                            meta_dict = json.loads(metadata)
+                        else:
+                            meta_dict = metadata if metadata else {}
 
-                # Combine all unique documents
-                all_doc_keys = set(semantic_scores.keys()) | set(bm25_scores.keys())
+                        # Determine source type
+                        source_type = "private" if "private" in scope_label else "shared"
 
-                # Calculate RRF scores
-                k = 60  # RRF constant
-                rrf_results = []
+                        # Normalize to 0-100 range
+                        final_score = similarity * 100
 
-                for doc_key in all_doc_keys:
-                    sem_data = semantic_scores.get(doc_key, {'score': 0, 'rank': 9999, 'result': None})
-                    bm25_data = bm25_scores.get(doc_key, {'score': 0, 'rank': 9999, 'result': None})
+                        # Detailed logging
+                        logger.info(f"   {rank}. 📄 {meta_dict.get('document_title', 'Unknown')[:50]}")
+                        logger.info(f"      🧠 Semantic Score: {similarity:.4f} → {final_score:.1f}/100")
+                        logger.info(f"      📍 Document: {doc_id}, Chunk: {chunk_index}")
 
-                    # RRF formula: sum of 1/(k + rank_i)
-                    rrf_score = (1 / (k + sem_data['rank'])) + (1 / (k + bm25_data['rank']))
+                        all_results.append(CollectionSearchResult(
+                            score=final_score,  # 0-100 range
+                            document_id=doc_id,
+                            text=text,
+                            source_type=source_type,
+                            chunk_index=chunk_index,
+                            page_number=meta_dict.get('page_number', 0),
+                            document_title=meta_dict.get('document_title', 'Unknown'),
+                            collection_name=collection_name,
+                            metadata=meta_dict
+                        ))
 
-                    # Use result from whichever search found it (prefer semantic)
-                    base_result = sem_data['result'] or bm25_data['result']
-                    if base_result is None:
-                        continue
+                    search_time = time.time() - search_start
+                    logger.info(f"   ✅ Semantic search completed in {search_time:.3f}s: {len(semantic_results[0])} results")
 
-                    rrf_results.append({
-                        'doc_key': doc_key,
-                        'semantic_score': sem_data['score'],
-                        'semantic_rank': sem_data['rank'],
-                        'bm25_score': bm25_data['score'],
-                        'bm25_rank': bm25_data['rank'],
-                        'rrf_score': rrf_score,
-                        'result': base_result
-                    })
+                elif request.search_mode == SearchMode.BM25:
+                    # ===== BM25 ONLY MODE =====
+                    logger.info(f"   🔤 BM25 search (keyword only)...")
+                    bm25_start = time.time()
+                    bm25_results = client.search(
+                        collection_name=milvus_collection_name,
+                        data=[request.question],  # Text query
+                        anns_field='sparse',
+                        limit=request.top_k,
+                        output_fields=['document_id', 'chunk_index', 'text', 'metadata']
+                    )
+                    bm25_time = time.time() - bm25_start
+                    logger.info(f"      ⏱️  Found {len(bm25_results[0])} results in {bm25_time:.3f}s")
 
-                # Sort by RRF score and limit
-                rrf_results.sort(key=lambda x: x['rrf_score'], reverse=True)
-                rrf_results = rrf_results[:request.top_k]
+                    # Find max BM25 score for normalization
+                    max_bm25 = max([r.get('distance', 0) for r in bm25_results[0]], default=1.0)
+                    if max_bm25 == 0:
+                        max_bm25 = 1.0
 
-                # Calculate max RRF for normalization
-                max_rrf = (1 / (k + 1)) + (1 / (k + 1))  # Both rank 1
+                    # Process BM25 results
+                    for rank, result in enumerate(bm25_results[0], 1):
+                        entity = result.get('entity', {})
+                        doc_id = entity.get('document_id', 'unknown')
+                        chunk_index = entity.get('chunk_index', 0)
+                        text = entity.get('text', '')
+                        metadata = entity.get('metadata', {})
+                        bm25_score = result.get('distance', 0)
 
-                search_time = time.time() - search_start
-                logger.info(f"   ⏱️  Hybrid search completed in {search_time:.3f}s")
-                logger.info(f"   📈 Fused results: {len(rrf_results)}")
+                        # Parse metadata
+                        if isinstance(metadata, str):
+                            meta_dict = json.loads(metadata)
+                        else:
+                            meta_dict = metadata if metadata else {}
 
-                # Convert fused results to CollectionSearchResult objects with detailed logging
-                for idx, rrf_item in enumerate(rrf_results, 1):
-                    base_result = rrf_item['result']
-                    entity = base_result.get('entity', {})
+                        # Determine source type
+                        source_type = "private" if "private" in scope_label else "shared"
 
-                    doc_id = entity.get('document_id', 'unknown')
-                    chunk_index = entity.get('chunk_index', 0)
-                    text = entity.get('text', '')
-                    metadata = entity.get('metadata', {})
+                        # Normalize to 0-100 range
+                        final_score = (bm25_score / max_bm25) * 100
 
-                    # Parse metadata
-                    if isinstance(metadata, str):
-                        meta_dict = json.loads(metadata)
-                    else:
-                        meta_dict = metadata if metadata else {}
+                        # Detailed logging
+                        logger.info(f"   {rank}. 📄 {meta_dict.get('document_title', 'Unknown')[:50]}")
+                        logger.info(f"      🔤 BM25 Score: {bm25_score:.4f} → {final_score:.1f}/100")
+                        logger.info(f"      📍 Document: {doc_id}, Chunk: {chunk_index}")
 
-                    # Determine source type
-                    source_type = "private" if "private" in scope_label else "shared"
+                        all_results.append(CollectionSearchResult(
+                            score=final_score,  # 0-100 range
+                            document_id=doc_id,
+                            text=text,
+                            source_type=source_type,
+                            chunk_index=chunk_index,
+                            page_number=meta_dict.get('page_number', 0),
+                            document_title=meta_dict.get('document_title', 'Unknown'),
+                            collection_name=collection_name,
+                            metadata=meta_dict
+                        ))
 
-                    # Extract scores
-                    semantic_score = rrf_item['semantic_score']
-                    semantic_rank = rrf_item['semantic_rank']
-                    bm25_score = rrf_item['bm25_score']
-                    bm25_rank = rrf_item['bm25_rank']
-                    rrf_score = rrf_item['rrf_score']
+                    search_time = time.time() - search_start
+                    logger.info(f"   ✅ BM25 search completed in {search_time:.3f}s: {len(bm25_results[0])} results")
 
-                    # Normalize RRF score to percentage
-                    rrf_normalized = (rrf_score / max_rrf) * 100
+                else:  # SearchMode.HYBRID (default)
+                    # ===== HYBRID MODE (Semantic + BM25 with RRF) =====
 
-                    # Determine which search method found it
-                    in_semantic = semantic_rank < 9999
-                    in_bm25 = bm25_rank < 9999
-                    match_type = ""
-                    if in_semantic and in_bm25:
-                        match_type = "📊 BOTH searches!"
-                    elif in_semantic:
-                        match_type = "🧠 Semantic only"
-                    elif in_bm25:
-                        match_type = "🔤 BM25 only"
+                    # 1. Dense vector search (Semantic)
+                    logger.info(f"   🧠 Dense search (semantic)...")
+                    dense_start = time.time()
+                    dense_results = client.search(
+                        collection_name=milvus_collection_name,
+                        data=[query_embedding],
+                        anns_field='embedding',
+                        limit=request.top_k * 2,
+                        output_fields=['document_id', 'chunk_index', 'text', 'metadata']
+                    )
+                    dense_time = time.time() - dense_start
+                    logger.info(f"      ⏱️  Found {len(dense_results[0])} results in {dense_time:.3f}s")
 
-                    # Detailed logging
-                    logger.info(f"   {idx}. 📄 {meta_dict.get('document_title', 'Unknown')[:50]}")
-                    if in_semantic:
-                        logger.info(f"      🧠 Semantic: {semantic_score:.4f} (rank: {semantic_rank})")
-                    else:
-                        logger.info(f"      🧠 Semantic: - (not found)")
+                    # 2. BM25 search (Keyword)
+                    logger.info(f"   🔤 BM25 search (keyword)...")
+                    bm25_start = time.time()
+                    bm25_results = client.search(
+                        collection_name=milvus_collection_name,
+                        data=[request.question],  # Text query
+                        anns_field='sparse',
+                        limit=request.top_k * 2,
+                        output_fields=['document_id', 'chunk_index', 'text', 'metadata']
+                    )
+                    bm25_time = time.time() - bm25_start
+                    logger.info(f"      ⏱️  Found {len(bm25_results[0])} results in {bm25_time:.3f}s")
 
-                    if in_bm25:
-                        logger.info(f"      🔤 BM25: {bm25_score:.4f} (rank: {bm25_rank})")
-                    else:
-                        logger.info(f"      🔤 BM25: - (not found)")
+                    # 3. Manual RRF Fusion with score tracking
+                    logger.info(f"   🔀 Fusing results with RRF...")
 
-                    logger.info(f"      🔀 RRF: {rrf_score:.4f} ({rrf_normalized:.1f}%)")
-                    logger.info(f"      {match_type}")
-                    logger.info(f"      Document: {doc_id}, Chunk: {chunk_index}")
+                    # Build score dictionaries: {(doc_id, chunk_index): (score, rank)}
+                    semantic_scores = {}
+                    for rank, result in enumerate(dense_results[0], 1):
+                        entity = result.get('entity', {})
+                        doc_id = entity.get('document_id', 'unknown')
+                        chunk_idx = entity.get('chunk_index', 0)
+                        distance = result.get('distance', 0)
+                        # COSINE distance: convert to similarity (1 - distance)
+                        similarity = 1 - distance
+                        key = (doc_id, chunk_idx)
+                        semantic_scores[key] = {'score': similarity, 'rank': rank, 'result': result}
 
-                    # Use normalized RRF as final score (0-1 range)
-                    final_score = rrf_score / max_rrf
+                    bm25_scores = {}
+                    for rank, result in enumerate(bm25_results[0], 1):
+                        entity = result.get('entity', {})
+                        doc_id = entity.get('document_id', 'unknown')
+                        chunk_idx = entity.get('chunk_index', 0)
+                        distance = result.get('distance', 0)
+                        # BM25 score is in distance field (higher = better)
+                        key = (doc_id, chunk_idx)
+                        bm25_scores[key] = {'score': distance, 'rank': rank, 'result': result}
 
-                    all_results.append(CollectionSearchResult(
-                        score=final_score,  # Normalized RRF score
-                        document_id=doc_id,
-                        text=text,
-                        source_type=source_type,
-                        chunk_index=chunk_index,
-                        page_number=meta_dict.get('page_number', 0),
-                        document_title=meta_dict.get('document_title', 'Unknown'),
-                        collection_name=collection_name,
-                        metadata=meta_dict
-                    ))
+                    # Combine all unique documents
+                    all_doc_keys = set(semantic_scores.keys()) | set(bm25_scores.keys())
 
-                logger.info(f"✅ Hybrid search completed in {scope_label}: {len(rrf_results)} results")
+                    # Calculate RRF scores
+                    k = 60  # RRF constant
+                    rrf_results = []
+
+                    for doc_key in all_doc_keys:
+                        sem_data = semantic_scores.get(doc_key, {'score': 0, 'rank': 9999, 'result': None})
+                        bm25_data = bm25_scores.get(doc_key, {'score': 0, 'rank': 9999, 'result': None})
+
+                        # RRF formula: sum of 1/(k + rank_i)
+                        rrf_score = (1 / (k + sem_data['rank'])) + (1 / (k + bm25_data['rank']))
+
+                        # Use result from whichever search found it (prefer semantic)
+                        base_result = sem_data['result'] or bm25_data['result']
+                        if base_result is None:
+                            continue
+
+                        rrf_results.append({
+                            'doc_key': doc_key,
+                            'semantic_score': sem_data['score'],
+                            'semantic_rank': sem_data['rank'],
+                            'bm25_score': bm25_data['score'],
+                            'bm25_rank': bm25_data['rank'],
+                            'rrf_score': rrf_score,
+                            'result': base_result
+                        })
+
+                    # Sort by RRF score and limit
+                    rrf_results.sort(key=lambda x: x['rrf_score'], reverse=True)
+                    rrf_results = rrf_results[:request.top_k]
+
+                    # Calculate max RRF for normalization to 0-100
+                    max_rrf = (1 / (k + 1)) + (1 / (k + 1))  # Both rank 1
+
+                    search_time = time.time() - search_start
+                    logger.info(f"   ⏱️  Hybrid search completed in {search_time:.3f}s")
+                    logger.info(f"   📈 Fused results: {len(rrf_results)}")
+
+                    # Convert fused results to CollectionSearchResult objects with detailed logging
+                    for idx, rrf_item in enumerate(rrf_results, 1):
+                        base_result = rrf_item['result']
+                        entity = base_result.get('entity', {})
+
+                        doc_id = entity.get('document_id', 'unknown')
+                        chunk_index = entity.get('chunk_index', 0)
+                        text = entity.get('text', '')
+                        metadata = entity.get('metadata', {})
+
+                        # Parse metadata
+                        if isinstance(metadata, str):
+                            meta_dict = json.loads(metadata)
+                        else:
+                            meta_dict = metadata if metadata else {}
+
+                        # Determine source type
+                        source_type = "private" if "private" in scope_label else "shared"
+
+                        # Extract scores
+                        semantic_score = rrf_item['semantic_score']
+                        semantic_rank = rrf_item['semantic_rank']
+                        bm25_score = rrf_item['bm25_score']
+                        bm25_rank = rrf_item['bm25_rank']
+                        rrf_score = rrf_item['rrf_score']
+
+                        # Normalize RRF score to 0-100 range
+                        final_score = (rrf_score / max_rrf) * 100
+
+                        # Determine which search method found it
+                        in_semantic = semantic_rank < 9999
+                        in_bm25 = bm25_rank < 9999
+                        match_type = ""
+                        if in_semantic and in_bm25:
+                            match_type = "📊 BOTH searches!"
+                        elif in_semantic:
+                            match_type = "🧠 Semantic only"
+                        elif in_bm25:
+                            match_type = "🔤 BM25 only"
+
+                        # Detailed logging
+                        logger.info(f"   {idx}. 📄 {meta_dict.get('document_title', 'Unknown')[:50]}")
+                        if in_semantic:
+                            logger.info(f"      🧠 Semantic: {semantic_score:.4f} (rank: {semantic_rank})")
+                        else:
+                            logger.info(f"      🧠 Semantic: - (not found)")
+
+                        if in_bm25:
+                            logger.info(f"      🔤 BM25: {bm25_score:.4f} (rank: {bm25_rank})")
+                        else:
+                            logger.info(f"      🔤 BM25: - (not found)")
+
+                        logger.info(f"      🔀 RRF: {rrf_score:.4f} → {final_score:.1f}/100")
+                        logger.info(f"      {match_type}")
+                        logger.info(f"      📍 Document: {doc_id}, Chunk: {chunk_index}")
+
+                        all_results.append(CollectionSearchResult(
+                            score=final_score,  # 0-100 range
+                            document_id=doc_id,
+                            text=text,
+                            source_type=source_type,
+                            chunk_index=chunk_index,
+                            page_number=meta_dict.get('page_number', 0),
+                            document_title=meta_dict.get('document_title', 'Unknown'),
+                            collection_name=collection_name,
+                            metadata=meta_dict
+                        ))
+
+                    logger.info(f"   ✅ Hybrid search completed in {scope_label}: {len(rrf_results)} results")
 
             except Exception as e:
                 logger.error(f"❌ Search failed in {milvus_collection_name}: {e}")
@@ -474,12 +605,11 @@ async def query_collections(
         all_results.sort(key=lambda x: x.score, reverse=True)
         all_results = all_results[:request.top_k]
 
-        # Log final ranking with normalized scores
+        # Log final ranking with 0-100 scores
         logger.info(f"\n📊 FINAL RANKING (Top {len(all_results)} results after merge & sort):")
         for idx, result in enumerate(all_results, 1):
-            # Score is normalized RRF (0-1)
-            score_percent = result.score * 100
-            logger.info(f"   {idx}. Score: {result.score:.4f} ({score_percent:.1f}%) | {result.document_title[:40]}... (chunk {result.chunk_index})")
+            # Score is now in 0-100 range
+            logger.info(f"   {idx}. Score: {result.score:.1f}/100 | {result.document_title[:40]}... (chunk {result.chunk_index})")
 
         # 5. Generate answer with LLM
         generated_answer = None
@@ -517,8 +647,9 @@ async def query_collections(
         logger.info(f"   • Total processing time: {processing_time:.3f}s")
         logger.info(f"   • Collections searched: {len(collections_to_search)}")
         logger.info(f"   • Results returned: {len(all_results)}")
-        logger.info(f"   • Search method: Hybrid (Semantic + BM25)")
-        logger.info(f"   • Ranker: RRF (Reciprocal Rank Fusion)")
+        logger.info(f"   • Search method: {mode_name}")
+        if request.search_mode == SearchMode.HYBRID:
+            logger.info(f"   • Ranker: RRF (Reciprocal Rank Fusion)")
         logger.info(f"   • Answer generated: {'Yes' if generated_answer else 'No'}")
         logger.info(f"{'=' * 60}\n")
 

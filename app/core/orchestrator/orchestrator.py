@@ -92,7 +92,8 @@ class QueryOrchestrator:
                     handler.search(
                         question=request.question,
                         top_k=request.top_k,
-                        min_relevance_score=request.min_relevance_score
+                        min_relevance_score=request.min_relevance_score,
+                        search_mode=request.search_mode.value  # Pass search mode to handlers
                     )
                     for handler in handlers
                 ],
