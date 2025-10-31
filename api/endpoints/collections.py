@@ -142,9 +142,8 @@ def update_collection_metadata(scope_id: ScopeIdentifier):
         # Get collection from Milvus
         milvus_collection_name = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
 
-        # Ensure Milvus connection exists
-        milvus_manager.get_connection()
-        if not utility.has_collection(milvus_collection_name):
+        # Check if collection exists in Milvus
+        if not milvus_client_manager.has_collection(milvus_collection_name):
             logger.warning(f"Milvus collection {milvus_collection_name} not found, skipping metadata update")
             return
 
@@ -247,11 +246,8 @@ def _get_collection_info(
     milvus_collection_name = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
     minio_prefix = scope_id.get_object_prefix("docs")
 
-    # Ensure Milvus connection exists
-    milvus_manager.get_connection()
-
     # Check if collection exists in Milvus
-    if not utility.has_collection(milvus_collection_name):
+    if not milvus_client_manager.has_collection(milvus_collection_name):
         raise HTTPException(
             status_code=404,
             detail=f"Collection '{collection_name}' not found in {scope_id.scope_type.value} scope"
@@ -382,22 +378,8 @@ async def create_collection(
     # Check if collection already exists
     collection_name = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
 
-    # Ensure Milvus connection exists
-    milvus_manager.get_connection()
-
-    # NOTE: utility.has_collection() throws MilvusException if collection doesn't exist
-    # This is a pymilvus quirk - we catch it and treat as "collection doesn't exist"
-    collection_exists = False
-    try:
-        collection_exists = utility.has_collection(collection_name)
-    except Exception as e:
-        # If error is "can't find collection", it means collection doesn't exist (expected)
-        if "can't find collection" not in str(e) and "collection not found" not in str(e):
-            # Unexpected error - re-raise
-            logger.error(f"Unexpected error checking collection existence: {e}")
-            raise
-        # Collection doesn't exist - this is what we want for creation
-        logger.debug(f"Collection {collection_name} doesn't exist (expected for new collection)")
+    # Check if collection exists using MilvusClient API
+    collection_exists = milvus_client_manager.has_collection(collection_name)
 
     if collection_exists:
         raise HTTPException(
@@ -406,9 +388,9 @@ async def create_collection(
         )
 
     try:
-        # Create Milvus collection (auto-create for create operation)
-        milvus_manager.get_collection(scope_id, auto_create=True)
-        logger.info(f"Created Milvus collection: {collection_name}")
+        # Create BM25-enabled Milvus collection using new MilvusClient API
+        milvus_client_manager.create_collection_with_bm25(collection_name)
+        logger.info(f"Created BM25-enabled Milvus collection: {collection_name}")
 
         # Save metadata to MinIO
         current_time = datetime.datetime.now().isoformat()
@@ -702,12 +684,9 @@ async def delete_collection(
         # Drop Milvus collection
         collection_name_milvus = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
 
-        # Ensure Milvus connection exists
-        milvus_manager.get_connection()
-        if utility.has_collection(collection_name_milvus):
-            from pymilvus import Collection
-            collection = Collection(collection_name_milvus)
-            collection.drop()
+        # Check if collection exists and drop it
+        if milvus_client_manager.has_collection(collection_name_milvus):
+            milvus_client_manager.drop_collection(collection_name_milvus)
             logger.info(f"✅ Dropped Milvus collection: {collection_name_milvus}")
 
         # Delete entire collection folder from MinIO (docs/ + chunks/ + metadata)
@@ -835,9 +814,8 @@ async def list_collection_documents(
     # Check if collection exists in Milvus
     milvus_collection_name = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
 
-    # Ensure Milvus connection exists
-    milvus_manager.get_connection()
-    if not utility.has_collection(milvus_collection_name):
+    # Check if collection exists
+    if not milvus_client_manager.has_collection(milvus_collection_name):
         logger.error(f"❌ Milvus collection '{milvus_collection_name}' not found (metadata exists but Milvus collection missing)")
         raise HTTPException(
             status_code=404,
