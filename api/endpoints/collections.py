@@ -153,7 +153,7 @@ def update_collection_metadata(scope_id: ScopeIdentifier):
         # Calculate current statistics
         try:
             stats = collection.query(
-                expr="id != ''",
+                expr="id > 0",  # INT64 primary key (changed from 'id != ""')
                 output_fields=["id", "document_id", "metadata"],
                 limit=16384  # Max limit
             )
@@ -263,7 +263,7 @@ def _get_collection_info(
     # Get statistics
     try:
         stats = collection.query(
-            expr="id != ''",
+            expr="id > 0",  # INT64 primary key (changed from 'id != ""')
             output_fields=["id", "document_id"],
             limit=16384  # Max limit
         )
@@ -851,7 +851,7 @@ async def list_collection_documents(
     try:
         # Query with metadata fields
         results = collection.query(
-            expr="id != ''",
+            expr="id > 0",  # INT64 primary key (changed from 'id != ""')
             output_fields=["document_id", "metadata"],
             limit=16384  # Max limit
         )

@@ -89,10 +89,10 @@ async def ingest_document(
 
     # If collection is specified, verify it exists
     if collection_name:
-        from pymilvus import utility
+        from api.core.milvus_client_manager import milvus_client_manager
 
         collection_milvus_name = scope_id.get_collection_name(settings.EMBEDDING_DIMENSION)
-        if not utility.has_collection(collection_milvus_name):
+        if not milvus_client_manager.has_collection(collection_milvus_name):
             raise HTTPException(
                 status_code=404,
                 detail=f"Collection '{collection_name}' not found in {scope.value} scope. Create it first using POST /collections"
