@@ -58,6 +58,7 @@ class ExternalServiceHandler(BaseHandler):
         question: str,
         top_k: int = 5,
         min_relevance_score: float = 0.7,
+        search_mode: str = "hybrid",
         **kwargs
     ) -> HandlerResult:
         """
@@ -67,6 +68,7 @@ class ExternalServiceHandler(BaseHandler):
             question: User's question
             top_k: Maximum number of results
             min_relevance_score: Minimum score threshold
+            search_mode: Search mode ('hybrid', 'semantic', or 'bm25')
 
         Returns:
             HandlerResult with search results and generated answer from external service
@@ -74,17 +76,19 @@ class ExternalServiceHandler(BaseHandler):
         start_time = time.time()
 
         try:
-            self.logger.info(f"🌍 Querying Global DB service (source: {self.source_path_original}) with options: tone={self.options.tone}, citations={self.options.citations}...")
-            self.logger.info(f"  📦 Will search all active sources from Global DB")
+            self.logger.info(f"🌍 Querying Global DB service (source: {self.source_path_original})")
+            self.logger.info(f"  🔍 Search mode: {search_mode}")
+            self.logger.info(f"  ⚙️  Options: tone={self.options.tone}, citations={self.options.citations}")
 
-            # Call external service with options
-            # Note: Global DB service now fetches all active sources automatically via /admin/sources
+            # Call external service with user-specified source
             external_response = await self.global_db_client.search_public(
                 question=question,
                 user_token=self.user_access_token,
+                sources=[self.source_path_original],  # Pass user's requested source
                 top_k=top_k,
                 min_relevance_score=min_relevance_score,
-                options=self.options
+                options=self.options,
+                search_mode=search_mode
             )
 
             processing_time = time.time() - start_time

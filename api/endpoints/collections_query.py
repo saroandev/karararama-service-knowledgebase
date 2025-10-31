@@ -336,7 +336,9 @@ async def query_collections(
                         metadata = entity.get('metadata', {})
                         distance = result.get('distance', 0)
 
-                        # COSINE distance: convert to similarity (1 - distance)
+                        # COSINE metric in Milvus: distance = 1 - cosine_similarity
+                        # Lower distance = higher similarity
+                        # Convert to similarity: 1 - distance
                         similarity = 1 - distance
 
                         # Parse metadata

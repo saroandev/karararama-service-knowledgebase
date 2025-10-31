@@ -98,9 +98,11 @@ class GlobalDBServiceClient:
         self,
         question: str,
         user_token: str,
+        sources: List[str],
         top_k: int = 5,
         min_relevance_score: float = 0.7,
-        options: Optional['QueryOptions'] = None
+        options: Optional['QueryOptions'] = None,
+        search_mode: str = "hybrid"
     ) -> Dict[str, Any]:
         """
         Search public documents via Global DB service
@@ -108,9 +110,11 @@ class GlobalDBServiceClient:
         Args:
             question: User's question
             user_token: JWT token for authentication
+            sources: List of source paths to search (e.g., ["mevzuat/tuzukler"])
             top_k: Number of results to retrieve
             min_relevance_score: Minimum relevance score
             options: Query options (tone, citations, lang, stream)
+            search_mode: Search mode ('hybrid', 'semantic', or 'bm25')
 
         Returns:
             Response from Global DB service with answer and sources
@@ -118,17 +122,8 @@ class GlobalDBServiceClient:
         Raises:
             Exception: If communication fails
         """
-        # Fetch active sources from Global DB
-        try:
-            sources = await self._fetch_active_sources(user_token)
-        except Exception as e:
-            logger.error(f"❌ Failed to fetch sources: {str(e)}")
-            return {
-                "success": False,
-                "error": f"Failed to fetch sources: {str(e)}",
-                "answer": "",
-                "sources": []
-            }
+        # Use the provided sources directly (user-specified)
+        # No auto-fetching from /admin/sources
 
         # Build base payload
         payload = {
@@ -136,7 +131,8 @@ class GlobalDBServiceClient:
             "sources": sources,  # Global DB service expects "sources" field as list
             "top_k": top_k,
             "min_relevance_score": min_relevance_score,
-            "generate_answer": True
+            "generate_answer": True,
+            "search_mode": search_mode  # Add search mode to payload
         }
 
         # Add options if provided
@@ -158,9 +154,9 @@ class GlobalDBServiceClient:
 
         for attempt in range(max_retries):
             try:
-                # Log request with options info
+                # Log request with options and search mode info
                 options_str = f", options=(tone={options.tone}, citations={options.citations})" if options else ""
-                logger.info(f"🌍 Calling Global DB service (attempt {attempt + 1}): sources={len(sources)}{options_str}, question={question[:50]}...")
+                logger.info(f"🌍 Calling Global DB service (attempt {attempt + 1}): sources={sources}, search_mode={search_mode}{options_str}, question={question[:50]}...")
 
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     response = await client.post(
