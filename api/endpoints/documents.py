@@ -4,11 +4,12 @@ Documents management endpoints with multi-tenant scope support
 import datetime
 import json
 import logging
+import httpx
 from typing import List
 from urllib.parse import urlparse
 from datetime import timedelta
 from fastapi import APIRouter, HTTPException, Depends, Query, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from schemas.api.responses.document import DocumentInfo, DeleteDocumentResponse, PresignedUrlResponse
 from schemas.api.requests.document import PresignedUrlRequest
@@ -800,6 +801,125 @@ async def get_presigned_url_for_viewing(
                 "error": {
                     "code": "INTERNAL_ERROR",
                     "message": "Beklenmeyen bir hata oluştu",
+                    "details": str(e)
+                }
+            }
+        )
+
+
+# ==================== Preview Proxy Endpoint (CORS-safe) ====================
+
+@router.get("/docs/preview")
+async def preview_document_proxy(
+    document_url: str = Query(..., description="Full document URL from MinIO or external source"),
+    user: UserContext = Depends(get_current_user)
+):
+    """
+    Preview document through backend proxy (CORS-safe solution)
+
+    This endpoint solves CORS issues by streaming the document through the backend
+    instead of having the frontend make direct requests to MinIO.
+
+    **How it works:**
+    1. Generates presigned URL using existing presign logic
+    2. Fetches document from MinIO on the backend
+    3. Streams it to frontend with proper CORS headers (FastAPI middleware handles this)
+
+    **Authentication:**
+    - Requires valid JWT token in Authorization header
+
+    **Example Request:**
+    ```
+    GET /docs/preview?document_url=http://minio-api-preprod.onedocs.ai/mevzuat/...
+    Authorization: Bearer <token>
+    ```
+
+    **Response:**
+    - Content-Type: application/pdf
+    - Content-Disposition: inline (opens in browser)
+    - CORS headers: Automatically added by FastAPI middleware
+
+    **Frontend Usage:**
+    ```javascript
+    const previewUrl = `${API_BASE_URL}/docs/preview?document_url=${encodeURIComponent(documentUrl)}`;
+    <iframe src={previewUrl} />
+    ```
+    """
+    try:
+        logger.info(f"📺 Preview proxy request from user {user.user_id}")
+        logger.info(f"📄 Document URL: {document_url[:100]}...")
+
+        # Step 1: Generate presigned URL using existing logic
+        request = PresignedUrlRequest(
+            document_url=document_url,
+            expires_seconds=3600  # 1 hour
+        )
+
+        presigned_response = await get_presigned_url_for_viewing(request, user)
+        presigned_url = presigned_response.url
+
+        logger.info(f"✅ Generated presigned URL, fetching document from MinIO...")
+
+        # Step 2: Fetch document from MinIO
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(presigned_url)
+
+            if response.status_code != 200:
+                logger.error(f"❌ MinIO returned status {response.status_code}")
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail={
+                        "success": False,
+                        "error": {
+                            "code": "DOCUMENT_FETCH_FAILED",
+                            "message": "Doküman alınamadı",
+                            "details": f"MinIO status: {response.status_code}"
+                        }
+                    }
+                )
+
+            # Get content type from response (usually application/pdf)
+            content_type = response.headers.get("content-type", "application/pdf")
+            content_length = response.headers.get("content-length")
+
+            logger.info(f"✅ Document fetched successfully ({content_length} bytes)")
+
+            # Step 3: Stream to frontend with proper headers
+            headers = {
+                "Content-Disposition": "inline",  # Open in browser, not download
+                "Content-Type": content_type,
+            }
+
+            if content_length:
+                headers["Content-Length"] = content_length
+
+            # FastAPI CORS middleware will automatically add:
+            # - Access-Control-Allow-Origin
+            # - Access-Control-Allow-Credentials
+            # - Access-Control-Allow-Methods
+            # - Access-Control-Allow-Headers
+
+            return StreamingResponse(
+                iter([response.content]),
+                media_type=content_type,
+                headers=headers
+            )
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+
+    except Exception as e:
+        logger.error(f"❌ Preview proxy error: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "success": False,
+                "error": {
+                    "code": "PREVIEW_PROXY_FAILED",
+                    "message": "Doküman önizlemesi başarısız",
                     "details": str(e)
                 }
             }
