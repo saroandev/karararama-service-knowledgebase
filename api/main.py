@@ -24,7 +24,7 @@ from app.config.settings import settings
 from api.utils.json_response import CustomJSONResponse
 
 # Import routers
-from api.endpoints import health, query, documents, ingest, collections, collections_query, collections_ingest, conversations
+from api.endpoints import health, query, documents, ingest, collections, collections_query, collections_ingest
 
 # Import exception handlers
 from app.core.exceptions import (
@@ -91,7 +91,6 @@ app.add_exception_handler(QuotaExceededError, quota_exceeded_error_handler)
 # Include routers
 app.include_router(health.router, tags=["Health"])
 app.include_router(query.router, tags=["Chat"])
-app.include_router(conversations.router, tags=["Conversations"])  # Conversation history
 app.include_router(documents.router, tags=["Documents"])
 app.include_router(ingest.router, tags=["Ingest"])
 app.include_router(collections.router, tags=["Collections"])
