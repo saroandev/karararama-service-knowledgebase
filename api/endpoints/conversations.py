@@ -1,9 +1,14 @@
 """
 Conversation history endpoints
+
+These endpoints are used by:
+1. Frontend/UI for displaying conversation history
+2. Orchestrator service for saving messages and getting LLM context
 """
 import logging
-from typing import List
+from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from app.core.conversation import conversation_manager
 from app.core.auth import UserContext, get_current_user
 from schemas.api.responses.conversation import (
@@ -13,6 +18,30 @@ from schemas.api.responses.conversation import (
     ConversationSummaryResponse,
     ConversationMessageResponse
 )
+
+
+# Request/Response models for orchestrator endpoints
+class SaveMessageRequest(BaseModel):
+    """Request to save a message to conversation"""
+    role: str = Field(..., description="Message role: 'user' or 'assistant'")
+    content: str = Field(..., description="Message content")
+    sources: Optional[List[Dict[str, Any]]] = Field(default=None, description="Sources used (for assistant messages)")
+    tokens_used: int = Field(default=0, description="Tokens consumed")
+    processing_time: float = Field(default=0.0, description="Processing time in seconds")
+
+
+class SaveMessageResponse(BaseModel):
+    """Response after saving a message"""
+    message_id: str = Field(..., description="Created message ID")
+    conversation_id: str = Field(..., description="Conversation ID")
+    success: bool = Field(default=True)
+
+
+class LLMContextResponse(BaseModel):
+    """LLM-formatted conversation context"""
+    conversation_id: str = Field(..., description="Conversation ID")
+    messages: List[Dict[str, str]] = Field(..., description="Messages in OpenAI chat format")
+    message_count: int = Field(..., description="Number of messages returned")
 
 logger = logging.getLogger(__name__)
 
@@ -227,4 +256,138 @@ async def delete_conversation(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete conversation"
+        )
+
+
+# ============================================================================
+# ORCHESTRATOR ENDPOINTS
+# These endpoints are designed for the orchestrator service to use
+# ============================================================================
+
+@router.post("/{conversation_id}/messages", response_model=SaveMessageResponse, summary="Save message to conversation")
+async def save_message(
+    conversation_id: str,
+    request: SaveMessageRequest,
+    user: UserContext = Depends(get_current_user)
+):
+    """
+    Save a message to conversation history.
+
+    This endpoint is primarily used by the orchestrator service to save
+    user questions and assistant answers to the conversation log.
+
+    **Parameters:**
+    - **conversation_id**: Unique conversation identifier
+    - **role**: Message role ('user' or 'assistant')
+    - **content**: Message content
+    - **sources**: Optional list of sources (for assistant messages)
+    - **tokens_used**: Tokens consumed for this message
+    - **processing_time**: Processing time in seconds
+
+    **Returns:**
+    - message_id: Created message UUID
+    - conversation_id: Echo of the conversation ID
+    - success: Boolean indicating success
+
+    **Authentication:**
+    - Requires valid JWT token
+    - Message is scoped to the authenticated user and organization
+    """
+    try:
+        # Validate role
+        if request.role not in ["user", "assistant", "system"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid role: {request.role}. Must be 'user', 'assistant', or 'system'"
+            )
+
+        # Save message
+        message_id = conversation_manager.save_message(
+            conversation_id=conversation_id,
+            user_id=user.user_id,
+            organization_id=user.organization_id,
+            role=request.role,
+            content=request.content,
+            sources=request.sources,
+            tokens_used=request.tokens_used,
+            processing_time=request.processing_time
+        )
+
+        logger.info(f"💾 Saved {request.role} message to conversation {conversation_id}")
+
+        return SaveMessageResponse(
+            message_id=message_id,
+            conversation_id=conversation_id,
+            success=True
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to save message: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save message: {str(e)}"
+        )
+
+
+@router.get("/{conversation_id}/context", response_model=LLMContextResponse, summary="Get LLM context")
+async def get_llm_context(
+    conversation_id: str,
+    max_messages: int = 10,
+    user: UserContext = Depends(get_current_user)
+):
+    """
+    Get conversation context formatted for LLM.
+
+    Returns messages in OpenAI chat completion format, ready to be used
+    as conversation history in LLM calls.
+
+    **Parameters:**
+    - **conversation_id**: Unique conversation identifier
+    - **max_messages**: Maximum number of messages to return (default: 10)
+
+    **Returns:**
+    - conversation_id: Echo of the conversation ID
+    - messages: List of messages in format [{"role": "user", "content": "..."}]
+    - message_count: Number of messages returned
+
+    **Authentication:**
+    - Requires valid JWT token
+    - Only returns messages from authenticated user's conversations
+
+    **Example Response:**
+    ```json
+    {
+        "conversation_id": "conv-123",
+        "messages": [
+            {"role": "user", "content": "What is RAG?"},
+            {"role": "assistant", "content": "RAG stands for..."}
+        ],
+        "message_count": 2
+    }
+    ```
+    """
+    try:
+        # Get formatted context
+        messages = conversation_manager.get_context_for_llm(
+            conversation_id=conversation_id,
+            user_id=user.user_id,
+            organization_id=user.organization_id,
+            max_messages=max_messages
+        )
+
+        logger.info(f"📜 Retrieved {len(messages)} messages for LLM context from {conversation_id}")
+
+        return LLMContextResponse(
+            conversation_id=conversation_id,
+            messages=messages,
+            message_count=len(messages)
+        )
+
+    except Exception as e:
+        logger.error(f"❌ Failed to get LLM context: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get conversation context: {str(e)}"
         )

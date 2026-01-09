@@ -1,6 +1,6 @@
 # Docker Compose file for RAG Pipeline
 
-name: onedocs-research
+name: onedocs-service-knowledgebase
 
 services:
   etcd:

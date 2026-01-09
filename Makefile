@@ -25,19 +25,19 @@ run-simple: ## Run API with simple Python command
 
 # Docker Commands
 docker-up: ## Start all Docker services
-	docker compose -p onedocs-research up -d
+	docker compose -p onedocs-service-knowledgebase up -d
 
 docker-down: ## Stop all Docker services
-	docker compose -p onedocs-research down
+	docker compose -p onedocs-service-knowledgebase down
 
 docker-restart: ## Restart all Docker services
-	docker compose -p onedocs-research down && docker compose -p onedocs-research up -d
+	docker compose -p onedocs-service-knowledgebase down && docker compose -p onedocs-service-knowledgebase up -d
 
 docker-logs: ## Show Docker logs
-	docker compose -p onedocs-research logs -f
+	docker compose -p onedocs-service-knowledgebase logs -f
 
 docker-ps: ## Show Docker services status
-	docker compose -p onedocs-research ps
+	docker compose -p onedocs-service-knowledgebase ps
 
 # Database Commands
 milvus-clean: ## Clean Milvus collection
@@ -64,7 +64,7 @@ clean: ## Clean cache and temporary files
 	rm -rf .coverage
 
 clean-all: clean ## Clean everything including Docker volumes
-	docker compose -p onedocs-research down -v
+	docker compose -p onedocs-service-knowledgebase down -v
 
 # Installation Commands
 install: ## Install dependencies

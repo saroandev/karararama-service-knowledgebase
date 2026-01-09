@@ -30,7 +30,7 @@ class ServiceStatus(BaseModel):
     """Individual service status"""
     milvus: MilvusStatus = Field(..., description="Milvus service status")
     minio: MinioStatus = Field(..., description="MinIO service status")
-    global_db: GlobalDBStatus = Field(..., description="OneDocs Global DB service status")
+    global_db: Optional[GlobalDBStatus] = Field(None, description="OneDocs Global DB service status (deprecated, moved to orchestrator)")
     embedding_model: str = Field(..., description="Active embedding model")
     embedding_dimension: int = Field(..., description="Embedding dimension")
 

@@ -6,12 +6,11 @@ import logging
 import time
 from fastapi import APIRouter, status
 from fastapi.responses import JSONResponse
-from schemas.api.responses.health import HealthResponse, ServiceStatus, MilvusStatus, MinioStatus, GlobalDBStatus
+from schemas.api.responses.health import HealthResponse, ServiceStatus, MilvusStatus, MinioStatus
 from api.core.milvus_manager import milvus_manager
 from api.core.dependencies import get_embedding_dimension
 from app.config import settings
 from app.core.storage import storage
-from app.services.global_db_service import get_global_db_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -27,7 +26,9 @@ async def health_check():
     - 503 Service Unavailable: One or more critical services are down
 
     Critical services: Milvus (vector DB), MinIO (object storage)
-    Non-critical services: Global DB (external service, informational only)
+
+    Note: Global DB health check has been removed.
+    Global DB is now accessed through the orchestrator service.
 
     Response includes:
     - Overall status: healthy, degraded, or unhealthy
@@ -62,33 +63,7 @@ async def health_check():
             message=f"Cannot connect to MinIO: {str(e)}"
         )
 
-    # Check Global DB health (non-critical - doesn't affect overall status)
-    try:
-        global_db_client = get_global_db_client()
-        is_healthy = await global_db_client.check_health()
-
-        if is_healthy:
-            global_db_status = GlobalDBStatus(
-                status="connected",
-                message="Connected to Global DB service",
-                url=settings.GLOBAL_DB_SERVICE_URL
-            )
-        else:
-            global_db_status = GlobalDBStatus(
-                status="disconnected",
-                message="Global DB service is unavailable",
-                url=settings.GLOBAL_DB_SERVICE_URL
-            )
-    except Exception as e:
-        logger.warning(f"Global DB health check failed: {str(e)}")
-        global_db_status = GlobalDBStatus(
-            status="disconnected",
-            message=f"Cannot connect to Global DB: {str(e)}",
-            url=settings.GLOBAL_DB_SERVICE_URL
-        )
-
     # Determine overall status and HTTP status code
-    # Only Milvus and MinIO are critical - Global DB is informational
     if milvus_status.status == "connected" and minio_status.status == "connected":
         overall_status = "healthy"
         http_status_code = status.HTTP_200_OK  # 200
@@ -109,7 +84,7 @@ async def health_check():
         services=ServiceStatus(
             milvus=milvus_status,
             minio=minio_status,
-            global_db=global_db_status,
+            global_db=None,  # Deprecated - moved to orchestrator service
             embedding_model=settings.EMBEDDING_MODEL,
             embedding_dimension=get_embedding_dimension()
         ),
