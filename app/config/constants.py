@@ -73,10 +73,10 @@ LOG_LEVEL = "INFO"
 
 # API Constants
 API_VERSION = "1.0.0"
-API_TITLE = "onedocs-service-knowledgebase"
-API_DESCRIPTION = "OneDocs Knowledge Base Service - Multi-tenant RAG system with vector search"
+API_TITLE = "karararama-service-knowledgebase"
+API_DESCRIPTION = "Karararama Knowledge Base Service - Multi-tenant RAG system with vector search"
 API_DEFAULT_HOST = "0.0.0.0"
-API_DEFAULT_PORT = 8080
+API_DEFAULT_PORT = 8119
 
 # Timeout Constants (in seconds)
 TIMEOUT_MILVUS_CONNECTION = 30

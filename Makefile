@@ -8,7 +8,7 @@ help: ## Show this help message
 
 # API Commands
 run: ## Run API in development mode with auto-reload (ignores venv)
-	uvicorn api.main:app --reload --host 0.0.0.0 --port 8080 \
+	uvicorn api.main:app --reload --host 0.0.0.0 --port 8119 \
 		--reload-exclude "venv/*" \
 		--reload-exclude "*.pyc" \
 		--reload-exclude "__pycache__" \
@@ -18,26 +18,26 @@ run: ## Run API in development mode with auto-reload (ignores venv)
 run-dev: run ## Alias for run
 
 run-prod: ## Run API in production mode (no auto-reload)
-	uvicorn api.main:app --host 0.0.0.0 --port 8080 --workers 4
+	uvicorn api.main:app --host 0.0.0.0 --port 8119 --workers 4
 
 run-simple: ## Run API with simple Python command
 	python -m api.main
 
 # Docker Commands
 docker-up: ## Start all Docker services
-	docker compose -p onedocs-service-knowledgebase up -d
+	docker compose -p karararama-service-knowledgebase up -d
 
 docker-down: ## Stop all Docker services
-	docker compose -p onedocs-service-knowledgebase down
+	docker compose -p karararama-service-knowledgebase down
 
 docker-restart: ## Restart all Docker services
-	docker compose -p onedocs-service-knowledgebase down && docker compose -p onedocs-service-knowledgebase up -d
+	docker compose -p karararama-service-knowledgebase down && docker compose -p karararama-service-knowledgebase up -d
 
 docker-logs: ## Show Docker logs
-	docker compose -p onedocs-service-knowledgebase logs -f
+	docker compose -p karararama-service-knowledgebase logs -f
 
 docker-ps: ## Show Docker services status
-	docker compose -p onedocs-service-knowledgebase ps
+	docker compose -p karararama-service-knowledgebase ps
 
 # Database Commands
 milvus-clean: ## Clean Milvus collection
@@ -64,7 +64,7 @@ clean: ## Clean cache and temporary files
 	rm -rf .coverage
 
 clean-all: clean ## Clean everything including Docker volumes
-	docker compose -p onedocs-service-knowledgebase down -v
+	docker compose -p karararama-service-knowledgebase down -v
 
 # Installation Commands
 install: ## Install dependencies

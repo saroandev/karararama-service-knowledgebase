@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class AuthServiceClient:
-    """Client for communicating with onedocs-auth service"""
+    """Client for communicating with karararama-auth service"""
 
     def __init__(self):
         self.base_url = settings.AUTH_SERVICE_URL

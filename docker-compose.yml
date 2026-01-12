@@ -1,10 +1,10 @@
 # Docker Compose file for RAG Pipeline
 
-name: onedocs-service-knowledgebase
+name: karararama-service-knowledgebase
 
 services:
   etcd:
-    container_name: milvus-etcd
+    container_name: karararama-milvus-etcd
     image: quay.io/coreos/etcd:v3.5.5
     environment:
       - ETCD_AUTO_COMPACTION_MODE=revision
@@ -20,10 +20,10 @@ services:
       timeout: 20s
       retries: 3
     networks:
-      - rag-network
+      - karararama-kb-network
 
   minio:
-    container_name: milvus-minio
+    container_name: karararama-milvus-minio
     image: minio/minio:latest
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
@@ -34,8 +34,8 @@ services:
       MINIO_API_REPLICATION_WORKERS: "500"
       MINIO_STORAGE_CLASS_STANDARD: "EC:0"
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9019:9000"
+      - "9119:9001"
     volumes:
       - ./data/minio:/data
     command: server /data --console-address ":9001" --address ":9000"
@@ -52,10 +52,10 @@ services:
       timeout: 20s
       retries: 3
     networks:
-      - rag-network
+      - karararama-kb-network
 
   milvus:
-    container_name: milvus-standalone
+    container_name: karararama-milvus-standalone
     image: milvusdb/milvus:v2.5.16
     command: ["milvus", "run", "standalone"]
     environment:
@@ -74,31 +74,31 @@ services:
       retries: 3
       start_period: 90s
     ports:
-      - "19530:19530"
-      - "9091:9091"
+      - "19519:19530"
+      - "9219:9091"
     depends_on:
       - etcd
       - minio
     networks:
-      - rag-network
+      - karararama-kb-network
 
   attu:
-    container_name: milvus-attu
+    container_name: karararama-milvus-attu
     image: zilliz/attu:v2.4
     environment:
       MILVUS_URL: milvus:19530
-      HOST_URL: http://localhost:8000
+      HOST_URL: http://localhost:8019
       MILVUS_HOST: localhost
       MILVUS_PORT: 19530
     ports:
-      - "8000:3000"
+      - "8019:3000"
     depends_on:
       - milvus
     networks:
-      - rag-network
+      - karararama-kb-network
 
   postgres:
-    container_name: rag-postgres
+    container_name: karararama-postgres
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-rag_database}
@@ -106,7 +106,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpassword}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "5431:5432"
+      - "5419:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -120,7 +120,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - rag-network
+      - karararama-kb-network
     restart: unless-stopped
 
   # app:
@@ -156,13 +156,13 @@ services:
   #     postgres:
   #       condition: service_healthy
   #   networks:
-  #     - rag-network
+  #     - karararama-kb-network
   #   restart: unless-stopped
 
 networks:
-  rag-network:
+  karararama-kb-network:
     driver: bridge
-    name: rag-network
+    name: karararama-kb-network
 
 volumes:
   etcd-data:

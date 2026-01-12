@@ -52,8 +52,8 @@ async def lifespan(app: FastAPI):
     """Manage application lifecycle"""
     # Startup
     logger.info("Starting RAG API server...")
-    logger.info("All endpoints are ready at http://0.0.0.0:8080")
-    logger.info("API documentation available at http://0.0.0.0:8080/docs")
+    logger.info("All endpoints are ready at http://0.0.0.0:8119")
+    logger.info("API documentation available at http://0.0.0.0:8119/docs")
 
     yield  # Application runs here
 
@@ -63,8 +63,8 @@ async def lifespan(app: FastAPI):
 
 # Initialize FastAPI app with lifespan
 app = FastAPI(
-    title="onedocs-service-knowledgebase",
-    description="OneDocs Knowledge Base Service - Multi-tenant RAG system with vector search",
+    title="karararama-service-knowledgebase",
+    description="Karararama Knowledge Base Service - Multi-tenant RAG system with vector search",
     version="1.0.0",
     default_response_class=CustomJSONResponse,
     lifespan=lifespan
@@ -112,7 +112,7 @@ if __name__ == "__main__":
             uvicorn.run(
                 "api.main:app",
                 host="0.0.0.0",
-                port=8080,
+                port=8119,
                 reload=True,
                 reload_dirs=["api", "app", "schemas"],  # Only watch specific directories
                 reload_includes=["*.py"],  # Only watch Python files
@@ -123,7 +123,7 @@ if __name__ == "__main__":
             uvicorn.run(
                 "api.main:app",
                 host="0.0.0.0",
-                port=8080,
+                port=8119,
                 reload=False,
                 log_level="info"
             )
@@ -132,7 +132,7 @@ if __name__ == "__main__":
         uvicorn.run(
             "api.main:app",
             host="0.0.0.0",
-            port=8080,
+            port=8119,
             reload=False,
             workers=4,
             log_level="info"

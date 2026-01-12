@@ -3,7 +3,7 @@ Query endpoint for document search with multi-tenant scope support
 
 SIMPLIFIED VERSION: This endpoint now only handles collection queries.
 For multi-source queries (including external sources like mevzuat, karar),
-use the orchestrator service at onedocs-service-orchestrator.
+use the orchestrator service at karararama-service-orchestrator.
 """
 
 import logging

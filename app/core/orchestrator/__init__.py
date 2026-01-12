@@ -4,7 +4,7 @@ Orchestrators for document ingestion
 This module provides:
 - IngestOrchestrator: Coordinates document ingestion pipeline
 
-Note: QueryOrchestrator has been moved to onedocs-service-orchestrator.
+Note: QueryOrchestrator has been moved to karararama-service-orchestrator.
 This service now only handles collection queries and document ingestion.
 """
 
