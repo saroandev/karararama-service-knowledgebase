@@ -1,10 +1,10 @@
-# 🚀 OneDocs Service KnowledgeBase
+# 🚀 Karararama Service KnowledgeBase
 
 Enterprise-grade **Multi-tenant RAG (Retrieval-Augmented Generation)** sistemi. Kuruluşların ve kullanıcıların kendi bilgi tabanlarını oluşturmasını, yönetmesini ve akıllı sorgu yapmasını sağlayan production-ready mikroservis.
 
 ## 🎯 Ne Yapıyor?
 
-OneDocs KnowledgeBase, kuruluşlar için izole, güvenli ve ölçeklenebilir bir bilgi yönetim platformudur:
+Karararama KnowledgeBase, kuruluşlar için izole, güvenli ve ölçeklenebilir bir bilgi yönetim platformudur:
 
 - 🏢 **Multi-Tenant Architecture**: Her kuruluş kendi izole ortamında çalışır
 - 👥 **Kullanıcı Bazlı Yetkilendirme**: JWT tabanlı authentication ve role-based authorization
@@ -16,7 +16,7 @@ OneDocs KnowledgeBase, kuruluşlar için izole, güvenli ve ölçeklenebilir bir
 ## ✨ Temel Özellikler
 
 ### 🔐 Güvenlik ve Yetkilendirme
-- **JWT Authentication**: OneDocs Auth Service ile entegre
+- **JWT Authentication**: Karararama Auth Service ile entegre
 - **Permission-Based Access**: `research:query`, `research:ingest` gibi granular yetkiler
 - **Role-Based Control**: Admin ve User rolleri
 - **Data Access Flags**: `own_data` ve `shared_data` erişim kontrolü
@@ -67,7 +67,7 @@ OneDocs KnowledgeBase, kuruluşlar için izole, güvenli ve ölçeklenebilir bir
 - Docker Desktop (8GB+ RAM)
 - Python 3.9+
 - OpenAI API Key
-- OneDocs Auth Service (JWT token için)
+- Karararama Auth Service (JWT token için)
 
 ### 1. Repository'yi Klonlayın
 ```bash
@@ -87,17 +87,17 @@ EMBEDDING_DIMENSION=1536
 
 # Milvus Configuration
 MILVUS_HOST=localhost
-MILVUS_PORT=19530
+MILVUS_PORT=19519
 
 # MinIO Configuration
-MINIO_ENDPOINT=localhost:9000
+MINIO_ENDPOINT=localhost:9019
 MINIO_ROOT_USER=minioadmin
 MINIO_ROOT_PASSWORD=minioadmin
 MINIO_SECURE=false
 
 # PostgreSQL Configuration (Chat History)
 POSTGRES_HOST=localhost
-POSTGRES_PORT=5431
+POSTGRES_PORT=5419
 POSTGRES_DB=rag_database
 POSTGRES_USER=raguser
 POSTGRES_PASSWORD=ragpassword
@@ -108,12 +108,12 @@ JWT_ALGORITHM=HS256
 REQUIRE_AUTH=true
 
 # Auth Service
-AUTH_SERVICE_URL=http://onedocs-auth:8001
+AUTH_SERVICE_URL=http://karararama-auth:8017
 AUTH_SERVICE_TIMEOUT=5
 
 # API Configuration
 API_HOST=0.0.0.0
-API_PORT=8080
+API_PORT=8119
 LOG_LEVEL=INFO
 ```
 
@@ -138,23 +138,23 @@ docker compose logs -f
 make run
 
 # Veya doğrudan uvicorn ile
-uvicorn api.main:app --reload --host 0.0.0.0 --port 8080
+uvicorn api.main:app --reload --host 0.0.0.0 --port 8119
 ```
 
 ### 5. İlk Test
 ```bash
 # Health check (auth gerektirmez)
-curl http://localhost:8080/health
+curl http://localhost:8119/health
 
 # Auth Service'ten token alın
-curl -X POST http://localhost:8001/api/auth/login \
+curl -X POST http://localhost:8017/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email": "user@example.com", "password": "password"}'
 
 # Token ile API'ye erişin
 export TOKEN="your-jwt-token-here"
 
-curl -X GET http://localhost:8080/collections \
+curl -X GET http://localhost:8119/collections \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -622,20 +622,20 @@ User Query
 
 Sistem başladıktan sonra şu arayüzlere erişebilirsiniz:
 
-- 📖 **API Docs**: http://localhost:8080/docs (Swagger UI)
+- 📖 **API Docs**: http://localhost:8119/docs (Swagger UI)
   - Interactive API testing
   - 🔒 Authorize button ile token girebilirsiniz
   - Yeni conversation endpoints'leri görebilirsiniz
 
-- 🗄️ **MinIO Console**: http://localhost:9001
+- 🗄️ **MinIO Console**: http://localhost:9119
   - Login: `minioadmin` / `minioadmin`
   - Bucket'ları ve dosyaları görüntüleyin
 
-- 🔍 **Milvus Attu**: http://localhost:8000
+- 🔍 **Milvus Attu**: http://localhost:8019
   - Vector database yönetimi
   - Collection'ları ve index'leri görüntüleyin
 
-- 🐘 **PostgreSQL**: localhost:5431
+- 🐘 **PostgreSQL**: localhost:5419
   - Database: `rag_database`
   - User: `raguser` / Password: `ragpassword`
   - `conversation_log` tablosu ile chat history
@@ -753,19 +753,19 @@ docker compose logs -f minio
 
 **Milvus bağlantısını test et:**
 ```bash
-python -c "from pymilvus import connections; connections.connect('default', host='localhost', port='19530'); print('✅ Connected!')"
+python -c "from pymilvus import connections; connections.connect('default', host='localhost', port='19519'); print('✅ Connected!')"
 ```
 
 **MinIO bağlantısını test et:**
 ```bash
-python -c "from minio import Minio; client = Minio('localhost:9000', access_key='minioadmin', secret_key='minioadmin', secure=False); print('✅ Connected!')"
+python -c "from minio import Minio; client = Minio('localhost:9019', access_key='minioadmin', secret_key='minioadmin', secure=False); print('✅ Connected!')"
 ```
 
 **Collection'ları listele:**
 ```bash
 python -c "
 from pymilvus import connections, utility
-connections.connect('default', host='localhost', port='19530')
+connections.connect('default', host='localhost', port='19519')
 print('Collections:', utility.list_collections())
 "
 ```
@@ -775,10 +775,10 @@ print('Collections:', utility.list_collections())
 **Port conflict:**
 ```bash
 # Kullanılan portları kontrol et
-lsof -i :8080,9000,19530
+lsof -i :8119,9000,19530
 
 # Process'i kill et
-kill -9 $(lsof -t -i:8080)
+kill -9 $(lsof -t -i:8119)
 ```
 
 **Docker memory:**
@@ -835,4 +835,4 @@ MIT License
 
 **🚀 Production Ready** | **📦 Docker-based** | **🔐 Secure & Isolated** | **⚡ High Performance**
 
-**Made with ❤️ by OneDocs Team**
+**Made with ❤️ by Karararama Team**

@@ -4,7 +4,7 @@
  ┌──────────────────────────────────────┬─────────────────────────────────────┐
  │                Karar                 │                Seçim                │
  ├──────────────────────────────────────┼─────────────────────────────────────┤
- │ Yeni servis ismi                     │ onedocs-service-orchestrator        │
+ │ Yeni servis ismi                     │ karararama-service-orchestrator        │
  ├──────────────────────────────────────┼─────────────────────────────────────┤
  │ Conversation yönetimi                │ Bu serviste (knowledgebase) kalacak │
  ├──────────────────────────────────────┼─────────────────────────────────────┤
@@ -20,7 +20,7 @@
  Mevcut Mimari
 
  ┌─────────────────────────────────────────────────────────────────┐
- │            onedocs-service-knowledgebase (Port: 8080)           │
+ │            karararama-service-knowledgebase (Port: 8119)           │
  ├─────────────────────────────────────────────────────────────────┤
  │  POST /chat/process                                             │
  │       │                                                         │
@@ -53,7 +53,7 @@
  Hedef Mimari
 
  ┌─────────────────────────────────────────────────────────────────┐
- │          onedocs-service-orchestrator (Port: 8090)              │
+ │          karararama-service-orchestrator (Port: 8090)              │
  ├─────────────────────────────────────────────────────────────────┤
  │  POST /chat/process                                             │
  │       │                                                         │
@@ -80,7 +80,7 @@
  ┌─────────────────────┐    ┌────────────────┐
  │ onedocs-service-    │    │  Global DB     │
  │ knowledgebase       │    │  (Port: 8070)  │
- │ (Port: 8080)        │    └────────────────┘
+ │ (Port: 8119)        │    └────────────────┘
  │                     │
  │ Endpoint'ler:       │
  │ • /api/collections/ │
@@ -134,7 +134,7 @@
 
  Taşınacak Dosyalar
 
- onedocs-service-orchestrator/
+ karararama-service-orchestrator/
  ├── api/
  │   ├── main.py
  │   └── endpoints/
@@ -166,7 +166,7 @@
 
  Yeni Servis Config'i
 
- # onedocs-service-orchestrator/app/config/settings.py
+ # karararama-service-orchestrator/app/config/settings.py
 
  # Servis URL'leri
  KNOWLEDGEBASE_SERVICE_URL = "http://localhost:8080"  # Bu servis
@@ -219,7 +219,7 @@
 
  Orchestrator servisi conversation yönetimi için bu servisi çağıracak:
 
- # onedocs-service-orchestrator/app/services/knowledgebase_service.py
+ # karararama-service-orchestrator/app/services/knowledgebase_service.py
 
  class KnowledgebaseServiceClient:
      async def save_conversation_message(
@@ -265,7 +265,7 @@
 
  Faz 2: Yeni Servis Oluştur (Sonra)
 
- 1. Yeni repo oluştur: onedocs-service-orchestrator
+ 1. Yeni repo oluştur: karararama-service-orchestrator
  2. Taşınacak dosyaları kopyala
  3. Config ayarla (servis URL'leri)
  4. KnowledgebaseServiceClient yaz
@@ -378,7 +378,7 @@
 
   Sonraki Adımlar (Faz 2)
 
-  Yeni onedocs-service-orchestrator reposu oluşturup:
+  Yeni karararama-service-orchestrator reposu oluşturup:
   1. Taşınan orchestrator kodlarını eklemek
   2. KnowledgebaseServiceClient yazmak
   3. CollectionHandler'ı bu servise yönlendirmek
@@ -414,10 +414,10 @@
 
   Özet - Faz 2 (Orchestrator Servis Oluşturma)
 
-  Oluşturulan dosyalar (/home/ugur/onedocs/onedocs-service-orchestrator/):
+  Oluşturulan dosyalar (/home/ugur/onedocs/karararama-service-orchestrator/):
 
   Proje Yapısı:
-  onedocs-service-orchestrator/
+  karararama-service-orchestrator/
   ├── api/
   │   ├── __init__.py
   │   ├── main.py                      # FastAPI uygulaması
@@ -474,7 +474,7 @@
   - Global DB servisi ile bağlantı OK
 
   Servisi başlatmak için:
-  cd /home/ugur/onedocs/onedocs-service-orchestrator
+  cd /home/ugur/onedocs/karararama-service-orchestrator
   make run
   # veya
   make docker-up
